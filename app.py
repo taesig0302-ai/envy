@@ -1,3 +1,4 @@
+
 # app.py — 환율 빠른 계산(사이드바) + 마진 계산기(좌) + 네이버 데이터랩(좌) + 11번가(우)
 import streamlit as st
 import requests
@@ -59,16 +60,17 @@ def get_rate_to_krw(base: str) -> float:
 sb = st.sidebar
 sb.header("💱 환율 빠른 계산")
 
-with sb.form("quick_fx_form"):
-    quick_amount = sb.number_input(
+form = sb.form("quick_fx_form")
+with form:
+    quick_amount = st.number_input(
         "상품 원가", min_value=0.0, value=float(st.session_state.quick_amount), step=1.0, format="%.2f"
     )
-    quick_currency = sb.selectbox(
+    quick_currency = st.selectbox(
         "통화 선택",
         ["USD", "CNY", "JPY", "EUR"],
         index=["USD", "CNY", "JPY", "EUR"].index(st.session_state.quick_currency),
     )
-    fx_submit = sb.form_submit_button("계산")
+    fx_submit = form.form_submit_button("계산")
 
 if fx_submit:
     st.session_state.quick_amount = float(quick_amount)
@@ -98,7 +100,8 @@ left, right = st.columns([1.4, 1])
 # ----- 좌측: 마진 계산기 -----
 with left:
     st.subheader("📥 기본 입력값 / 마진 계산")
-    with st.form("margin_form"):
+    mform = st.form("margin_form")
+    with mform:
         c1, c2 = st.columns(2)
         with c1:
             product_price = st.number_input(
@@ -132,7 +135,7 @@ with left:
                 "판매가 입력 (KRW)", min_value=0.0, value=100000.0, step=1000.0, format="%.0f"
             )
 
-        calc = st.form_submit_button("계산하기")
+        calc = mform.form_submit_button("계산하기")
 
     if calc:
         st.session_state.product_price = float(product_price)
@@ -180,74 +183,74 @@ with left:
     st.divider()
     st.subheader("📈 네이버 데이터랩 (검색 트렌드)")
 
-    with st.expander("API 설정 / 키워드 조회", expanded=True):
-        with st.form("datalab_form"):
-            cc1, cc2 = st.columns(2)
-            with cc1:
-                naver_client_id = st.text_input("NAVER Client ID", value=st.session_state.naver_client_id)
-                start_date = st.date_input("시작일", value=date.today().replace(day=1))
-                time_unit = st.selectbox("집계단위", ["date", "week", "month"], index=1)
-            with cc2:
-                naver_client_secret = st.text_input(
-                    "NAVER Client Secret", value=st.session_state.naver_client_secret, type="password"
-                )
-                end_date = st.date_input("종료일", value=date.today())
-                device = st.selectbox("디바이스", ["", "pc", "mo"], index=0)  # ''=전체, pc, mo
+    dform = st.form("datalab_form")
+    with dform:
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            naver_client_id = st.text_input("NAVER Client ID", value=st.session_state.naver_client_id)
+            start_date = st.date_input("시작일", value=date.today().replace(day=1))
+            time_unit = st.selectbox("집계단위", ["date", "week", "month"], index=1)
+        with cc2:
+            naver_client_secret = st.text_input(
+                "NAVER Client Secret", value=st.session_state.naver_client_secret, type="password"
+            )
+            end_date = st.date_input("종료일", value=date.today())
+            device = st.selectbox("디바이스", ["", "pc", "mo"], index=0)  # ''=전체, pc, mo
 
-            kw_text = st.text_input("키워드(쉼표로 구분)", value="나이키, 아디다스")
-            run_dl = st.form_submit_button("트렌드 조회")
+        kw_text = st.text_input("키워드(쉼표로 구분)", value="나이키, 아디다스")
+        run_dl = dform.form_submit_button("트렌드 조회")
 
-        if run_dl:
-            st.session_state.naver_client_id = naver_client_id
-            st.session_state.naver_client_secret = naver_client_secret
+    if run_dl:
+        st.session_state.naver_client_id = naver_client_id
+        st.session_state.naver_client_secret = naver_client_secret
 
-            def fetch_datalab_search(keywords, startDate, endDate, timeUnit, device=""):
-                url = "https://openapi.naver.com/v1/datalab/search"
-                headers = {
-                    "X-Naver-Client-Id": st.session_state.naver_client_id,
-                    "X-Naver-Client-Secret": st.session_state.naver_client_secret,
-                    "Content-Type": "application/json",
-                }
-                keywordGroups = [{"groupName": k.strip(), "keywords": [k.strip()]} for k in keywords if k.strip()]
-                payload = {
-                    "startDate": str(startDate),
-                    "endDate": str(endDate),
-                    "timeUnit": timeUnit,
-                    "keywordGroups": keywordGroups,
-                }
-                if device:
-                    payload["device"] = device
-                resp = http.post(url, headers=headers, json=payload, timeout=7)
-                resp.raise_for_status()
-                return resp.json()
+        def fetch_datalab_search(keywords, startDate, endDate, timeUnit, device=""):
+            url = "https://openapi.naver.com/v1/datalab/search"
+            headers = {
+                "X-Naver-Client-Id": st.session_state.naver_client_id,
+                "X-Naver-Client-Secret": st.session_state.naver_client_secret,
+                "Content-Type": "application/json",
+            }
+            keywordGroups = [{"groupName": k.strip(), "keywords": [k.strip()]} for k in keywords if k.strip()]
+            payload = {
+                "startDate": str(startDate),
+                "endDate": str(endDate),
+                "timeUnit": timeUnit,
+                "keywordGroups": keywordGroups,
+            }
+            if device:
+                payload["device"] = device
+            resp = http.post(url, headers=headers, json=payload, timeout=7)
+            resp.raise_for_status()
+            return resp.json()
 
-            try:
-                keys = [k.strip() for k in kw_text.split(",")]
-                js = fetch_datalab_search(keys, start_date, end_date, time_unit, device if device else "")
-                # JSON -> DataFrame ({"results":[{"data":[{"period":"YYYY-MM-DD","ratio":...}, ...], "title": "..."}]})
-                frames = []
-                for res in js.get("results", []):
-                    title = res.get("title", "keyword")
-                    rows = res.get("data", [])
-                    df = pd.DataFrame(rows)
-                    df["keyword"] = title
-                    frames.append(df)
-                if frames:
-                    df_all = pd.concat(frames, ignore_index=True)
-                    df_pivot = df_all.pivot(index="period", columns="keyword", values="ratio").fillna(0)
-                    st.line_chart(df_pivot)
-                    st.dataframe(df_pivot.reset_index(), use_container_width=True)
-                else:
-                    st.warning("데이터가 없습니다. 기간/키워드/설정을 확인하세요.")
-            except requests.HTTPError as e:
-                st.error(f"HTTP 오류: {e}")
-                if e.response is not None:
-                    try:
-                        st.code(e.response.text)
-                    except Exception:
-                        pass
-            except Exception as e:
-                st.error(f"데이터를 불러오지 못했습니다: {e}")
+        try:
+            keys = [k.strip() for k in kw_text.split(",")]
+            js = fetch_datalab_search(keys, start_date, end_date, time_unit, device if device else "")
+            # JSON -> DataFrame ({"results":[{"data":[{"period":"YYYY-MM-DD","ratio":...}, ...], "title": "..."}]})
+            frames = []
+            for res in js.get("results", []):
+                title = res.get("title", "keyword")
+                rows = res.get("data", [])
+                df = pd.DataFrame(rows)
+                df["keyword"] = title
+                frames.append(df)
+            if frames:
+                df_all = pd.concat(frames, ignore_index=True)
+                df_pivot = df_all.pivot(index="period", columns="keyword", values="ratio").fillna(0)
+                st.line_chart(df_pivot)
+                st.dataframe(df_pivot.reset_index(), use_container_width=True)
+            else:
+                st.warning("데이터가 없습니다. 기간/키워드/설정을 확인하세요.")
+        except requests.HTTPError as e:
+            st.error(f"HTTP 오류: {e}")
+            if e.response is not None:
+                try:
+                    st.code(e.response.text)
+                except Exception:
+                    pass
+        except Exception as e:
+            st.error(f"데이터를 불러오지 못했습니다: {e}")
 
 # ----- 우측: 11번가 -----
 with right:
