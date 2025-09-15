@@ -1,11 +1,11 @@
 
 # app.py — 실시간 환율 + 마진 + 네이버 데이터랩 + 11번가
-# (네이버 API 키 내장 + 외부 secrets.json 지원)
+# 최종 패치 버전 (2025-09)
 
 import streamlit as st
 import requests, re, os, json
 import pandas as pd
-from datetime import timedelta, date
+from datetime import timedelta
 import streamlit.components.v1 as components
 
 st.set_page_config(page_title="실시간 환율 + 마진 + 데이터랩", page_icon="📊", layout="wide")
@@ -39,10 +39,6 @@ def inject_theme(dark: bool):
         <style>
         html, body, [data-testid="stAppViewContainer"] { background: #0f172a !important; color:#e5e7eb !important; }
         .stButton>button, .stDownloadButton>button { background:#1f2937 !important; color:#e5e7eb !important; border:1px solid #374151; }
-        .stSelectbox, .stTextInput, .stNumberInput, .stDateInput, .stRadio, .stCheckbox, .stSlider, .stMetric {
-            filter: brightness(0.95);
-        }
-        .stTabs [data-baseweb="tab-list"] { gap: 12px; }
         </style>
         """ ,
         unsafe_allow_html=True,
@@ -56,18 +52,19 @@ inject_theme(st.session_state.theme_dark)
 def get_http():
     s = requests.Session()
     s.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36",
+        "User-Agent": "Mozilla/5.0",
         "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
     })
     return s
 http = get_http()
 
 # ---------------------------
-# 환율 캐시
+# 환율 캐시 (10분마다 갱신)
 # ---------------------------
-CURRENCY_SYMBOL = {"USD":"$", "CNY":"¥", "JPY":"¥", "EUR":"€", "KRW":"₩"}
+CURRENCY_SYMBOL = {"USD":"$", "EUR":"€", "JPY":"¥", "CNY":"¥"}
+CURRENCY_ORDER = ["USD","EUR","JPY","CNY"]
 
-@st.cache_data(ttl=timedelta(minutes=45))
+@st.cache_data(ttl=600)
 def get_rate_to_krw(base: str) -> float:
     try:
         r = http.get(f"https://api.exchangerate.host/latest?base={base}&symbols=KRW", timeout=5)
@@ -75,16 +72,7 @@ def get_rate_to_krw(base: str) -> float:
         js = r.json()
         return float(js["rates"]["KRW"])
     except Exception:
-        pass
-    try:
-        r2 = http.get(f"https://open.er-api.com/v6/latest/{base}", timeout=5)
-        r2.raise_for_status()
-        js2 = r2.json()
-        if js2.get("result") == "success":
-            return float(js2["rates"]["KRW"])
-    except Exception:
-        pass
-    return 0.0
+        return 0.0
 
 # ---------------------------
 # Sidebar: 환율 + 마진 + 다크모드
@@ -101,17 +89,22 @@ st.session_state.setdefault("quick_amount", 1.0)
 st.session_state.setdefault("quick_currency", "USD")
 with sb.form("fx_form"):
     qa = st.number_input("상품 원가", min_value=0.0, value=float(st.session_state.quick_amount), step=1.0, format="%.2f")
-    qc = st.selectbox("통화", ["USD","CNY","JPY","EUR"], index=["USD","CNY","JPY","EUR"].index(st.session_state.quick_currency))
+    qc = st.selectbox(
+        "통화",
+        [f"{cur} ({CURRENCY_SYMBOL[cur]})" for cur in CURRENCY_ORDER],
+        index=CURRENCY_ORDER.index(st.session_state.quick_currency)
+    )
     fx_go = st.form_submit_button("환율 계산")
 if fx_go:
     st.session_state.quick_amount = float(qa)
-    st.session_state.quick_currency = qc
+    st.session_state.quick_currency = qc.split()[0]
 
 rate = get_rate_to_krw(st.session_state.quick_currency)
 if rate>0:
     sym = CURRENCY_SYMBOL.get(st.session_state.quick_currency, st.session_state.quick_currency)
-    sb.metric(f"{sym}{st.session_state.quick_amount:.2f} {st.session_state.quick_currency} → ₩", f"{st.session_state.quick_amount*rate:,.0f} 원")
-    sb.caption(f"1 {st.session_state.quick_currency} = ₩{rate:,.2f} (45분 캐시)")
+    sb.metric(f"{sym}{st.session_state.quick_amount:.2f} {st.session_state.quick_currency} → ₩",
+              f"{st.session_state.quick_amount*rate:,.0f} 원")
+    sb.caption(f"1 {st.session_state.quick_currency} = ₩{rate:,.2f} (10분 캐시)")
 else:
     sb.warning("환율 불러오기 실패")
 
@@ -137,11 +130,11 @@ if mg_go and rate>0:
 # ---------------------------
 CATEGORY_MAP = {
     "패션의류": "50000000", "패션잡화": "50000001", "화장품/미용": "50000002",
-    "디지털/가전": "50000003", "가구/인테리어": "50000004", "식품": "50000005",
-    "스포츠/레저": "50000006", "생활/건강": "50000007", "출산/육아": "50000008", "완구/취미": "50000009",
+    "디지털/가전": "50000003", "가구/인테리어": "50000004",
+    "식품": "50000005", "스포츠/레저": "50000006"
 }
 
-@st.cache_data(ttl=timedelta(minutes=30))
+@st.cache_data(ttl=600)
 def try_fetch_top_keywords_from_datalab(category_cid: str):
     try:
         url = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordRank.naver"
@@ -155,7 +148,7 @@ def try_fetch_top_keywords_from_datalab(category_cid: str):
     except Exception:
         return []
 
-@st.cache_data(ttl=timedelta(minutes=30))
+@st.cache_data(ttl=600)
 def fetch_naver_search_count(keyword: str, period: str) -> int:
     nso = {"1d":"so:r,p:1d,a:all", "7d":"so:r,p:1w,a:all", "1m":"so:r,p:1m,a:all"}[period]
     params = {"query": keyword, "nso": nso, "where": "view"}
@@ -176,12 +169,9 @@ st.title("📊 실시간 환율 + 마진 + 데이터랩")
 left, right = st.columns([1.4, 1])
 
 with left:
-    st.subheader("📈 데이터랩 (자동 실행 + API)")
+    st.subheader("📈 데이터랩 (자동 실행)")
     cat_name = st.selectbox("카테고리 선택", list(CATEGORY_MAP.keys()), index=0)
-    manual = st.text_area("직접 키워드 입력 (쉼표로 구분)", "")
     keywords = try_fetch_top_keywords_from_datalab(CATEGORY_MAP[cat_name])
-    if not keywords and manual:
-        keywords = [k.strip() for k in manual.split(",") if k.strip()]
 
     if keywords:
         rows = []
@@ -194,17 +184,11 @@ with left:
         st.bar_chart(df[["1일","7일","30일"]])
         st.dataframe(df.sort_values("7일", ascending=False), use_container_width=True)
     else:
-        st.info("카테고리에서 키워드를 불러올 수 없음. 직접 입력하세요.")
+        st.info("키워드를 불러올 수 없음.")
 
 with right:
     st.subheader("🛒 11번가 아마존 베스트 (모바일)")
-    view = st.selectbox("보기", ["아마존 베스트","오늘의 딜","홈"], index=0)
-    if view=="아마존 베스트":
-        url="https://m.11st.co.kr/browsing/AmazonBest"
-    elif view=="오늘의 딜":
-        url="https://m.11st.co.kr/browsing/todayDeal"
-    else:
-        url="https://m.11st.co.kr/"
+    url="https://m.11st.co.kr/browsing/AmazonBest"
     h = st.slider("높이(px)", 500, 1400, 900, 50)
     components.html(
         f"""
