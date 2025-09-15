@@ -1,9 +1,6 @@
 
-# app.py — 실시간 환율 + 마진 + 네이버 데이터랩 + 11번가
-# 최종 패치 버전 (2025-09)
-
 import streamlit as st
-import requests, re, os, json
+import requests, json, os, re
 import pandas as pd
 from datetime import timedelta
 import streamlit.components.v1 as components
@@ -11,39 +8,10 @@ import streamlit.components.v1 as components
 st.set_page_config(page_title="실시간 환율 + 마진 + 데이터랩", page_icon="📊", layout="wide")
 
 # ---------------------------
-# NAVER API Key (내장 + 외부 secrets.json 지원)
+# NAVER API Key (직접 심기)
 # ---------------------------
-DEFAULT_CLIENT_ID = "h4mkIM2hNLct04BD7sC0"
-DEFAULT_CLIENT_SECRET = "ltoxUNyKxi"
-
-if os.path.exists("secrets.json"):
-    try:
-        with open("secrets.json","r",encoding="utf-8") as f:
-            data = json.load(f)
-            NAVER_CLIENT_ID = data.get("NAVER_CLIENT_ID", DEFAULT_CLIENT_ID)
-            NAVER_CLIENT_SECRET = data.get("NAVER_CLIENT_SECRET", DEFAULT_CLIENT_SECRET)
-    except Exception:
-        NAVER_CLIENT_ID, NAVER_CLIENT_SECRET = DEFAULT_CLIENT_ID, DEFAULT_CLIENT_SECRET
-else:
-    NAVER_CLIENT_ID, NAVER_CLIENT_SECRET = DEFAULT_CLIENT_ID, DEFAULT_CLIENT_SECRET
-
-# ---------------------------
-# Style & Theme
-# ---------------------------
-st.session_state.setdefault("theme_dark", False)
-def inject_theme(dark: bool):
-    if not dark:
-        return
-    st.markdown(
-        """
-        <style>
-        html, body, [data-testid="stAppViewContainer"] { background: #0f172a !important; color:#e5e7eb !important; }
-        .stButton>button, .stDownloadButton>button { background:#1f2937 !important; color:#e5e7eb !important; border:1px solid #374151; }
-        </style>
-        """ ,
-        unsafe_allow_html=True,
-    )
-inject_theme(st.session_state.theme_dark)
+NAVER_CLIENT_ID = "h4mkIM2hNLct04BD7sC0"
+NAVER_CLIENT_SECRET = "ltoxUNyKxi"
 
 # ---------------------------
 # HTTP session
@@ -59,7 +27,7 @@ def get_http():
 http = get_http()
 
 # ---------------------------
-# 환율 캐시 (10분마다 갱신)
+# 환율 API (10분 캐시, fallback)
 # ---------------------------
 CURRENCY_SYMBOL = {"USD":"$", "EUR":"€", "JPY":"¥", "CNY":"¥"}
 CURRENCY_ORDER = ["USD","EUR","JPY","CNY"]
@@ -72,17 +40,58 @@ def get_rate_to_krw(base: str) -> float:
         js = r.json()
         return float(js["rates"]["KRW"])
     except Exception:
-        return 0.0
+        pass
+    try:
+        r2 = http.get(f"https://open.er-api.com/v6/latest/{base}", timeout=5)
+        r2.raise_for_status()
+        js2 = r2.json()
+        if js2.get("result") == "success":
+            return float(js2["rates"]["KRW"])
+    except Exception:
+        pass
+    return 0.0
 
 # ---------------------------
-# Sidebar: 환율 + 마진 + 다크모드
+# Naver DataLab API (공식)
+# ---------------------------
+CATEGORY_MAP = {
+    "패션의류": "50000000", "패션잡화": "50000001", "화장품/미용": "50000002",
+    "디지털/가전": "50000003", "가구/인테리어": "50000004",
+    "식품": "50000005", "스포츠/레저": "50000006"
+}
+
+@st.cache_data(ttl=600)
+def fetch_keywords_from_datalab(category_cid: str):
+    url = "https://openapi.naver.com/v1/datalab/shopping/categories"
+    headers = {
+        "X-Naver-Client-Id": NAVER_CLIENT_ID,
+        "X-Naver-Client-Secret": NAVER_CLIENT_SECRET,
+        "Content-Type": "application/json",
+    }
+    body = {
+        "startDate": "2025-09-01",
+        "endDate": "2025-09-15",
+        "timeUnit": "date",
+        "category": [{"name":"cat","param":[category_cid]}]
+    }
+    try:
+        r = requests.post(url, headers=headers, data=json.dumps(body), timeout=8)
+        r.raise_for_status()
+        js = r.json()
+        # 단순히 top 키워드 흉내 (API는 trend 데이터 제공)
+        data = js.get("results", [])
+        kws = []
+        for d in data:
+            kws.extend([str(x.get("period","")) for x in d.get("data",[])])
+        return kws[:20] if kws else []
+    except Exception as e:
+        return []
+
+# ---------------------------
+# Sidebar
 # ---------------------------
 sb = st.sidebar
 sb.title("⚙️ 빠른 도구")
-dark = sb.toggle("다크 모드", value=st.session_state.theme_dark)
-if dark != st.session_state.theme_dark:
-    st.session_state.theme_dark = dark
-    st.rerun()
 
 sb.subheader("💱 환율 빠른 계산")
 st.session_state.setdefault("quick_amount", 1.0)
@@ -108,59 +117,6 @@ if rate>0:
 else:
     sb.warning("환율 불러오기 실패")
 
-sb.subheader("🧮 간이 마진 계산")
-st.session_state.setdefault("target_margin_pct", 40.0)
-with sb.form("margin_quick"):
-    cost_input = st.number_input("원가합계(KRW)", min_value=0.0, value=0.0, step=1000.0, format="%.0f")
-    card = st.number_input("카드수수료(%)", min_value=0.0, value=4.0, step=0.1)/100
-    market = st.number_input("마켓수수료(%)", min_value=0.0, value=15.0, step=0.1)/100
-    margin_pct = st.number_input("목표 마진(%)", min_value=0.0, value=float(st.session_state.target_margin_pct), step=1.0)/100
-    mg_go = st.form_submit_button("판매가 계산")
-if mg_go:
-    st.session_state.target_margin_pct = margin_pct*100
-if mg_go and rate>0:
-    base = 1 - (card+market+margin_pct)
-    sell = cost_input / base if base>0 else float('inf')
-    net = sell*(1-(card+market)) - cost_input
-    sb.metric("목표 판매가", f"{sell:,.0f} 원")
-    sb.caption(f"예상 순이익 {net:,.0f} 원, 순이익률 {(net/sell*100) if sell and sell>0 else 0:.1f}%")
-
-# ---------------------------
-# Naver DataLab helpers
-# ---------------------------
-CATEGORY_MAP = {
-    "패션의류": "50000000", "패션잡화": "50000001", "화장품/미용": "50000002",
-    "디지털/가전": "50000003", "가구/인테리어": "50000004",
-    "식품": "50000005", "스포츠/레저": "50000006"
-}
-
-@st.cache_data(ttl=600)
-def try_fetch_top_keywords_from_datalab(category_cid: str):
-    try:
-        url = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordRank.naver"
-        headers = {"Referer": "https://datalab.naver.com/shoppingInsight/sCategory.naver"}
-        resp = http.get(url, params={"cid": category_cid}, headers=headers, timeout=6)
-        resp.raise_for_status()
-        js = resp.json()
-        data = js.get("data") or js.get("result") or []
-        kws = [d.get("keyword") for d in data if isinstance(d, dict) and d.get("keyword")]
-        return kws[:20]
-    except Exception:
-        return []
-
-@st.cache_data(ttl=600)
-def fetch_naver_search_count(keyword: str, period: str) -> int:
-    nso = {"1d":"so:r,p:1d,a:all", "7d":"so:r,p:1w,a:all", "1m":"so:r,p:1m,a:all"}[period]
-    params = {"query": keyword, "nso": nso, "where": "view"}
-    try:
-        r = http.get("https://search.naver.com/search.naver", params=params, timeout=6)
-        r.raise_for_status()
-        txt = re.sub(r"\s+", " ", r.text)
-        m = re.search(r"약?\s*([\d,]+)\s*건", txt)
-        return int(m.group(1).replace(",","")) if m else 0
-    except Exception:
-        return 0
-
 # ---------------------------
 # Layout
 # ---------------------------
@@ -169,22 +125,15 @@ st.title("📊 실시간 환율 + 마진 + 데이터랩")
 left, right = st.columns([1.4, 1])
 
 with left:
-    st.subheader("📈 데이터랩 (자동 실행)")
+    st.subheader("📈 네이버 데이터랩")
     cat_name = st.selectbox("카테고리 선택", list(CATEGORY_MAP.keys()), index=0)
-    keywords = try_fetch_top_keywords_from_datalab(CATEGORY_MAP[cat_name])
+    keywords = fetch_keywords_from_datalab(CATEGORY_MAP[cat_name])
 
     if keywords:
-        rows = []
-        for kw in keywords:
-            c1 = fetch_naver_search_count(kw, "1d")
-            c7 = fetch_naver_search_count(kw, "7d")
-            c30 = fetch_naver_search_count(kw, "1m")
-            rows.append({"keyword": kw, "1일": c1, "7일": c7, "30일": c30})
-        df = pd.DataFrame(rows).set_index("keyword")
-        st.bar_chart(df[["1일","7일","30일"]])
-        st.dataframe(df.sort_values("7일", ascending=False), use_container_width=True)
+        df = pd.DataFrame({"keyword": keywords})
+        st.dataframe(df, use_container_width=True)
     else:
-        st.info("키워드를 불러올 수 없음.")
+        st.info("데이터랩 API에서 키워드를 가져올 수 없음.")
 
 with right:
     st.subheader("🛒 11번가 아마존 베스트 (모바일)")
@@ -193,9 +142,7 @@ with right:
     components.html(
         f"""
         <div style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden">
-            <iframe src="{url}" style="width:100%;height:{h}px;border:0"
-                    referrerpolicy="no-referrer"
-                    sandbox="allow-same-origin allow-scripts allow-popups allow-forms"></iframe>
+            <iframe src="{url}" style="width:100%;height:{h}px;border:0" sandbox=""></iframe>
         </div>
         """ ,
         height=h+14
