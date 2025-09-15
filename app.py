@@ -30,9 +30,12 @@ def get_exchange_rate(base="USD", target="KRW"):
         r = requests.get(url1, timeout=5).json()
         return r["rates"][target]
     except:
-        url2 = f"https://open.er-api.com/v6/latest/{base}"
-        r = requests.get(url2, timeout=5).json()
-        return r["rates"].get(target, None)
+        try:
+            url2 = f"https://open.er-api.com/v6/latest/{base}"
+            r = requests.get(url2, timeout=5).json()
+            return r["rates"].get(target, None)
+        except:
+            return None
 
 # ==============================
 # 네이버 데이터랩 API
@@ -104,11 +107,11 @@ else:
 # ==============================
 st.title("💹 실시간 환율 + 📊 마진 + 📈 데이터랩 + 🛒 11번가")
 
-# 데이터랩
+# 데이터랩 + 11번가 병렬 배치
 col1, col2 = st.columns(2)
 
 with col1:
-    st.subheader("📊 네이버 데이터랩 (자동 실행 + API)")
+    st.subheader("📊 네이버 데이터랩 (API 모드)")
     category = st.selectbox("카테고리 선택", ["패션의류", "화장품/미용", "식품", "디지털/가전"])
     if category:
         data = get_datalab_keywords(category)
@@ -116,9 +119,8 @@ with col1:
             df = pd.DataFrame(data["results"][0]["data"])
             st.dataframe(df)
         else:
-            st.info("현재는 Client ID/Secret API 연동 보류 상태입니다.")
+            st.warning("데이터랩 API 호출 실패 또는 응답 없음")
 
-# 11번가 모바일
 with col2:
-    st.subheader("🛒 11번가 아마존 베스트 (모바일)")
-    st.components.v1.iframe("https://m.11st.co.kr/MW/html/main.html", height=800)
+    st.subheader("🛒 11번가 베스트 (PC)")
+    st.components.v1.iframe("https://www.11st.co.kr/browsing/BestSeller.tmall", height=900)
