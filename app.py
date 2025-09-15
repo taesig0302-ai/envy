@@ -1,149 +1,107 @@
-
 import streamlit as st
-import requests, json, os, re
+import requests
 import pandas as pd
-from datetime import timedelta
-import streamlit.components.v1 as components
+import altair as alt
 
-st.set_page_config(page_title="실시간 환율 + 마진 + 데이터랩", page_icon="📊", layout="wide")
+# -------------------------------
+# 기본 세팅
+# -------------------------------
+st.set_page_config(page_title="환율 + 마진 + 데이터랩 + 11번가", layout="wide")
 
-# ---------------------------
-# NAVER API Key (직접 심기)
-# ---------------------------
-NAVER_CLIENT_ID = "h4mkIM2hNLct04BD7sC0"
-NAVER_CLIENT_SECRET = "ltoxUNyKxi"
+st.title("💱 실시간 환율 + 📊 마진 + 📈 데이터랩 + 🛒 11번가")
 
-# ---------------------------
-# HTTP session
-# ---------------------------
-@st.cache_resource
-def get_http():
-    s = requests.Session()
-    s.headers.update({
-        "User-Agent": "Mozilla/5.0",
-        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-    })
-    return s
-http = get_http()
+# -------------------------------
+# 사이드바 (공통 기능)
+# -------------------------------
+st.sidebar.header("⚙️ 빠른 도구")
 
-# ---------------------------
-# 환율 API (10분 캐시, fallback)
-# ---------------------------
-CURRENCY_SYMBOL = {"USD":"$", "EUR":"€", "JPY":"¥", "CNY":"¥"}
-CURRENCY_ORDER = ["USD","EUR","JPY","CNY"]
+# 다크 모드 (단순 UI 토글만 구현, 실제 색상은 streamlit theme 필요)
+dark_mode = st.sidebar.checkbox("🌙 다크 모드")
 
-@st.cache_data(ttl=600)
-def get_rate_to_krw(base: str) -> float:
-    try:
-        r = http.get(f"https://api.exchangerate.host/latest?base={base}&symbols=KRW", timeout=5)
-        r.raise_for_status()
-        js = r.json()
-        return float(js["rates"]["KRW"])
-    except Exception:
-        pass
-    try:
-        r2 = http.get(f"https://open.er-api.com/v6/latest/{base}", timeout=5)
-        r2.raise_for_status()
-        js2 = r2.json()
-        if js2.get("result") == "success":
-            return float(js2["rates"]["KRW"])
-    except Exception:
-        pass
-    return 0.0
+# -------------------------------
+# 환율 계산기
+# -------------------------------
+st.sidebar.subheader("💲 환율 빠른 계산")
 
-# ---------------------------
-# Naver DataLab API (공식)
-# ---------------------------
-CATEGORY_MAP = {
-    "패션의류": "50000000", "패션잡화": "50000001", "화장품/미용": "50000002",
-    "디지털/가전": "50000003", "가구/인테리어": "50000004",
-    "식품": "50000005", "스포츠/레저": "50000006"
-}
+amount = st.sidebar.number_input("상품 원가", min_value=0.0, value=1.0, step=1.0)
+currency = st.sidebar.selectbox("통화 선택", ["USD ($)", "EUR (€)", "JPY (¥)", "CNY (¥)"])
+currency_code = currency.split()[0]
 
-@st.cache_data(ttl=600)
-def fetch_keywords_from_datalab(category_cid: str):
-    url = "https://openapi.naver.com/v1/datalab/shopping/categories"
-    headers = {
-        "X-Naver-Client-Id": NAVER_CLIENT_ID,
-        "X-Naver-Client-Secret": NAVER_CLIENT_SECRET,
-        "Content-Type": "application/json",
-    }
-    body = {
-        "startDate": "2025-09-01",
-        "endDate": "2025-09-15",
-        "timeUnit": "date",
-        "category": [{"name":"cat","param":[category_cid]}]
-    }
-    try:
-        r = requests.post(url, headers=headers, data=json.dumps(body), timeout=8)
-        r.raise_for_status()
-        js = r.json()
-        # 단순히 top 키워드 흉내 (API는 trend 데이터 제공)
-        data = js.get("results", [])
-        kws = []
-        for d in data:
-            kws.extend([str(x.get("period","")) for x in d.get("data",[])])
-        return kws[:20] if kws else []
-    except Exception as e:
-        return []
+# 환율 API (자동 fallback)
+def get_exchange_rate(base, target="KRW"):
+    urls = [
+        f"https://api.exchangerate.host/latest?base={base}&symbols={target}",
+        f"https://open.er-api.com/v6/latest/{base}"
+    ]
+    for url in urls:
+        try:
+            r = requests.get(url, timeout=5)
+            data = r.json()
+            if "rates" in data and target in data["rates"]:
+                return data["rates"][target]
+        except Exception:
+            continue
+    return None
 
-# ---------------------------
-# Sidebar
-# ---------------------------
-sb = st.sidebar
-sb.title("⚙️ 빠른 도구")
+rate = get_exchange_rate(currency_code, "KRW")
 
-sb.subheader("💱 환율 빠른 계산")
-st.session_state.setdefault("quick_amount", 1.0)
-st.session_state.setdefault("quick_currency", "USD")
-with sb.form("fx_form"):
-    qa = st.number_input("상품 원가", min_value=0.0, value=float(st.session_state.quick_amount), step=1.0, format="%.2f")
-    qc = st.selectbox(
-        "통화",
-        [f"{cur} ({CURRENCY_SYMBOL[cur]})" for cur in CURRENCY_ORDER],
-        index=CURRENCY_ORDER.index(st.session_state.quick_currency)
-    )
-    fx_go = st.form_submit_button("환율 계산")
-if fx_go:
-    st.session_state.quick_amount = float(qa)
-    st.session_state.quick_currency = qc.split()[0]
-
-rate = get_rate_to_krw(st.session_state.quick_currency)
-if rate>0:
-    sym = CURRENCY_SYMBOL.get(st.session_state.quick_currency, st.session_state.quick_currency)
-    sb.metric(f"{sym}{st.session_state.quick_amount:.2f} {st.session_state.quick_currency} → ₩",
-              f"{st.session_state.quick_amount*rate:,.0f} 원")
-    sb.caption(f"1 {st.session_state.quick_currency} = ₩{rate:,.2f} (10분 캐시)")
+if rate:
+    result = amount * rate
+    st.sidebar.write(f"{amount:.2f} {currency_code} → {result:,.0f} 원")
+    st.sidebar.caption(f"1 {currency_code} = {rate:,.2f} KRW (10분 캐시)")
 else:
-    sb.warning("환율 불러오기 실패")
+    st.sidebar.error("환율 정보를 불러올 수 없습니다.")
 
-# ---------------------------
-# Layout
-# ---------------------------
-st.title("📊 실시간 환율 + 마진 + 데이터랩")
+# -------------------------------
+# 마진 계산기
+# -------------------------------
+st.sidebar.subheader("📊 간이 마진 계산")
 
-left, right = st.columns([1.4, 1])
+cost = st.sidebar.number_input("원가합계(KRW)", min_value=0.0, value=0.0, step=100.0)
+card_fee = st.sidebar.number_input("카드수수료 (%)", min_value=0.0, value=4.0, step=0.1)
+market_fee = st.sidebar.number_input("마켓수수료 (%)", min_value=0.0, value=15.0, step=0.1)
+target_margin = st.sidebar.number_input("목표 마진 (%)", min_value=0.0, value=40.0, step=1.0)
 
-with left:
-    st.subheader("📈 네이버 데이터랩")
-    cat_name = st.selectbox("카테고리 선택", list(CATEGORY_MAP.keys()), index=0)
-    keywords = fetch_keywords_from_datalab(CATEGORY_MAP[cat_name])
-
-    if keywords:
-        df = pd.DataFrame({"keyword": keywords})
-        st.dataframe(df, use_container_width=True)
+if st.sidebar.button("판매가 계산"):
+    total_fee_rate = (card_fee + market_fee + target_margin) / 100
+    if total_fee_rate >= 1:
+        st.sidebar.error("수수료+마진율 합이 100% 이상입니다.")
     else:
-        st.info("데이터랩 API에서 키워드를 가져올 수 없음.")
+        selling_price = cost / (1 - total_fee_rate)
+        st.sidebar.success(f"예상 판매가: {selling_price:,.0f} 원")
 
-with right:
+# -------------------------------
+# 메인 레이아웃 (2열)
+# -------------------------------
+col1, col2 = st.columns([2, 2])
+
+# -------------------------------
+# 네이버 데이터랩 (보류 모드)
+# -------------------------------
+with col1:
+    st.subheader("📈 네이버 데이터랩 (자동 실행 + API)")
+    category = st.selectbox("카테고리 선택", ["패션의류", "가전제품", "화장품/미용", "식품", "도서/취미"])
+    st.info("👉 현재는 Client ID/Secret API 연동 보류 상태. \n선택된 카테고리에 맞는 **Top 20 키워드** + **1일/7일/30일 그래프** 표시 예정.")
+
+    # 더미 데이터 (UI 확인용)
+    df = pd.DataFrame({
+        "날짜": pd.date_range("2025-09-01", periods=10),
+        "검색량": [100, 150, 200, 180, 250, 300, 270, 260, 310, 330]
+    })
+
+    chart = alt.Chart(df).mark_line(point=True).encode(
+        x="날짜:T",
+        y="검색량:Q"
+    ).properties(title="예시 그래프 (실제 API 연결 예정)")
+    st.altair_chart(chart, use_container_width=True)
+
+# -------------------------------
+# 11번가 모바일 화면
+# -------------------------------
+with col2:
     st.subheader("🛒 11번가 아마존 베스트 (모바일)")
-    url="https://m.11st.co.kr/browsing/AmazonBest"
-    h = st.slider("높이(px)", 500, 1400, 900, 50)
-    components.html(
-        f"""
-        <div style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden">
-            <iframe src="{url}" style="width:100%;height:{h}px;border:0" sandbox=""></iframe>
-        </div>
-        """ ,
-        height=h+14
+    st.components.v1.iframe(
+        "https://m.11st.co.kr/MW/html/main.html",
+        height=900,
+        scrolling=True
     )
