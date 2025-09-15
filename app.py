@@ -223,85 +223,7 @@ st.link_button("🔗 11번가 모바일 새 창으로 열기", url)
 
 st.divider()
 
-# ====================================================
-# 4) 네이버 데이터랩 (카테고리 → 키워드)
-# ====================================================
-st.header("📈 네이버 데이터랩 (카테고리/키워드)")
-
-with st.expander("API 설정 (안전하게 화면에서 입력하세요)", expanded=False):
-    NAVER_CLIENT_ID = st.text_input("X-Naver-Client-Id", value="", type="password")
-    NAVER_CLIENT_SECRET = st.text_input("X-Naver-Client-Secret", value="", type="password")
-    st.caption("⚠️ 키는 코드에 넣지 말고 여기서만 입력하세요. 세션에만 사용됩니다.")
-
-cat_map = {
-    "패션의류(50000000)": "50000000",
-    "패션잡화(50000001)": "50000001",
-    "생활/건강(50000002)": "50000002",
-    "가전/디지털(50000003)": "50000003",
-    "가구/인테리어(50000004)": "50000004",
-    "식품(50000007)": "50000007",
-    "뷰티(50000014)": "50000014",
-}
-ccol1, ccol2, ccol3 = st.columns([1.2, 0.8, 0.8])
-with ccol1:
-    cat_label = st.selectbox("카테고리", list(cat_map.keys()), index=0)
-    cat_code = cat_map[cat_label]
-with ccol2:
-    time_unit = st.selectbox("시간단위", ["week", "month"], index=0)
-with ccol3:
-    days_back = st.number_input("조회 기간(일)", min_value=7, value=45, step=1)
-
-def datalab_keywords(client_id, client_secret, cat, time_unit="week", days=45):
-    if not client_id or not client_secret:
-        return False, "API 키를 입력하세요.", []
-    end = date.today()
-    start = end - timedelta(days=int(days))
-    payload = {
-        "startDate": start.strftime("%Y-%m-%d"),
-        "endDate": end.strftime("%Y-%m-%d"),
-        "timeUnit": time_unit,
-        "category": {"name": "선택", "code": cat},
-    }
-    try:
-        r = requests.post(
-            "https://openapi.naver.com/v1/datalab/shopping/category/keywords",
-            json=payload,
-            headers={
-                "Content-Type": "application/json",
-                "X-Naver-Client-Id": client_id,
-                "X-Naver-Client-Secret": client_secret,
-            },
-            timeout=15,
-        )
-        if r.status_code != 200:
-            return False, f"API 오류: {r.status_code} - {r.text[:200]}", []
-        js = r.json()
-        items = []
-        for res in js.get("results", []):
-            kw = res.get("keyword") or res.get("title") or "-"
-            ratio = res.get("ratio") if "ratio" in res else res.get("value", 0)
-            items.append({"keyword": kw, "score": ratio})
-        return True, "성공", items
-    except Exception as e:
-        return False, f"예외: {e}", []
-
-run = st.button("🔍 키워드 불러오기")
-if run:
-    ok, msg, items = datalab_keywords(NAVER_CLIENT_ID, NAVER_CLIENT_SECRET, cat_code, time_unit, days_back)
-    if not ok:
-        st.error(msg)
-    else:
-        st.success(f"{cat_label} — {len(items)}건")
-        if items:
-            # 상위 30개만 표시
-            import pandas as pd
-            df = pd.DataFrame(items).reset_index(drop=False).rename(columns={"index": "#"})
-            df["#"] = df["#"] + 1
-            st.dataframe(df.head(30), use_container_width=True)
-        else:
-            st.info("데이터가 없습니다.")
-else:
-    st.caption("카테고리와 기간을 정하고, API 키를 입력한 뒤 ‘키워드 불러오기’를 눌러주세요.")# ======================  NAVER DATALAB  ======================
+# ======================  NAVER DATALAB  ======================
 # 개인용 하드코딩 + (있으면) st.secrets 폴백
 NAVER_CLIENT_ID = st.secrets.get("NAVER_CLIENT_ID", "h4mkIM2hNLct04BD7sC0")
 NAVER_CLIENT_SECRET = st.secrets.get("NAVER_CLIENT_SECRET", "ltoxUNyKxi")
@@ -434,4 +356,3 @@ with tab_trend:
                 df_all = df_all.sort_values("period")
                 st.line_chart(df_all.set_index("period"))
                 st.dataframe(df_all, use_container_width=True)
-
