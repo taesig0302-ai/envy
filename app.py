@@ -88,8 +88,7 @@ if rate2 and loc_price > 0:
     st.sidebar.success(f"🔥 예상 판매가: **{final_price:,.0f} 원**")
     st.sidebar.write(f"순이익: **{profit:,.0f} 원**  (실마진 {margin_pct:.1f}%)")
     # 합계 값(예상 판매가) 고정 칸 제공
-    st.sidebar.text_input('판매가(원)', value=f'{final_price:,.0f}', disabled=True)
-    st.sidebar.text_input('순이익(마진)', value=f"{profit:,.0f} 원 ({margin_pct:.1f}%)", disabled=True)
+    
 elif loc_price > 0 and not rate2:
     st.sidebar.error("현지 통화 환율을 불러오지 못했습니다.")
 
@@ -132,7 +131,7 @@ with col1:
     }
     keywords = TOP20.get(cat, TOP20["패션의류"])
     # 화면 요구사항: rank, keyword 만 표시
-    df_kw = pd.DataFrame({"rank": list(range(1, len(keywords)+1)), "keyword": keywords})
+    df_kw = pd.DataFrame({"keyword": keywords})
     st.dataframe(df_kw, use_container_width=True, height=480)
 
 # -------------------------------
@@ -185,7 +184,13 @@ with col2:
 # 상품명 생성기 (규칙/AI 토글 – 기존 유지)
 # -------------------------------
 st.subheader("✍️ 상품명 생성기")
-mode = st.radio("모드 선택", ["규칙 기반(무료)", "OpenAI API 사용"], horizontal=True)
+_left, _right = st.columns([3,2])
+with _left:
+    mode = st.radio("모드 선택", ["규칙 기반(무료)", "OpenAI API 사용"], horizontal=True)
+with _right:
+    with st.expander("🔐 OpenAI API 설정 (선택)", expanded=False):
+        st.text_input("API 키 입력 (세션 저장)", type="password", key="OPENAI_API_KEY")
+        st.caption("환경변수 OPENAI_API_KEY 사용도 가능. 미입력 시 규칙 기반으로 폴백.")
 
 brand   = st.text_input("브랜드")
 base_kw = st.text_input("기본 문장")
@@ -203,9 +208,6 @@ def openai_available():
     key = st.session_state.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
     return key.strip() != ""
 
-with st.expander("🔐 OpenAI API 설정 (선택)", expanded=False):
-    st.text_input("API 키 입력 (세션 저장)", type="password", key="OPENAI_API_KEY")
-    st.caption("환경변수 OPENAI_API_KEY 사용도 가능. 미입력 시 규칙 기반으로 폴백.")
 
 def gen_openai_titles(brand, base_kw, keywords, n=5):
     key = st.session_state.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
