@@ -301,4 +301,137 @@ if run:
         else:
             st.info("데이터가 없습니다.")
 else:
-    st.caption("카테고리와 기간을 정하고, API 키를 입력한 뒤 ‘키워드 불러오기’를 눌러주세요.")
+    st.caption("카테고리와 기간을 정하고, API 키를 입력한 뒤 ‘키워드 불러오기’를 눌러주세요.")# ======================  NAVER DATALAB  ======================
+# 개인용 하드코딩 + (있으면) st.secrets 폴백
+NAVER_CLIENT_ID = st.secrets.get("NAVER_CLIENT_ID", "h4mkIM2hNLct04BD7sC0")
+NAVER_CLIENT_SECRET = st.secrets.get("NAVER_CLIENT_SECRET", "ltoxUNyKxi")
+
+import json
+from datetime import date, timedelta
+
+def _datalab_post(url: str, payload: dict, timeout=10):
+    """네이버 데이터랩 POST 호출 (오류 안전)"""
+    try:
+        r = requests.post(
+            url,
+            headers={
+                "Content-Type": "application/json",
+                "X-Naver-Client-Id": NAVER_CLIENT_ID,
+                "X-Naver-Client-Secret": NAVER_CLIENT_SECRET,
+            },
+            data=json.dumps(payload),
+            timeout=timeout,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        st.error(f"데이터랩 요청 실패: {e}")
+        return {}
+
+def _recent_range(days=90):
+    end = date.today()
+    start = end - timedelta(days=days)
+    return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+
+st.divider()
+st.header("📊 네이버 데이터랩")
+
+tab_kw, tab_trend = st.tabs(["카테고리 키워드", "검색어 트렌드"])
+
+# ---------- 탭 1: 카테고리 키워드 ----------
+with tab_kw:
+    st.caption("카테고리 선택 → 최근 8~12주 키워드 랭킹")
+    # 대표 카테고리 코드 (원하면 더 추가)
+    cats = {
+        "패션의류": "50000000",
+        "패션잡화": "50000001",
+        "생활/건강": "50000002",
+        "가전/디지털": "50000003",
+        "가구/인테리어": "50000004",
+        "식품": "50000007",
+        "뷰티": "50000014",
+    }
+    c1, c2 = st.columns(2)
+    with c1:
+        cat_name = st.selectbox("카테고리", list(cats.keys()), index=0, key="dl_cat")
+    with c2:
+        weeks = st.slider("최근 주간 범위", min_value=4, max_value=24, value=12, step=1, help="최근 n주 집계")
+    start, end = _recent_range(days=weeks * 7 + 7)  # 버퍼 1주
+
+    if st.button("키워드 불러오기", type="primary"):
+        payload = {
+            "startDate": start,
+            "endDate": end,
+            "timeUnit": "week",
+            "category": {"name": cat_name, "code": cats[cat_name]},
+            # 옵션: "device":"pc|mo", "gender":"f|m", "ages":["20","30",...]
+        }
+        js = _datalab_post("https://openapi.naver.com/v1/datalab/shopping/category/keywords", payload)
+
+        # 응답 구조 방어적으로 파싱
+        items = []
+        # 보편적인 형식: {"results":[{"title":"...","keywords":[{"keyword":"..","ratio":..}, ...]}]}
+        for res in js.get("results", []):
+            for k in res.get("keywords", []):
+                items.append({
+                    "keyword": k.get("keyword") or k.get("title") or "-",
+                    "score": k.get("ratio") or k.get("value") or 0,
+                })
+
+        if items:
+            st.success(f"불러오기 완료 — {cat_name} / {len(items)}개")
+            st.dataframe(items, use_container_width=True)
+        else:
+            st.warning("데이터가 없거나 응답 형식이 달라 파싱할 수 없습니다.")
+
+# ---------- 탭 2: 검색어 트렌드 ----------
+with tab_trend:
+    st.caption("키워드(최대 5개, 쉼표로 구분) 입력 → 기간/단위를 선택 후 조회")
+    kwords = st.text_input("키워드 입력", value="나이키, 아디다스", help="최대 5개, 쉼표로 구분")
+    col_t1, col_t2, col_t3 = st.columns(3)
+    with col_t1:
+        days = st.selectbox("기간", ["30일", "90일", "180일", "365일"], index=1)
+        days_map = {"30일": 30, "90일": 90, "180일": 180, "365일": 365}
+        dsel = days_map[days]
+    with col_t2:
+        time_unit = st.selectbox("단위", ["date(일간)", "week(주간)"], index=1)
+        time_unit = "date" if time_unit.startswith("date") else "week"
+    with col_t3:
+        device = st.selectbox("디바이스", ["all", "pc", "mo"], index=0)
+
+    s, e = _recent_range(dsel)
+    kws = [x.strip() for x in kwords.split(",") if x.strip()][:5]
+
+    if st.button("트렌드 조회"):
+        if not kws:
+            st.warning("키워드를 1개 이상 입력하세요.")
+        else:
+            payload = {
+                "startDate": s,
+                "endDate": e,
+                "timeUnit": time_unit,
+                "device": device if device != "all" else "",
+                "keywordGroups": [{"groupName": k, "keywords": [k]} for k in kws],
+            }
+            js = _datalab_post("https://openapi.naver.com/v1/datalab/search", payload)
+
+            # 결과 파싱 & 시각화
+            # 형식 예: {"results":[{"title":"키워드","data":[{"period":"YYYY-MM-DD","ratio":..}, ...]}]}
+            results = js.get("results", [])
+            if not results:
+                st.warning("데이터가 없거나 응답 형식이 달라 파싱할 수 없습니다.")
+            else:
+                import pandas as pd
+                # 여러 키워드를 한 표로 병합
+                frames = []
+                for res in results:
+                    title = res.get("title", "keyword")
+                    rows = res.get("data", [])
+                    df = pd.DataFrame([{"period": r.get("period"), title: r.get("ratio", 0)} for r in rows])
+                    frames.append(df)
+                from functools import reduce
+                df_all = reduce(lambda left, right: pd.merge(left, right, on="period", how="outer"), frames)
+                df_all = df_all.sort_values("period")
+                st.line_chart(df_all.set_index("period"))
+                st.dataframe(df_all, use_container_width=True)
+
