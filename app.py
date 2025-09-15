@@ -13,7 +13,7 @@ import pandas as pd
 import requests
 import streamlit as st
 
-st.set_page_config(page_title="ENVYLINK – MASTER v2", layout="wide")
+st.set_page_config(page_title="ENVY", layout="wide")
 
 # -------------------------------
 # 다크 모드
@@ -28,7 +28,106 @@ if st.session_state.get("dark_mode", False):
     </style>
     """, unsafe_allow_html=True)
 
-st.title("💱 실시간 환율 + 📊 마진 + 📈 데이터랩 + 🛒 11번가 + ✍️ 상품명(API)")
+
+# Top header with logo
+from PIL import Image
+import base64, io
+
+logo_file = "/mnt/data/envy_logo.png"
+try:
+    _logo = Image.open(logo_file)
+    col_l, col_c, col_r = st.columns([1,2,1])
+    with col_c:
+        st.image(_logo, width=160)
+    st.markdown("<h1 style='text-align:center; margin-top:-12px;'>ENVY</h1>", unsafe_allow_html=True)
+except Exception:
+    st.title("ENVY")
+
+st.markdown("### 💱 실시간 환율 + 📊 마진 + 📈 데이터랩 + 🛒 11번가 + ✍️ 상품명(API)")
+# ===== 11번가 옵션/우회 설정 =====
+with st.sidebar.expander("🛒 11번가 옵션", expanded=False):
+    st.caption("프록시 예시: https://your-proxy.example/fetch?url=")
+    proxy_base = st.text_input("프록시 베이스 URL", value=st.session_state.get("e11_proxy", ""))
+    ua = st.text_input("User-Agent (선택)", value=st.session_state.get("e11_ua", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"))
+    st.session_state["e11_proxy"] = proxy_base
+    st.session_state["e11_ua"] = ua
+    e11_mode = st.radio("표시 모드", ["iframe", "우회(피드/프록시)", "새창"], index=0, horizontal=True)
+
+import requests, json
+
+def fetch_e11_list(proxy_base:str, ua:str):
+    """
+    시도 순서:
+      1) JSON스러운 피드 패턴 존재 시 파싱
+      2) 프록시가 설정되어 있으면 프록시 경유
+      3) 직결 요청 (차단시 예외)
+      4) 정규식 스캔 폴백
+    반환: [{"rank":1,"product":"..","price":"..","link":".."}]
+    """
+    headers = {"User-Agent": ua} if ua else {}
+    target = "https://m.11st.co.kr/browsing/AmazonBest"
+    text = ""
+    try:
+        if proxy_base:
+            url = proxy_base + target
+            text = requests.get(url, headers=headers, timeout=8).text
+        else:
+            text = requests.get(target, headers=headers, timeout=8).text
+    except Exception:
+        text = ""
+
+    rows = []
+    # 1) JSON 블록 찾기
+    try:
+        # 간단 JSON 추출(페이지 내 window.__NUXT__ 같은 구조를 상정)
+        m = re.search(r'(\{.*\"AmazonBest\".*\})', text, re.DOTALL)
+        if m:
+            blob = m.group(1)
+            # 안전 파싱 시도
+            blob = blob.replace("\\n","")
+            js = json.loads(blob)
+            # 이 부분은 실제 구조에 맞게 키를 수정해야 함. 없으면 except로 이동
+            items = []
+            try:
+                # 샘플: js["state"]["bests"]["items"]
+                items = js["state"]["bests"]["items"]
+            except Exception:
+                items = []
+            if items:
+                for i, it in enumerate(items[:20]):
+                    rows.append({
+                        "rank": i+1,
+                        "product": it.get("productName") or it.get("name") or "",
+                        "price": str(it.get("finalPrice") or it.get("price") or ""),
+                        "link": it.get("detailUrl") or ""
+                    })
+                return rows
+    except Exception:
+        pass
+
+    # 2) 정규식 폴백 (상품명/가격 후보)
+    try:
+        names = re.findall(r'"productName"\\s*:\\s*"([^"]{3,120})"', text)
+        prices = re.findall(r'"finalPrice"\\s*:\\s*"?(\\d[\\d,]{2,})"?', text)
+        links  = re.findall(r'"detailUrl"\\s*:\\s*"([^"]+)"', text)
+        for i, n in enumerate(names[:20]):
+            price = prices[i] if i < len(prices) else ""
+            link  = links[i]  if i < len(links)  else ""
+            rows.append({"rank": i+1, "product": n, "price": price.replace(",", ""), "link": link})
+    except Exception:
+        rows = []
+
+    # 3) 샘플 폴백
+    if not rows:
+        rows = [
+            {"rank":1,"product":"애플 에어팟 Pro (2세대)","price":"329000","link":""},
+            {"rank":2,"product":"삼성 갤럭시 S23 256GB","price":"998000","link":""},
+            {"rank":3,"product":"나이키 운동화 레볼루션","price":"89000","link":""},
+            {"rank":4,"product":"LG 노트북 16형 초경량","price":"1399000","link":""},
+            {"rank":5,"product":"스타벅스 텀블러 473ml","price":"23000","link":""},
+        ]
+    return rows
+
 
 # -------------------------------
 # 환율 (30분 캐시 / 2중 fallback)
@@ -129,8 +228,52 @@ with col1:
         "도서/음반":["에세이","자기계발","소설","그림책","영어원서","TOEIC모의고사","수능교재","요리책","에듀클래식","로파이힙합",
                   "재즈CD","피아노악보","기타악보","캘리음악노트","드로잉북","컬러링북","포토에세이","문고판소설","스도쿠북","한국사요약집"],
     }
+    
+# ---- 데이터랩 키워드 정규화(간단 매칭) ----
+from unicodedata import normalize as _norm
+def _norm_k(s): 
+    s = _norm("NFKC", s)
+    return s.replace(" ", "").lower()
+
+_norm_map = {
+    "맨투맨":"맨투맨", "후디":"후드티", "후드":"후드티", "청바지":"데님바지", "슬랙스":"슬랙스",
+    "롱패딩":"패딩", "숏패딩":"패딩", "바람막이":"바람막이", "가디건":"가디건", "니트":"니트",
+}
+
+def normalize_keywords(lst):
+    out = []
+    for k in lst:
+        key = _norm_k(k)
+        mapped = None
+        for raw, canonical in _norm_map.items():
+            if _norm_k(raw) == key:
+                mapped = canonical; break
+        out.append(mapped if mapped else k)
+    # 중복 제거 보정
+    seen = set(); uniq = []
+    for x in out:
+        if x not in seen:
+            seen.add(x); uniq.append(x)
+    return uniq[:20]
+
     keywords = TOP20.get(cat, TOP20["패션의류"])
-    # 화면 요구사항: rank, keyword 만 표시
+    keywords = normalize_keywords(keywords)
+    # --- CSV 사전 추가 병합 ---
+    with st.expander("📚 키워드 사전 업로드 (CSV, 선택)", expanded=False):
+        st.caption("형식: raw,canonical (헤더 포함) / 예: 후디,후드티")
+        import pandas as _pd2
+        sample = "raw,canonical\n후디,후드티\n롱패딩,패딩\n숏패딩,패딩\n"
+        st.download_button("예제 CSV 받기", data=sample, file_name="envy_keyword_map.csv", mime="text/csv")
+        up = st.file_uploader("사전 CSV 업로드", type=["csv"], key="dl_csv")
+        if up is not None:
+            try:
+                df_map = _pd2.read_csv(up)
+                extra = {str(r.raw): str(r.canonical) for _, r in df_map.iterrows() if str(r.raw).strip()}
+                # 런타임 매핑 병합
+                _norm_map.update(extra)
+                keywords = normalize_keywords(keywords)
+            except Exception as e:
+                st.warning(f"사전 CSV 처리 실패: {e}")
     df_kw = pd.DataFrame({"keyword": keywords})
     st.dataframe(df_kw, use_container_width=True, height=480)
 
@@ -150,13 +293,14 @@ with col2:
     st.components.v1.html(iframe_html, height=800)
     st.link_button("🔗 새창에서 열기 (모바일)", "https://m.11st.co.kr/browsing/AmazonBest")
     # --- 실험: 11번가 인기 리스트 우회 파싱 (차단되면 샘플 표기) ---
-    with st.expander("🧪 11번가 인기 리스트 (우회 모드, 실험)", expanded=False):
+    with st.expander("🧪 11번가 인기 리스트 (우회 모드)", expanded=(e11_mode=="우회(피드/프록시)")):
         import pandas as _pd
         import re as _re
         import requests as _rq
         _rows = []
         try:
-            _html = _rq.get("https://m.11st.co.kr/browsing/AmazonBest", timeout=8).text
+            _rows = fetch_e11_list(proxy_base, ua)
+            # 텍스트는 내부에서 가져오므로 별도 요청 불필요
             # 매우 단순한 패턴 매칭(차단/변경 대비)
             # 상품명 후보
             names = _re.findall(r'"productName"\s*:\s*"([^"]{5,80})"', _html)
@@ -192,6 +336,11 @@ with _right:
         st.text_input("API 키 입력 (세션 저장)", type="password", key="OPENAI_API_KEY")
         st.caption("환경변수 OPENAI_API_KEY 사용도 가능. 미입력 시 규칙 기반으로 폴백.")
 
+btn_col1, btn_col2 = st.columns([1,5])
+with btn_col1:
+    gen_now = st.button("제목 생성", use_container_width=True)
+with btn_col2:
+    st.caption("상단에서 바로 생성")
 brand   = st.text_input("브랜드")
 base_kw = st.text_input("기본 문장")
 extra_kw= st.text_input("키워드 (쉼표 , 로 구분)")
@@ -237,7 +386,7 @@ def gen_openai_titles(brand, base_kw, keywords, n=5):
     except Exception as e:
         raise RuntimeError(f"API_FAIL:{e}")
 
-if st.button("제목 생성"):
+if gen_now:
     if mode.startswith("규칙"):
         titles = gen_rule_titles(brand, base_kw, extra_kw, count)
         st.success("규칙 기반 결과")
