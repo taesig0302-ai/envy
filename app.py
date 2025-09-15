@@ -87,6 +87,9 @@ if rate2 and loc_price > 0:
     st.sidebar.caption(f"환산 원가: ₩{conv_cost:,.0f}  •  배송비: ₩{shipping:,.0f}")
     st.sidebar.success(f"🔥 예상 판매가: **{final_price:,.0f} 원**")
     st.sidebar.write(f"순이익: **{profit:,.0f} 원**  (실마진 {margin_pct:.1f}%)")
+    # 합계 값(예상 판매가) 고정 칸 제공
+    st.sidebar.text_input('판매가(원)', value=f'{final_price:,.0f}', disabled=True)
+    st.sidebar.text_input('순이익(마진)', value=f"{profit:,.0f} 원 ({margin_pct:.1f}%)", disabled=True)
 elif loc_price > 0 and not rate2:
     st.sidebar.error("현지 통화 환율을 불러오지 못했습니다.")
 
@@ -147,6 +150,36 @@ with col2:
     """
     st.components.v1.html(iframe_html, height=800)
     st.link_button("🔗 새창에서 열기 (모바일)", "https://m.11st.co.kr/browsing/AmazonBest")
+    # --- 실험: 11번가 인기 리스트 우회 파싱 (차단되면 샘플 표기) ---
+    with st.expander("🧪 11번가 인기 리스트 (우회 모드, 실험)", expanded=False):
+        import pandas as _pd
+        import re as _re
+        import requests as _rq
+        _rows = []
+        try:
+            _html = _rq.get("https://m.11st.co.kr/browsing/AmazonBest", timeout=8).text
+            # 매우 단순한 패턴 매칭(차단/변경 대비)
+            # 상품명 후보
+            names = _re.findall(r'"productName"\s*:\s*"([^"]{5,80})"', _html)
+            prices = _re.findall(r'"finalPrice"\s*:\s*"?(\d[\d,]{3,})"?', _html)
+            for i, n in enumerate(names[:20]):
+                price = prices[i] if i < len(prices) else ''
+                price = price.replace(',', '')
+                _rows.append({"rank": i+1, "product": n, "price": price})
+        except Exception:
+            _rows = []
+        if not _rows:
+            SAMPLE = [
+                {"rank":1,"product":"애플 에어팟 Pro (2세대)","price":"329000"},
+                {"rank":2,"product":"삼성 갤럭시 S23 256GB","price":"998000"},
+                {"rank":3,"product":"나이키 운동화 레볼루션","price":"89000"},
+                {"rank":4,"product":"LG 노트북 16형 초경량","price":"1399000"},
+                {"rank":5,"product":"스타벅스 텀블러 473ml","price":"23000"},
+            ]
+            _rows = SAMPLE
+            st.caption("실데이터 차단 시 샘플 리스트를 표시합니다.")
+        st.dataframe(_pd.DataFrame(_rows), use_container_width=True, height=360)
+
 
 # -------------------------------
 # 상품명 생성기 (규칙/AI 토글 – 기존 유지)
