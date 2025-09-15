@@ -6,7 +6,7 @@ import pandas as pd
 # ==============================
 # 기본 설정
 # ==============================
-st.set_page_config(page_title="실시간 환율 + 마진 + 데이터랩 + 11번가", layout="wide")
+st.set_page_config(page_title="소싱 통합도구", layout="wide")
 
 # 다크모드 / 라이트모드
 dark_mode = st.sidebar.checkbox("🌙 다크 모드", value=False)
@@ -16,6 +16,7 @@ if dark_mode:
         <style>
         body {background-color: #1e1e1e; color: white;}
         .stApp {background-color: #1e1e1e; color: white;}
+        .css-1d391kg {color: white;}
         </style>
         """ ,
         unsafe_allow_html=True,
@@ -78,7 +79,7 @@ currency_map = {"USD ($)": "USD", "EUR (€)": "EUR", "JPY (¥)": "JPY", "CNY (�
 rate = get_exchange_rate(currency_map[currency])
 if rate:
     converted = amount * rate
-    st.sidebar.markdown(f"**{amount:.2f} {currency} → {converted:,.0f} 원**")
+    st.sidebar.markdown(f"<h3>{amount:.2f} {currency} → {converted:,.0f} 원</h3>", unsafe_allow_html=True)
     st.sidebar.caption(f"1 {currency_map[currency]} = ₩{rate:,.2f} (10분 캐시)")
 else:
     st.sidebar.error("환율 불러오기 실패")
@@ -105,14 +106,17 @@ else:
 # ==============================
 # 메인 화면
 # ==============================
-st.title("💹 실시간 환율 + 📊 마진 + 📈 데이터랩 + 🛒 11번가")
+st.title("💹 환율 + 📊 마진 + 📈 데이터랩 + 🛒 11번가 통합도구")
 
 # 데이터랩 + 11번가 병렬 배치
 col1, col2 = st.columns(2)
 
 with col1:
     st.subheader("📊 네이버 데이터랩 (API 모드)")
-    category = st.selectbox("카테고리 선택", ["패션의류", "화장품/미용", "식품", "디지털/가전"])
+    category = st.selectbox(
+        "카테고리 선택",
+        ["패션의류", "화장품/미용", "식품", "디지털/가전", "생활/건강", "스포츠/레저", "출산/육아", "가구/인테리어", "문구/취미", "도서/음반"]
+    )
     if category:
         data = get_datalab_keywords(category)
         if data:
@@ -122,5 +126,13 @@ with col1:
             st.warning("데이터랩 API 호출 실패 또는 응답 없음")
 
 with col2:
-    st.subheader("🛒 11번가 베스트 (PC)")
-    st.components.v1.iframe("https://www.11st.co.kr/browsing/BestSeller.tmall", height=900)
+    st.subheader("🛒 11번가 베스트 (모바일/PC)")
+    iframe_html = '''
+    <iframe src="https://m.11st.co.kr/MW/html/main.html" width="100%" height="800" frameborder="0"></iframe>
+    <script>
+    if (!document.querySelector("iframe").contentWindow.location) {
+        document.querySelector("iframe").srcdoc = '<script>window.location.replace("https://www.11st.co.kr/browsing/BestSeller.tmall")</script>';
+    }
+    </script>
+    '''
+    st.components.v1.html(iframe_html, height=820)
