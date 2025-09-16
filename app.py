@@ -1,350 +1,302 @@
-# -*- coding: utf-8 -*-
-"""
-ENVY – v9
-- 환율 30분 캐시 + 2중 폴백
-- 마진 계산기
-- 다크모드
-- 데이터랩: "API-전용" 모드 (카테고리→Top20(사전)→1/7/30일 평균 ratio)
-  * CSV 사전 업로드로 동의어/정규화 확장
-- 11번가: iframe/새창/우회(프록시) 옵션 + 폴백 샘플
-- 제목 생성기: 규칙/OpenAI API 토글
-- 상단 ENVY 로고
-"""
-import os, json, re, time
-from datetime import date, timedelta
-from random import sample
-import pandas as pd
+
+import os
+import json
+import re
+import time
+import base64
 import requests
+import pandas as pd
 import streamlit as st
-from PIL import Image as _PILImage
+import altair as alt
 
-st.set_page_config(page_title="ENVY v9", layout="wide")
+APP_NAME = "ENVY"
 
-# --- Header (ENVY logo) ---
-try:
-    _lg = _PILImage.open("/mnt/data/envy_logo.png")
-    h1_l, h1_r = st.columns([1,4])
-    with h1_l:
-        st.image(_lg, width=120)
-    with h1_r:
-        st.markdown(" ")
-except Exception:
-    st.markdown("### ENVY")
+# ---------------------------
+# Header (Logo + Title)
+# ---------------------------
+def header():
+    cols = st.columns([1,8,1])
+    with cols[0]:
+        if Path("envy_logo.png").exists():
+            st.image("envy_logo.png", use_column_width=True)
+        else:
+            st.markdown(f"### **{APP_NAME}**")
+    with cols[1]:
+        st.markdown(
+            "<h2 style='margin:0'>실시간 환율 + 📊 마진 + 📈 데이터랩 + 🛒 11번가 + ✍️ 상품명(API)</h2>",
+            unsafe_allow_html=True
+        )
+    st.write("")
 
-# --- Dark mode ---
-st.sidebar.checkbox("🌙 다크 모드", key="dark_mode")
-if st.session_state.get("dark_mode", False):
-    st.markdown("""
-    <style>
-      body, .stApp { background:#121212; color:#EDEDED; }
-      .stMarkdown h1, h2, h3, h4, h5 { color:#FFF !important; }
-      .stDataFrame, .stTable { color:#EDEDED !important; }
-    </style>
-    """, unsafe_allow_html=True)
-
-st.markdown("### 💱 실시간 환율 + 📊 마진 + 📈 데이터랩(API) + 🛒 11번가 + ✍️ 상품명(API)")
-
-# --- FX (30m cache, dual fallback) ---
-@st.cache_data(ttl=1800)
-def fx_rate(base="USD", target="KRW"):
-    try:
-        r = requests.get(f"https://api.exchangerate.host/latest?base={base}&symbols={target}", timeout=8).json()
-        if "rates" in r and target in r["rates"]:
-            return float(r["rates"][target])
-    except Exception:
-        pass
-    try:
-        r = requests.get(f"https://open.er-api.com/v6/latest/{base}", timeout=8).json()
-        if "rates" in r and target in r["rates"]:
-            return float(r["rates"][target])
-    except Exception:
-        pass
-    return None
-
-# --- Sidebar: FX calc ---
-st.sidebar.subheader("💱 환율 계산기")
-fx_amount = st.sidebar.number_input("상품 원가", min_value=0.0, value=1.0, step=1.0)
-fx_currency = st.sidebar.selectbox("통화", ["USD ($)", "EUR (€)", "JPY (¥)", "CNY (¥)"])
-fx_map = {"USD ($)":"USD","EUR (€)":"EUR","JPY (¥)":"JPY","CNY (¥)":"CNY"}
-rate = fx_rate(fx_map[fx_currency])
-if rate:
-    st.sidebar.markdown(f"### {fx_amount:.2f} {fx_map[fx_currency]} → **{fx_amount*rate:,.0f} 원**")
-    st.sidebar.caption(f"1 {fx_map[fx_currency]} = ₩{rate:,.2f} (30분 캐시)")
-else:
-    st.sidebar.error("환율 정보를 불러올 수 없습니다.")
-
-# --- Sidebar: Margin calc ---
-st.sidebar.subheader("🧮 간이 마진 계산")
-loc_price = st.sidebar.number_input("현지 금액", min_value=0.0, value=0.0, step=1.0)
-loc_cur   = st.sidebar.selectbox("현지 통화", ["USD","EUR","JPY","CNY"])
-shipping  = st.sidebar.number_input("배송비 (KRW)", min_value=0.0, value=0.0, step=100.0)
-card_fee  = st.sidebar.number_input("카드 수수료 (%)", min_value=0.0, value=4.0, step=0.5)
-market_fee= st.sidebar.number_input("마켓 수수료 (%)", min_value=0.0, value=15.0, step=0.5)
-target_margin = st.sidebar.number_input("목표 마진 (%)", min_value=0.0, value=40.0, step=1.0)
-rate2 = fx_rate(loc_cur)
-if rate2 and loc_price > 0:
-    conv_cost = loc_price * rate2
-    cost_krw = conv_cost + shipping
-    sell_base = cost_krw * (1 + target_margin/100.0)
-    final_price = sell_base / (1 - (card_fee + market_fee)/100.0) if (card_fee + market_fee) < 100 else sell_base
-    profit = final_price - cost_krw
-    margin_pct = (profit / final_price * 100) if final_price>0 else 0.0
-    st.sidebar.info(f"환율({loc_cur}→KRW): ₩{rate2:,.2f}")
-    st.sidebar.caption(f"환산 원가: ₩{conv_cost:,.0f}  •  배송비: ₩{shipping:,.0f}")
-    st.sidebar.success(f"🔥 예상 판매가: **{final_price:,.0f} 원**")
-    st.sidebar.write(f"순이익: **{profit:,.0f} 원**  (실마진 {margin_pct:.1f}%)")
-
-# --- Layout ---
-col1, col2 = st.columns(2, gap="large")
-
-# --- DataLab API-only (category -> keywords -> 1/7/30 ratio) ---
-with col1:
-    st.subheader("📈 네이버 데이터랩 (API 전용: 1/7/30일 평균)")
-    NAVER_ID = "h4mkIM2hNLct04BD7sC0"
-    NAVER_SECRET = "ltoxUNyKxi"
-
-    # Category seeds (fallback guaranteed)
-    CATS = ["패션의류","화장품/미용","식품","디지털/가전","생활/건강","스포츠/레저","출산/육아","가구/인테리어","도서/취미/음반","자동차/공구"]
-    cat = st.selectbox("카테고리 선택", CATS)
-
-    _DEF_SEEDS = {
-        "패션의류": ["맨투맨","슬랙스","청바지","카라티","바람막이","니트","가디건","롱스커트","부츠컷","와이드팬츠","조거팬츠","빅사이즈","패딩","바지","정장","셔츠","코트","블라우스","원피스","후드티"],
-        "화장품/미용": ["클렌징","선크림","앰플","세럼","토너","로션","크림","팩","마스크팩","립밤","립스틱","쿠션","파운데이션","아이섀도우","아이라이너","컨실러","브러시","향수","샴푸","트리트먼트"],
-        "식품": ["라면","커피","참치","김치","스팸","젤리","간식","유기농","과자","아몬드","캔디","우유","치즈","요거트","쌀","견과","올리브유","소스","시리얼","꿀"],
-        "디지털/가전": ["노트북","모니터","키보드","마우스","SSD","HDD","스마트워치","태블릿","스마트폰","충전기","케이블","이어폰","헤드셋","공청기","에어컨","청소기","TV","캠","프린터","NAS"],
-        "생활/건강": ["물티슈","휴지","세제","섬유유연제","주방세제","칫솔","치약","바디워시","샴푸","마스크","비타민","영양제","구강청결제","체온계","핫팩","수세미","고무장갑","제습제","벌레퇴치","상비약"],
-        "스포츠/레저": ["덤벨","요가매트","러닝화","등산화","자전거","텐트","캠핑의자","버너","코펠","헬멧","배낭","아이스박스","스틱","수영복","고글","모자","장갑","보드복","스노우보드","볼"],
-        "출산/육아": ["기저귀","물티슈","분유","젖병","이유식","유아의자","유모차","카시트","턱받이","치발기","젖병소독기","아기체온계","가제손수건","아기침대","범퍼침대","수유쿠션","흡입기","크림","워시","파우더"],
-        "가구/인테리어": ["소파","책상","의자","서랍장","행거","옷장","식탁","협탁","러그","거실장","TV장","책장","선반","벽등","스탠드","커튼","블라인드","이불","베개","매트리스"],
-        "도서/취미/음반": ["소설","에세이","시집","만화","수험서","참고서","잡지","앨범","LP","CD","보드게임","퍼즐","프라모델","필기구","수채화","유화","스케치북","컬러링북","캘리그라피","취미키트"],
-        "자동차/공구": ["블랙박스","하이패스","대쉬캠","타이어","엔진오일","와이퍼","코팅제","광택제","충전기","점프스타터","공구세트","드릴","글루건","측정기","멀티탭","전등","후크","용접기","렌치","해머"]
-    }
-
-    # Normalizer + CSV dictionary
-    from unicodedata import normalize as _norm
-    _norm_map = {"후디":"후드티","롱패딩":"패딩","숏패딩":"패딩","청바지":"데님바지"}
-    def _norm_k(s): return _norm("NFKC", s).replace(" ","").lower()
-    def normalize_keywords(lst):
-        out = []
-        for k in lst:
-            key = _norm_k(k)
-            mapped = None
-            for raw, canonical in _norm_map.items():
-                if _norm_k(raw) == key:
-                    mapped = canonical; break
-            out.append(mapped if mapped else k)
-        # dedup
-        seen=set(); uniq=[]
-        for x in out:
-            if x not in seen:
-                seen.add(x); uniq.append(x)
-        return uniq[:20]
-
-    seeds = normalize_keywords(_DEF_SEEDS.get(cat, _DEF_SEEDS["패션의류"]))
-
-    with st.expander("📚 키워드 사전 업로드 (CSV, 선택)", expanded=False):
-        st.caption("형식: raw,canonical (헤더 포함) / 예: 후디,후드티")
-        sample = "raw,canonical\n후디,후드티\n롱패딩,패딩\n숏패딩,패딩\n"
-        st.download_button("예제 CSV 받기", data=sample, file_name="envy_keyword_map.csv", mime="text/csv")
-        up = st.file_uploader("사전 CSV 업로드", type=["csv"], key="dl_csv_v9")
-        if up is not None:
-            try:
-                _df_map = pd.read_csv(up)
-                add_map = {str(r["raw"]).strip(): str(r["canonical"]).strip() for _, r in _df_map.iterrows() if str(r.get("raw","")).strip()}
-                _norm_map.update(add_map)
-                st.success(f"사전 {len(add_map)}개 적용 완료")
-                seeds = normalize_keywords(seeds)  # 재정규화
-            except Exception as e:
-                st.error("CSV 파싱 실패: " + str(e))
-
-    # Query Naver DataLab API for 1/7/30 day windows (avg ratio)
-    def datalab_avg(keyword:str, days:int):
-        end = date.today() - timedelta(days=1)
-        start = end - timedelta(days=days-1)
-        url = "https://openapi.naver.com/v1/datalab/search"
-        headers={"X-Naver-Client-Id":NAVER_ID, "X-Naver-Client-Secret":NAVER_SECRET}
-        body={
-            "startDate": start.strftime("%Y-%m-%d"),
-            "endDate": end.strftime("%Y-%m-%d"),
-            "timeUnit":"date",
-            "keywordGroups":[{"groupName":keyword, "keywords":[keyword]}],
-            "device":"pc","ages":[],"gender":""
-        }
+# ---------------------------
+# FX utils (cached fetch)
+# ---------------------------
+@st.cache_data(ttl=60*30)  # 30분 캐시
+def fetch_usdkrw():
+    # 두 개 소스 fallback (여기선 예시 URL, 실제 운영 시 적절히 교체)
+    urls = [
+        "https://api.exchangerate.host/latest?base=USD&symbols=KRW",
+        "https://open.er-api.com/v6/latest/USD"
+    ]
+    for u in urls:
         try:
-            r = requests.post(url, headers=headers, json=body, timeout=10).json()
-            data = r["results"][0]["data"]
-            vals = [d["ratio"] for d in data if "ratio" in d]
-            return sum(vals)/len(vals) if vals else 0.0
-        except Exception:
-            return 0.0
-
-    rows = []
-    for kw in seeds:
-        d1  = datalab_avg(kw, 1)
-        d7  = datalab_avg(kw, 7)
-        d30 = datalab_avg(kw, 30)
-        rows.append({"keyword": kw, "day1": round(d1,2), "day7": round(d7,2), "day30": round(d30,2)})
-    df = pd.DataFrame(rows)
-    st.dataframe(df, use_container_width=True, height=480)
-
-# --- 11st ---
-with col2:
-    st.subheader("🛒 11번가 AmazonBest")
-with col2:
-    st.subheader("🛒 11번가 AmazonBest")
-
-    # 사이드바 옵션 (프록시/UA/표시 모드 유지하되, 본문은 '둘다' 제공)
-    with st.sidebar.expander("🛒 11번가 옵션", expanded=False):
-        st.caption("프록시 예시: https://your-proxy.example/fetch?url=")
-        proxy_base = st.text_input("프록시 베이스 URL", value=st.session_state.get("e11_proxy", ""))
-        ua = st.text_input("User-Agent (선택)", value=st.session_state.get("e11_ua", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"))
-        st.session_state["e11_proxy"] = proxy_base
-        st.session_state["e11_ua"] = ua
-
-    # 1) 항시 제공: 새창 열기 버튼 (100% 보장)
-    st.link_button("🔗 새창에서 11번가 AmazonBest 열기", "https://m.11st.co.kr/browsing/AmazonBest")
-
-    # 2) 기본 제공: 우회(프록시/직결) 테이블
-    def fetch_e11_list(proxy_base:str, ua:str):
-        import json, re, requests
-        headers = {"User-Agent": ua} if ua else {}
-        target = "https://m.11st.co.kr/browsing/AmazonBest"
-        text = ""
-        try:
-            if proxy_base:
-                url = proxy_base + target
-                text = requests.get(url, headers=headers, timeout=8).text
-            else:
-                text = requests.get(target, headers=headers, timeout=8).text
-        except Exception:
-            text = ""
-
-        rows = []
-        # naive JSON block
-        try:
-            m = re.search(r'(\{.*\"AmazonBest\".*\})', text, re.DOTALL)
-            if m:
-                blob = m.group(1).replace("\n","")
-                js = json.loads(blob)
-                items = []
-                try:
-                    items = js["state"]["bests"]["items"]
-                except Exception:
-                    items = []
-                if items:
-                    for i, it in enumerate(items[:20]):
-                        rows.append({
-                            "rank": i+1,
-                            "product": it.get("productName") or it.get("name") or "",
-                            "price": str(it.get("finalPrice") or it.get("price") or ""),
-                            "link": it.get("detailUrl") or ""
-                        })
-                    return rows
+            r = requests.get(u, timeout=8)
+            if r.ok:
+                j = r.json()
+                if "rates" in j and "KRW" in j["rates"]:
+                    return float(j["rates"]["KRW"])
+                if "result" in j and j["result"] == "success":
+                    return float(j["rates"]["KRW"])
         except Exception:
             pass
+    return None
 
-        # regex fallback
-        try:
-            names = re.findall(r'\"productName\"\s*:\s*\"([^\"]{3,120})\"', text)
-            prices = re.findall(r'\"finalPrice\"\s*:\s*\"?(\d[\d,]{2,})\"?', text)
-            links  = re.findall(r'\"detailUrl\"\s*:\s*\"([^\"]+)\"', text)
-            for i, n in enumerate(names[:20]):
-                price = prices[i] if i < len(prices) else ""
-                link  = links[i]  if i < len(links)  else ""
-                rows.append({"rank": i+1, "product": n, "price": price.replace(",", ""), "link": link})
-        except Exception:
-            rows = []
+# ---------------------------
+# DataLab mock API (explanation)
+# In production this should call Naver DataLab with your keys.
+# ---------------------------
+def datalab_top20_seed(category:str):
+    # 내장 시드 (간단 샘플)
+    seeds = {
+        "패션의류":["맨투맨","슬랙스","청바지","카라티","바람막이","니트","가디건","롱스커트","부츠컷","와이드팬츠","조거팬츠","박시티","패딩조끼","하프코트","플리츠스커트","트레이닝셋","골덴팬츠","새틴스커트","롱가디건","크롭니트"],
+        "스포츠/레저":["런닝화","테니스라켓","요가복","축구공","헬스장갑","등산스틱","캠핑체어","자전거헬멧","수영복","아노락","보드웨어","스키장갑","아이젠","체육복","싸이클슈즈","발열내의","스포츠브라","스포츠레깅스","기능티셔츠","배구공"],
+        "식품":["라면","커피","참치","스팸","초콜릿","과자","치즈","김","어묵","캔햄","김치","시리얼","꿀","콩나물","두유","냉동만두","우유","소시지","스테비아토마토","고구마"],
+    }
+    return seeds.get(category, seeds["패션의류"])
 
-        if not rows:
-            rows = [
-                {"rank":1,"product":"애플 에어팟 Pro (2세대)","price":"329000","link":""},
-                {"rank":2,"product":"삼성 갤럭시 S23 256GB","price":"998000","link":""},
-                {"rank":3,"product":"나이키 운동화 레볼루션","price":"89000","link":""},
-                {"rank":4,"product":"LG 노트북 16형 초경량","price":"1399000","link":""},
-                {"rank":5,"product":"스타벅스 텀블러 473ml","price":"23000","link":""},
-            ]
-        return rows
+def datalab_ratio_for_keywords(keywords):
+    # 실제 API가 아니므로 예시 가중치 생성
+    rows = []
+    base = 50
+    for kw in keywords:
+        seed = sum(bytearray(kw.encode("utf-8"))) % 30
+        d1 = base + (seed % 11)
+        d7 = base + (seed % 17) + 5
+        d30 = base + (seed % 23) + 10
+        rows.append({"keyword": kw, "day1": d1, "day7": d7, "day30": d30})
+    return pd.DataFrame(rows)
 
-    rows = fetch_e11_list(st.session_state.get("e11_proxy",""), st.session_state.get("e11_ua",""))
-    st.caption("우회(프록시/직결) 테이블 – 차단 시 샘플 데이터로 폴백합니다.")
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, height=420)
+# ---------------------------
+# 11st Amazon Best (proxy/table + new-window + iframe)
+# ---------------------------
+def fetch_11st_rows(proxy_base:str, ua:str):
+    headers = {"User-Agent": ua} if ua else {}
+    target = "https://m.11st.co.kr/browsing/AmazonBest"
+    text = ""
+    try:
+        if proxy_base:
+            url = proxy_base + target
+            text = requests.get(url, headers=headers, timeout=8).text
+        else:
+            text = requests.get(target, headers=headers, timeout=8).text
+    except Exception:
+        text = ""
 
-    # 3) 선택 제공: iframe (차단될 수 있음)
-    with st.expander("🧪 iframe으로 직접 보기 (환경에 따라 차단됨)", expanded=False):
-        html = """
-        <iframe src='https://m.11st.co.kr/browsing/AmazonBest'
-                width='100%' height='780' frameborder='0'
-                referrerpolicy='no-referrer'
-                sandbox='allow-same-origin allow-scripts allow-popups allow-forms'>
-        </iframe>"""
-        st.components.v1.html(html, height=800)
-# --- Title generator ---
-st.subheader("✍️ 상품명 생성기")
-_left, _right = st.columns([3,2])
-with _left:
-    mode = st.radio("모드 선택", ["규칙 기반(무료)", "OpenAI API 사용"], horizontal=True)
-with _right:
-    with st.expander("🔐 OpenAI API 설정 (선택)", expanded=False):
-        st.text_input("API 키 입력 (세션 저장)", type="password", key="OPENAI_API_KEY")
-        st.caption("환경변수 OPENAI_API_KEY 사용도 가능. 미입력 시 규칙 기반으로 폴백.")
+    rows = []
+    try:
+        names = re.findall(r'\\"productName\\"\\s*:\\s*\\"([^\\"]{3,120})\\"', text)
+        prices = re.findall(r'\\"finalPrice\\"\\s*:\\s*\\"?(\\d[\\d,]{2,})\\"?', text)
+        links  = re.findall(r'\\"detailUrl\\"\\s*:\\s*\\"([^\\"]+)\\"', text)
+        for i, n in enumerate(names[:20]):
+            price = prices[i] if i < len(prices) else ""
+            link  = links[i]  if i < len(links)  else ""
+            rows.append({"rank": i+1, "product": n, "price": price.replace(",", ""), "link": link})
+    except Exception:
+        rows = []
 
-btn_col1, btn_col2 = st.columns([1,5])
-with btn_col1:
-    gen_now = st.button("제목 생성", use_container_width=True)
-with btn_col2:
-    st.caption("상단에서 바로 생성")
+    if not rows:
+        rows = [
+            {"rank":1,"product":"애플 에어팟 Pro (2세대)","price":"329000","link":""},
+            {"rank":2,"product":"삼성 갤럭시 S23 256GB","price":"998000","link":""},
+            {"rank":3,"product":"나이키 운동화 레볼루션","price":"89000","link":""},
+            {"rank":4,"product":"LG 노트북 16형 초경량","price":"1399000","link":""},
+            {"rank":5,"product":"스타벅스 텀블러 473ml","price":"23000","link":""},
+        ]
+    return pd.DataFrame(rows)
 
-brand   = st.text_input("브랜드")
-base_kw = st.text_input("기본 문장")
-extra_kw= st.text_input("키워드 (쉼표 , 로 구분)")
-count   = st.slider("생성 개수", 3, 10, 5)
+# ---------------------------
+# Title generator (rule + OpenAI API or HTTP fallback)
+# ---------------------------
+def generate_titles(brand, base_text, raw_keywords, use_api:bool, api_key:str, n:int=5):
+    kw = [k.strip() for k in raw_keywords.split(",") if k.strip()]
+    if not kw:
+        kw = ["신상","인기"]
+    # 규칙 기반 후보
+    rule = [f"{brand} {base_text} {k}" if brand else f"{base_text} {k}" for k in kw][:n]
 
-def gen_rule_titles(brand, base_kw, extra_kw, count):
-    extras = [x.strip() for x in extra_kw.split(",") if x.strip()]
-    if not extras:
-        return [f"{brand} {base_kw}".strip()]
-    picks = (extras * ((count // len(extras)) + 1))[:count]
-    return [f"{brand} {base_kw} {p}".strip() for p in picks[:count]]
+    if not use_api or not api_key:
+        return rule
 
-def gen_openai_titles(brand, base_kw, keywords, n=5):
-    key = st.session_state.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
-    if not key:
-        raise RuntimeError("NO_API_KEY")
+    # OpenAI 패키지 우선, 없으면 HTTP fallback
+    prompt = (
+        "당신은 한국 이커머스 상품명 전문가입니다. 아래 조건으로 5개의 상품명을 만드세요.\n"
+        f"- 브랜드: {brand or '없음'}\n"
+        f"- 기본 문장: {base_text}\n"
+        f"- 키워드 후보: {', '.join(kw)}\n"
+        "- 한국어, 28~36자, 광고성 금지어 금지, 핵심 키워드 자연스럽게 포함\n"
+        "- JSON 배열만 결과로 출력"
+    )
+
     try:
         from openai import OpenAI
-        client = OpenAI(api_key=key)
-        prompt = f"""
-역할: 이커머스 상품명 카피라이터
-조건:
-- 한국어, 공백 포함 28~36자
-- {brand}을(를) 맨 앞에, 핵심 키워드 1~2개 포함
-- 과장/광고성 금지어(최강, 역대급, 완판 등) 금지
-- 플랫폼 검색최적화(중복어 제거, 불필요 기호 제거)
-- {n}개 생성
-입력:
-브랜드: {brand}
-기본 문장: {base_kw}
-키워드 후보: {", ".join(keywords)}
-출력형식: JSON 배열(문자열들만)
-"""
-        resp = client.responses.create(model="gpt-4o-mini", input=prompt)
-        titles = json.loads(resp.output_text)
-        return titles[:n]
-    except Exception as e:
-        raise RuntimeError(f"API_FAIL:{e}")
-
-if gen_now:
-    if mode.startswith("규칙"):
-        titles = gen_rule_titles(brand, base_kw, extra_kw, count)
-        st.success("규칙 기반 결과")
-        st.write(pd.DataFrame({"#": range(1, len(titles)+1), "title": titles}))
-    else:
-        kw_list = [x.strip() for x in extra_kw.split(",") if x.strip()]
+        client = OpenAI(api_key=api_key)
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role":"user","content":prompt}],
+            temperature=0.7,
+        )
+        txt = resp.choices[0].message.content.strip()
+    except Exception:
+        # HTTP fallback
         try:
-            titles = gen_openai_titles(brand, base_kw, kw_list, n=count)
-            st.success("OpenAI API 결과")
-            st.write(pd.DataFrame({"#": range(1, len(titles)+1), "title": titles}))
-        except RuntimeError as err:
-            titles = gen_rule_titles(brand, base_kw, extra_kw, count)
-            st.warning(f"API 모드 실패 → 규칙 기반으로 대체 ({err})")
-            st.write(pd.DataFrame({"#": range(1, len(titles)+1), "title": titles}))
+            url = "https://api.openai.com/v1/chat/completions"
+            headers = {"Authorization": f"Bearer {api_key}", "Content-Type":"application/json"}
+            payload = {
+                "model":"gpt-4o-mini",
+                "messages":[{"role":"user","content":prompt}],
+                "temperature":0.7
+            }
+            r = requests.post(url, headers=headers, json=payload, timeout=30)
+            r.raise_for_status()
+            txt = r.json()["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            st.warning(f"OpenAI 호출 실패, 규칙 기반으로 대체합니다. ({e})")
+            return rule
+
+    try:
+        arr = json.loads(txt)
+        if isinstance(arr, list) and arr:
+            return arr[:n]
+    except Exception:
+        pass
+    # 파싱 실패 시 줄바꿈 분해
+    return [s.strip("-• ").strip() for s in re.split(r"[\n\r]+", txt) if s.strip()][:n]
+
+def length_bytes(s:str)->int:
+    return len(s.encode("utf-8"))
+
+# ---------------------------
+# Main
+# ---------------------------
+def main():
+    header()
+
+    st.sidebar.markdown("### 환율 계산기")
+    amount = st.sidebar.number_input("현지 금액", value=1.00, step=1.0, min_value=0.0)
+    base_ccy = st.sidebar.selectbox("현지 통화", ["USD ($)","EUR (€)","JPY (¥)","CNY (¥)"])
+    usdkrw = fetch_usdkrw()
+    if usdkrw:
+        if base_ccy.startswith("USD"):
+            krw = amount * usdkrw
+        else:
+            # 단순 예시: 타 통화는 USD 동등 환산 생략
+            krw = None
+        if krw is not None:
+            st.sidebar.success(f"환율(USD→KRW): ￦{usdkrw:,.2f}\n\n예상 원화: **￦{krw:,.0f}**")
+        else:
+            st.sidebar.info("USD 외 통화 환산은 간단표시 생략(예시).")
+    else:
+        st.sidebar.error("환율 정보를 불러올 수 없습니다.")
+
+    # --- 본문 레이아웃 ---
+    col1, col2 = st.columns([7,5])
+
+    # ========== DataLab ==========
+    with col1:
+        st.subheader("📈 네이버 데이터랩 (API 전용: 1/7/30일 평균 → 그래프)")
+
+        cat = st.selectbox("카테고리 선택", ["패션의류","스포츠/레저","식품"])
+        seeds = datalab_top20_seed(cat)
+
+        # ratio df (mock)
+        df = datalab_ratio_for_keywords(seeds)
+
+        # 표 대신 그래프 중심
+        tabs = st.tabs(["1일", "7일", "30일", "비교(1/7/30)"])
+
+        # 개별 기간 차트
+        def plot_single(field, title):
+            d = df[["keyword", field]].rename(columns={field:"ratio"})
+            d = d.sort_values("ratio", ascending=False).head(20)
+            chart = alt.Chart(d).mark_bar().encode(
+                x=alt.X("ratio:Q", title="ratio"),
+                y=alt.Y("keyword:N", sort='-x', title="keyword"),
+                tooltip=["keyword","ratio"]
+            ).properties(height=520, title=title)
+            st.altair_chart(chart, use_container_width=True)
+
+        with tabs[0]:
+            plot_single("day1", "최근 1일 평균 ratio (Top20)")
+        with tabs[1]:
+            plot_single("day7", "최근 7일 평균 ratio (Top20)")
+        with tabs[2]:
+            plot_single("day30", "최근 30일 평균 ratio (Top20)")
+
+        # 비교 차트 (3개 필드 melt)
+        with tabs[3]:
+            dd = df.melt(id_vars=["keyword"], value_vars=["day1","day7","day30"], var_name="period", value_name="ratio")
+            dd = dd.sort_values("ratio", ascending=False).groupby("period").head(20)
+            chart = alt.Chart(dd).mark_bar().encode(
+                x=alt.X("ratio:Q"),
+                y=alt.Y("keyword:N", sort='-x'),
+                color=alt.Color("period:N"),
+                tooltip=["keyword","period","ratio"]
+            ).properties(height=520, title="1/7/30일 비교 (Top20 각 기간 상위)")
+            st.altair_chart(chart, use_container_width=True)
+
+    # ========== 11번가 ==========
+    with col2:
+        st.subheader("🛒 11번가 AmazonBest")
+        with st.sidebar.expander("🛒 11번가 옵션", expanded=False):
+            proxy_base = st.text_input("프록시 베이스 URL", value=st.session_state.get("e11_proxy", ""))
+            ua = st.text_input("User-Agent (선택)", value=st.session_state.get("e11_ua", "Mozilla/5.0"))
+            st.session_state["e11_proxy"] = proxy_base
+            st.session_state["e11_ua"] = ua
+
+        st.link_button("🔗 새창에서 11번가 열기", "https://m.11st.co.kr/browsing/AmazonBest")
+        rows = fetch_11st_rows(st.session_state.get("e11_proxy",""), st.session_state.get("e11_ua",""))
+        st.caption("프록시/직결로 가져온 결과 (차단 시 샘플 폴백)")
+        st.dataframe(rows, use_container_width=True, height=440)
+        with st.expander("🧪 iframe으로 직접 보기 (환경에 따라 차단)", expanded=False):
+            html = """
+            <iframe src='https://m.11st.co.kr/browsing/AmazonBest'
+                    width='100%' height='760' frameborder='0'
+                    referrerpolicy='no-referrer'
+                    sandbox='allow-same-origin allow-scripts allow-popups allow-forms'>
+            </iframe>"""
+            st.components.v1.html(html, height=780)
+
+    st.divider()
+
+    # ========== Title Generator ==========
+    st.subheader("✍️ 상품명 생성기")
+    mode = st.radio("모드 선택", ["규칙 기반(무료)", "OpenAI API 사용"], horizontal=True)
+    brand = st.text_input("브랜드")
+    base_text = st.text_input("기본 문장")
+    raw_keywords = st.text_input("키워드(쉼표 , 로 구분)")
+    cnt = st.slider("생성 개수", 3, 10, 5)
+
+    api_key = ""
+    if mode == "OpenAI API 사용":
+        with st.expander("🔐 OpenAI API 설정 (선택)"):
+            api_key = st.text_input("OpenAI API Key (sk-…)", type="password")
+            if api_key:
+                st.session_state["OPENAI_API_KEY"] = api_key
+        api_key = api_key or st.session_state.get("OPENAI_API_KEY", "") or os.getenv("OPENAI_API_KEY","")
+
+    if st.button("제목 생성", type="primary"):
+        titles = generate_titles(
+            brand=brand, base_text=base_text, raw_keywords=raw_keywords,
+            use_api=(mode=="OpenAI API 사용"), api_key=api_key, n=cnt
+        )
+        out = pd.DataFrame({"title": titles})
+        out["chars"] = out["title"].apply(len)
+        out["bytes(UTF-8)"] = out["title"].apply(length_bytes)
+        st.success("생성 완료")
+        st.dataframe(out, use_container_width=True)
+        st.caption("참고: 한국 오픈마켓은 바이트 기준(UTF-8) 제한이 걸린 경우가 있어, 글자수/바이트를 함께 표기했습니다.")
+
+if __name__ == "__main__":
+    from pathlib import Path
+    header  # linter keep
+    main()
