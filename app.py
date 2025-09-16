@@ -3,20 +3,22 @@ import os
 import json
 import re
 import time
-import base64
-import requests
+from datetime import datetime, timedelta
+
 import pandas as pd
+import requests
 import streamlit as st
 import altair as alt
 
 APP_NAME = "ENVY"
 
-# ---------------------------
-# Header (Logo + Title)
-# ---------------------------
+# =====================
+# Utilities
+# =====================
 def header():
     cols = st.columns([1,8,1])
     with cols[0]:
+        # logo optional
         if Path("envy_logo.png").exists():
             st.image("envy_logo.png", use_column_width=True)
         else:
@@ -24,48 +26,41 @@ def header():
     with cols[1]:
         st.markdown(
             "<h2 style='margin:0'>실시간 환율 + 📊 마진 + 📈 데이터랩 + 🛒 11번가 + ✍️ 상품명(API)</h2>",
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
     st.write("")
 
-# ---------------------------
-# FX utils (cached fetch)
-# ---------------------------
-@st.cache_data(ttl=60*30)  # 30분 캐시
+@st.cache_data(ttl=60*30)
 def fetch_usdkrw():
-    # 두 개 소스 fallback (여기선 예시 URL, 실제 운영 시 적절히 교체)
     urls = [
         "https://api.exchangerate.host/latest?base=USD&symbols=KRW",
-        "https://open.er-api.com/v6/latest/USD"
+        "https://open.er-api.com/v6/latest/USD",
     ]
     for u in urls:
         try:
             r = requests.get(u, timeout=8)
             if r.ok:
                 j = r.json()
+                # exchangerate.host
                 if "rates" in j and "KRW" in j["rates"]:
                     return float(j["rates"]["KRW"])
-                if "result" in j and j["result"] == "success":
+                # er-api
+                if j.get("result") == "success" and "rates" in j:
                     return float(j["rates"]["KRW"])
         except Exception:
             pass
     return None
 
-# ---------------------------
-# DataLab mock API (explanation)
-# In production this should call Naver DataLab with your keys.
-# ---------------------------
-def datalab_top20_seed(category:str):
-    # 내장 시드 (간단 샘플)
-    seeds = {
-        "패션의류":["맨투맨","슬랙스","청바지","카라티","바람막이","니트","가디건","롱스커트","부츠컷","와이드팬츠","조거팬츠","박시티","패딩조끼","하프코트","플리츠스커트","트레이닝셋","골덴팬츠","새틴스커트","롱가디건","크롭니트"],
-        "스포츠/레저":["런닝화","테니스라켓","요가복","축구공","헬스장갑","등산스틱","캠핑체어","자전거헬멧","수영복","아노락","보드웨어","스키장갑","아이젠","체육복","싸이클슈즈","발열내의","스포츠브라","스포츠레깅스","기능티셔츠","배구공"],
-        "식품":["라면","커피","참치","스팸","초콜릿","과자","치즈","김","어묵","캔햄","김치","시리얼","꿀","콩나물","두유","냉동만두","우유","소시지","스테비아토마토","고구마"],
-    }
-    return seeds.get(category, seeds["패션의류"])
+# =====================
+# DataLab (mock + CSV + hooks)
+# =====================
+CATEGORY_SEEDS = {
+    "패션의류":["맨투맨","슬랙스","청바지","카라티","바람막이","니트","가디건","롱스커트","부츠컷","와이드팬츠","조거팬츠","박시티","패딩조끼","하프코트","플리츠스커트","트레이닝셋","골덴팬츠","새틴스커트","롱가디건","크롭니트"],
+    "스포츠/레저":["런닝화","테니스라켓","요가복","축구공","헬스장갑","등산스틱","캠핑체어","자전거헬멧","수영복","아노락","보드웨어","스키장갑","아이젠","체육복","싸이클슈즈","발열내의","스포츠브라","스포츠레깅스","기능티셔츠","배구공"],
+    "식품":["라면","커피","참치","스팸","초콜릿","과자","치즈","김","어묵","캔햄","김치","시리얼","꿀","콩나물","두유","냉동만두","우유","소시지","스테비아토마토","고구마"],
+}
 
-def datalab_ratio_for_keywords(keywords):
-    # 실제 API가 아니므로 예시 가중치 생성
+def mock_ratios_from_keywords(keywords):
     rows = []
     base = 50
     for kw in keywords:
@@ -76,9 +71,50 @@ def datalab_ratio_for_keywords(keywords):
         rows.append({"keyword": kw, "day1": d1, "day7": d7, "day30": d30})
     return pd.DataFrame(rows)
 
-# ---------------------------
-# 11st Amazon Best (proxy/table + new-window + iframe)
-# ---------------------------
+def clean_keyword(s:str)->str:
+    ss = s.strip()
+    # 간단 정규화: 중복공백 제거, 슬래시/하이픈 통일
+    ss = re.sub(r"[\/\-]+", " ", ss)
+    ss = re.sub(r"\s+", " ", ss)
+    return ss
+
+def normalize_keywords(keywords):
+    # 동의어/철자 변형 맵 (예시)
+    norm_map = {
+        "맨투맨":"맨투맨",
+        "맨투 맨":"맨투맨",
+        "티셔츠":"티셔츠",
+        "티 샤츠":"티셔츠",
+        "데님 팬츠":"청바지",
+        "데님":"청바지",
+        "바이크 쇼츠":"바이크쇼츠",
+    }
+    out = []
+    for k in keywords:
+        k2 = clean_keyword(k)
+        out.append(norm_map.get(k2, k2))
+    return out
+
+def parse_uploaded_csv(file):
+    # 기대 포맷: keyword[,day1,day7,day30] — 없으면 모의 값 생성
+    try:
+        df = pd.read_csv(file)
+        if "keyword" in df.columns:
+            for c in ["day1","day7","day30"]:
+                if c not in df.columns:
+                    # 모의로 채우기
+                    tmp = mock_ratios_from_keywords(df["keyword"].tolist())
+                    df = df.merge(tmp, on="keyword", how="left")
+                    break
+            df["keyword"] = df["keyword"].astype(str).apply(clean_keyword)
+            return df[["keyword","day1","day7","day30"]]
+    except Exception:
+        pass
+    return None
+
+# =====================
+# 11st
+# =====================
 def fetch_11st_rows(proxy_base:str, ua:str):
     headers = {"User-Agent": ua} if ua else {}
     target = "https://m.11st.co.kr/browsing/AmazonBest"
@@ -114,29 +150,64 @@ def fetch_11st_rows(proxy_base:str, ua:str):
         ]
     return pd.DataFrame(rows)
 
-# ---------------------------
-# Title generator (rule + OpenAI API or HTTP fallback)
-# ---------------------------
-def generate_titles(brand, base_text, raw_keywords, use_api:bool, api_key:str, n:int=5):
-    kw = [k.strip() for k in raw_keywords.split(",") if k.strip()]
-    if not kw:
-        kw = ["신상","인기"]
-    # 규칙 기반 후보
-    rule = [f"{brand} {base_text} {k}" if brand else f"{base_text} {k}" for k in kw][:n]
+# =====================
+# Title generation + 금칙어 자동대체
+# =====================
+DEFAULT_FORBIDDEN = [
+    "최고","유일","완치","100%","전부다","국내최초","세계최초","보장","환불보장",
+    "초특가","파격세일","공짜","무료","덤","대박","미친","극강","압도적",
+    "만병통치","효능","치료","즉시효과","확실","절대","무조건","안전보장",
+]
 
-    if not use_api or not api_key:
-        return rule
+DEFAULT_REPLACE_MAP = {
+    "무료":"무상",
+    "공짜":"무상",
+    "대박":"인기",
+    "미친":"강력",
+    "파격세일":"특가",
+    "보장":"제공",
+    "최고":"우수",
+    "세계최초":"새로운",
+    "국내최초":"새로운",
+}
 
-    # OpenAI 패키지 우선, 없으면 HTTP fallback
-    prompt = (
-        "당신은 한국 이커머스 상품명 전문가입니다. 아래 조건으로 5개의 상품명을 만드세요.\n"
-        f"- 브랜드: {brand or '없음'}\n"
-        f"- 기본 문장: {base_text}\n"
-        f"- 키워드 후보: {', '.join(kw)}\n"
-        "- 한국어, 28~36자, 광고성 금지어 금지, 핵심 키워드 자연스럽게 포함\n"
-        "- JSON 배열만 결과로 출력"
-    )
+def normalize_title(s:str)->str:
+    # 이모지/특수문자 일부 제거 (간단)
+    s = re.sub(r"[\u2600-\u27BF\u1F300-\u1F9FF]+", "", s)  # emojis (rough)
+    s = s.replace("  ", " ")
+    s = re.sub(r"\s+", " ", s).strip(" -_/·")
+    return s.strip()
 
+def apply_forbidden_map(text:str, forbidden:list, repl_map:dict):
+    out = text
+    # 우선 대체 맵 적용
+    for bad, repl in repl_map.items():
+        try:
+            out = re.sub(re.escape(bad), repl, out, flags=re.IGNORECASE)
+        except Exception:
+            pass
+    # 남은 금칙어는 제거
+    for bad in forbidden:
+        if bad in repl_map:  # 이미 처리됨
+            continue
+        try:
+            out = re.sub(re.escape(bad), "", out, flags=re.IGNORECASE)
+        except Exception:
+            pass
+    out = normalize_title(out)
+    return out
+
+def title_bytes(s:str)->int:
+    return len(s.encode("utf-8"))
+
+def rule_candidates(brand, base_text, keywords, n=5):
+    if not keywords:
+        keywords = ["신상","인기"]
+    rule = [f"{brand} {base_text} {k}".strip() if brand else f"{base_text} {k}".strip() for k in keywords]
+    return rule[:n]
+
+def call_openai(api_key, prompt):
+    # SDK 우선 → 실패 시 HTTP fallback
     try:
         from openai import OpenAI
         client = OpenAI(api_key=api_key)
@@ -145,76 +216,61 @@ def generate_titles(brand, base_text, raw_keywords, use_api:bool, api_key:str, n
             messages=[{"role":"user","content":prompt}],
             temperature=0.7,
         )
-        txt = resp.choices[0].message.content.strip()
+        return resp.choices[0].message.content.strip()
     except Exception:
-        # HTTP fallback
         try:
             url = "https://api.openai.com/v1/chat/completions"
             headers = {"Authorization": f"Bearer {api_key}", "Content-Type":"application/json"}
-            payload = {
-                "model":"gpt-4o-mini",
-                "messages":[{"role":"user","content":prompt}],
-                "temperature":0.7
-            }
+            payload = {"model":"gpt-4o-mini","messages":[{"role":"user","content":prompt}], "temperature":0.7}
             r = requests.post(url, headers=headers, json=payload, timeout=30)
             r.raise_for_status()
-            txt = r.json()["choices"][0]["message"]["content"].strip()
+            return r.json()["choices"][0]["message"]["content"].strip()
         except Exception as e:
-            st.warning(f"OpenAI 호출 실패, 규칙 기반으로 대체합니다. ({e})")
-            return rule
+            raise RuntimeError(f"OpenAI 호출 실패: {e}")
 
-    try:
-        arr = json.loads(txt)
-        if isinstance(arr, list) and arr:
-            return arr[:n]
-    except Exception:
-        pass
-    # 파싱 실패 시 줄바꿈 분해
-    return [s.strip("-• ").strip() for s in re.split(r"[\n\r]+", txt) if s.strip()][:n]
-
-def length_bytes(s:str)->int:
-    return len(s.encode("utf-8"))
-
-# ---------------------------
-# Main
-# ---------------------------
+# =====================
+# Streamlit UI
+# =====================
 def main():
     header()
 
+    # Sidebar: 환율
     st.sidebar.markdown("### 환율 계산기")
     amount = st.sidebar.number_input("현지 금액", value=1.00, step=1.0, min_value=0.0)
     base_ccy = st.sidebar.selectbox("현지 통화", ["USD ($)","EUR (€)","JPY (¥)","CNY (¥)"])
     usdkrw = fetch_usdkrw()
-    if usdkrw:
-        if base_ccy.startswith("USD"):
-            krw = amount * usdkrw
-        else:
-            # 단순 예시: 타 통화는 USD 동등 환산 생략
-            krw = None
-        if krw is not None:
-            st.sidebar.success(f"환율(USD→KRW): ￦{usdkrw:,.2f}\n\n예상 원화: **￦{krw:,.0f}**")
-        else:
-            st.sidebar.info("USD 외 통화 환산은 간단표시 생략(예시).")
-    else:
-        st.sidebar.error("환율 정보를 불러올 수 없습니다.")
+    if usdkrw and base_ccy.startswith("USD"):
+        st.sidebar.success(f"USD→KRW: ￦{usdkrw:,.2f}\n\n예상 원화: **￦{amount*usdkrw:,.0f}**")
+    elif not usdkrw:
+        st.sidebar.error("환율 불러오기 실패")
 
-    # --- 본문 레이아웃 ---
+    # Main layout
     col1, col2 = st.columns([7,5])
 
-    # ========== DataLab ==========
+    # -------- DataLab --------
     with col1:
-        st.subheader("📈 네이버 데이터랩 (API 전용: 1/7/30일 평균 → 그래프)")
+        st.subheader("📈 네이버 데이터랩 (Top20 + 1/7/30 그래프)")
 
-        cat = st.selectbox("카테고리 선택", ["패션의류","스포츠/레저","식품"])
-        seeds = datalab_top20_seed(cat)
+        cat = st.selectbox("카테고리 선택", list(CATEGORY_SEEDS.keys()), index=0)
+        seeds_default = CATEGORY_SEEDS[cat]
 
-        # ratio df (mock)
-        df = datalab_ratio_for_keywords(seeds)
+        # 업로드로 직접 시드/지표 입력 지원
+        up = st.file_uploader("키워드 시드 업로드 (CSV, 선택) — 컬럼: keyword[,day1,day7,day30]", type=["csv"])
+        if up:
+            df = parse_uploaded_csv(up)
+            if df is None:
+                st.warning("CSV 해석 실패. 기본 시드로 대체합니다.")
+                df = mock_ratios_from_keywords(seeds_default)
+        else:
+            # 모의 지표
+            df = mock_ratios_from_keywords(seeds_default)
 
-        # 표 대신 그래프 중심
+        # 키워드 정규화/중복 제거
+        df["keyword"] = normalize_keywords(df["keyword"].astype(str))
+        df = df.drop_duplicates("keyword")
+
         tabs = st.tabs(["1일", "7일", "30일", "비교(1/7/30)"])
 
-        # 개별 기간 차트
         def plot_single(field, title):
             d = df[["keyword", field]].rename(columns={field:"ratio"})
             d = d.sort_values("ratio", ascending=False).head(20)
@@ -231,8 +287,6 @@ def main():
             plot_single("day7", "최근 7일 평균 ratio (Top20)")
         with tabs[2]:
             plot_single("day30", "최근 30일 평균 ratio (Top20)")
-
-        # 비교 차트 (3개 필드 melt)
         with tabs[3]:
             dd = df.melt(id_vars=["keyword"], value_vars=["day1","day7","day30"], var_name="period", value_name="ratio")
             dd = dd.sort_values("ratio", ascending=False).groupby("period").head(20)
@@ -244,7 +298,7 @@ def main():
             ).properties(height=520, title="1/7/30일 비교 (Top20 각 기간 상위)")
             st.altair_chart(chart, use_container_width=True)
 
-    # ========== 11번가 ==========
+    # -------- 11번가 --------
     with col2:
         st.subheader("🛒 11번가 AmazonBest")
         with st.sidebar.expander("🛒 11번가 옵션", expanded=False):
@@ -255,7 +309,7 @@ def main():
 
         st.link_button("🔗 새창에서 11번가 열기", "https://m.11st.co.kr/browsing/AmazonBest")
         rows = fetch_11st_rows(st.session_state.get("e11_proxy",""), st.session_state.get("e11_ua",""))
-        st.caption("프록시/직결로 가져온 결과 (차단 시 샘플 폴백)")
+        st.caption("프록시/직결 결과 (차단 시 샘플 폴백)")
         st.dataframe(rows, use_container_width=True, height=440)
         with st.expander("🧪 iframe으로 직접 보기 (환경에 따라 차단)", expanded=False):
             html = """
@@ -268,13 +322,29 @@ def main():
 
     st.divider()
 
-    # ========== Title Generator ==========
-    st.subheader("✍️ 상품명 생성기")
+    # -------- Title generator + forbidden filter --------
+    st.subheader("✍️ 상품명 생성기 + 금칙어 자동대체")
     mode = st.radio("모드 선택", ["규칙 기반(무료)", "OpenAI API 사용"], horizontal=True)
     brand = st.text_input("브랜드")
     base_text = st.text_input("기본 문장")
     raw_keywords = st.text_input("키워드(쉼표 , 로 구분)")
     cnt = st.slider("생성 개수", 3, 10, 5)
+
+    with st.expander("🛡️ 금칙어/대체어 설정", expanded=True):
+        colA, colB, colC = st.columns([4,4,2])
+        with colA:
+            forb = st.text_area("금칙어 목록(줄바꿈으로 구분)", value="\n".join(DEFAULT_FORBIDDEN), height=160)
+            forbidden = [w.strip() for w in forb.splitlines() if w.strip()]
+        with colB:
+            repl_lines = st.text_area("대체 맵(형식: 원문=>대체어, 줄바꿈)", value="\n".join([f"{k}=>{v}" for k,v in DEFAULT_REPLACE_MAP.items()]), height=160)
+            repl_map = {}
+            for line in repl_lines.splitlines():
+                if "=>" in line:
+                    a,b = line.split("=>",1)
+                    repl_map[a.strip()] = b.strip()
+        with colC:
+            max_bytes = st.number_input("바이트 제한(UTF-8)", min_value=10, max_value=120, value=60, step=2)
+            hard_trim = st.checkbox("제한 초과 시 자동 자르기", value=True)
 
     api_key = ""
     if mode == "OpenAI API 사용":
@@ -285,18 +355,60 @@ def main():
         api_key = api_key or st.session_state.get("OPENAI_API_KEY", "") or os.getenv("OPENAI_API_KEY","")
 
     if st.button("제목 생성", type="primary"):
-        titles = generate_titles(
-            brand=brand, base_text=base_text, raw_keywords=raw_keywords,
-            use_api=(mode=="OpenAI API 사용"), api_key=api_key, n=cnt
-        )
-        out = pd.DataFrame({"title": titles})
-        out["chars"] = out["title"].apply(len)
-        out["bytes(UTF-8)"] = out["title"].apply(length_bytes)
-        st.success("생성 완료")
-        st.dataframe(out, use_container_width=True)
-        st.caption("참고: 한국 오픈마켓은 바이트 기준(UTF-8) 제한이 걸린 경우가 있어, 글자수/바이트를 함께 표기했습니다.")
+        keywords = [k.strip() for k in raw_keywords.split(",") if k.strip()]
+        titles = rule_candidates(brand, base_text, keywords, n=cnt)
+
+        if mode == "OpenAI API 사용" and api_key:
+            prompt = (
+                "당신은 한국 이커머스 상품명 전문가입니다. 아래 조건으로 "
+                f"{cnt}개의 상품명을 만드세요.\n"
+                f"- 브랜드: {brand or '없음'}\n"
+                f"- 기본 문장: {base_text}\n"
+                f"- 키워드 후보: {', '.join(keywords) or '신상, 인기'}\n"
+                "- 한국어, 28~36자, 광고성 금지어 금지, 핵심 키워드 자연스럽게 포함\n"
+                "- JSON 배열만 결과로 출력"
+            )
+            try:
+                resp = call_openai(api_key, prompt)
+                try:
+                    arr = json.loads(resp)
+                    if isinstance(arr, list) and arr:
+                        titles = arr[:cnt]
+                except Exception:
+                    # 줄바꿈 리스트 허용
+                    lines = [s.strip("-• ").strip() for s in re.split(r"[\n\r]+", resp) if s.strip()]
+                    if lines:
+                        titles = lines[:cnt]
+            except Exception as e:
+                st.warning(f"OpenAI 실패: {e}. 규칙 기반으로 대체합니다.")
+
+        # 금칙어 자동 대체 적용
+        after = []
+        for t in titles:
+            t1 = apply_forbidden_map(t, forbidden, repl_map)
+            if title_bytes(t1) > max_bytes and hard_trim:
+                # 바이트 초과 시 부드럽게 자르기
+                b = t1.encode("utf-8")
+                b = b[:max_bytes]
+                # 깨진 멀티바이트 컷 보정
+                while True:
+                    try:
+                        t1 = b.decode("utf-8")
+                        break
+                    except UnicodeDecodeError:
+                        b = b[:-1]
+            after.append(t1)
+
+        df = pd.DataFrame({
+            "원본": titles,
+            "적용후": after,
+            "chars": [len(s) for s in after],
+            "bytes(UTF-8)": [title_bytes(s) for s in after],
+        })
+        st.success("생성 완료 (금칙어 자동대체 적용)")
+        st.dataframe(df, use_container_width=True, height=330)
+        st.download_button("CSV로 내보내기", df.to_csv(index=False).encode("utf-8-sig"), file_name="titles_filtered.csv", mime="text/csv")
 
 if __name__ == "__main__":
-    from pathlib import Path
-    header  # linter keep
+    header  # keep
     main()
