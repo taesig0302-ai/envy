@@ -1,14 +1,18 @@
 
 # -*- coding: utf-8 -*-
-# ENVY Full v18 (fixed)
-import os, io, json
+# ENVY Full v20
+# - UI 고정(사이드바: 환율/마진/시나리오/다크) · 본문 1행(좌=데이터랩, 우=11번가) · 아래(상품명 생성기)
+# - 마진 계산기: '퍼센트 마진(%)' 또는 '더하기 마진(₩)' 선택 지원
+# - 나머지 v19 기능 유지
+
+import os, re, json
 from datetime import datetime
 import streamlit as st
 import pandas as pd
 import requests
 import altair as alt
 
-st.set_page_config(page_title="ENVY v18 — 환율·마진·데이터랩·11번가·상품명", layout="wide")
+st.set_page_config(page_title="ENVY v20 — 환율·마진·데이터랩·11번가·상품명", layout="wide")
 
 # ====================== THEME ======================
 if "THEME_DARK" not in st.session_state:
@@ -20,15 +24,13 @@ def inject_theme(dark: bool):
         <style>
         .block-container{padding-top:1rem}
         body, .main, .block-container{ background:#0f1116 !important; color:#e5e7eb !important; }
-        .st-bx, .st-cz, .st-da, .st-dh, .st-em, .stDataFrame{ background:#1b1f2a !important; }
+        .stDataFrame{ background:#1b1f2a !important; }
         .stMetricValue, .stMetricDelta{ color:#e5e7eb !important; }
         </style>
         '''
     else:
         css = r'''
-        <style>
-        .block-container{padding-top:1rem}
-        </style>
+        <style>.block-container{padding-top:1rem}</style>
         '''
     st.markdown(css, unsafe_allow_html=True)
 
@@ -89,21 +91,39 @@ local_curr = st.sidebar.selectbox("현지 통화", [c for c,_ in CURRENCIES], in
 ship = st.sidebar.number_input("배송비(KRW)", min_value=0.0, value=0.0, step=1000.0, format="%.0f")
 card_fee = st.sidebar.number_input("카드 수수료(%)", min_value=0.0, value=4.0, step=0.5)
 market_fee = st.sidebar.number_input("마켓 수수료(%)", min_value=0.0, value=15.0, step=0.5)
-target_margin = st.sidebar.number_input("목표 마진(%)", min_value=0.0, value=40.0, step=1.0)
+
+margin_mode = st.sidebar.radio("마진 방식", ["퍼센트 마진(%)", "더하기 마진(₩)"], horizontal=True)
+if margin_mode == "퍼센트 마진(%)":
+    target_margin_pct = st.sidebar.number_input("목표 마진(%)", min_value=0.0, value=40.0, step=1.0)
+    add_margin_krw = 0.0
+else:
+    add_margin_krw = st.sidebar.number_input("더하기 마진(₩)", min_value=0.0, value=0.0, step=1000.0, format="%.0f")
+    target_margin_pct = 0.0
 
 rates2 = fx_rates(local_curr)
 krw_cost = local_amt * rates2.get("KRW", 0.0) + ship
-sell_price = krw_cost * (1+card_fee/100) * (1+market_fee/100) * (1+target_margin/100)
+fee_mult = (1 + card_fee/100) * (1 + market_fee/100)
+
+if margin_mode == "퍼센트 마진(%)":
+    # 판매가 = 비용 * 수수료계수 * (1 + 목표마진)
+    sell_price = krw_cost * fee_mult * (1 + target_margin_pct/100)
+else:
+    # 판매가 = 비용 * 수수료계수 + 더하기마진
+    sell_price = krw_cost * fee_mult + add_margin_krw
+
 profit = sell_price - krw_cost
+profit_rate = (profit / sell_price * 100) if sell_price > 0 else 0.0
+
 st.sidebar.metric("예상 판매가", f"₩{sell_price:,.0f}")
-st.sidebar.metric("예상 순이익", f"₩{profit:,.0f}", delta=f"{(profit/sell_price*100 if sell_price>0 else 0):.1f}%")
+st.sidebar.metric("예상 순이익", f"₩{profit:,.0f}", delta=f"{profit_rate:.1f}%")
 
 # 시나리오 저장/불러오기
 st.sidebar.markdown("#### 💾 시나리오 저장/불러오기")
 scenario = {
     "amount": amount, "base": base,
     "local_amt": local_amt, "local_curr": local_curr,
-    "ship": ship, "card_fee": card_fee, "market_fee": market_fee, "target_margin": target_margin,
+    "ship": ship, "card_fee": card_fee, "market_fee": market_fee,
+    "margin_mode": margin_mode, "target_margin_pct": target_margin_pct, "add_margin_krw": add_margin_krw
 }
 st.sidebar.download_button(
     "현재 설정 저장(JSON)",
@@ -127,6 +147,7 @@ st.markdown('---')
 # ====================== MAIN — Row: 데이터랩 · 11번가 ======================
 col_left, col_right = st.columns([1,1])
 
+# ----- 데이터랩 -----
 with col_left:
     st.markdown("### 📊 네이버 데이터랩 (Top20 + 1/7/30 트렌드)")
 
@@ -153,9 +174,8 @@ with col_left:
         st.download_button("Top20 키워드 CSV", df_kw.to_csv(index=False).encode("utf-8-sig"),
                            file_name=f"datalab_{cat}_top20.csv", mime="text/csv")
 
-    # trend (상위 5개, 가짜 값)
+    # 트렌드: 상위 5개 키워드 가짜 시계열
     import random
-    import pandas as pd
     def synth_trend(days=30, seed=0):
         random.seed(seed)
         base = random.randint(40, 70)
@@ -183,43 +203,58 @@ with col_left:
         ).properties(height=420)
         st.altair_chart(line, use_container_width=True)
 
+# ----- 11번가 -----
 with col_right:
-    st.markdown("### 🛍️ 11번가 리더 모드(요약)")
-    st.caption("정책상 iframe이 차단될 수 있어 요약 텍스트/새창 열기를 제공합니다.")
+    st.markdown("### 🛍️ 11번가 리더 모드(요약/표)")
+    st.caption("정책상 iframe 차단 → 서버에서 텍스트 요약 및 가격 패턴 추출(실험적)")
     url = st.text_input("URL 입력", "https://www.11st.co.kr/browsing/AmazonBest")
     c_btn1, c_btn2 = st.columns([1,1])
     with c_btn1:
-        go = st.button("서버에서 요약 시도")
+        go = st.button("서버에서 요약/추출")
     with c_btn2:
         st.link_button("모바일 새창", "https://m.11st.co.kr/browsing/AmazonBest")
         st.link_button("PC 새창", "https://www.11st.co.kr/browsing/AmazonBest")
+
     if go:
         try:
             r = requests.get(url, timeout=8, headers={"User-Agent":"Mozilla/5.0"})
-            text = r.text
-            import re
-            title = ""
-            m = re.search(r"<title>(.*?)</title>", text, flags=re.I|re.S)
-            if m:
-                title = re.sub(r"\s+"," ", m.group(1)).strip()
-            items = re.findall(r">(.*?)</a>", text)
-            candidates = []
-            for s in items:
-                ss = re.sub(r"<.*?>","", s).strip()
-                if 10 <= len(ss) <= 60:
-                    candidates.append(ss)
-            candidates = list(dict.fromkeys(candidates))[:20]
+            html = r.text
+            # 제목
+            m = re.search(r"<title>(.*?)</title>", html, flags=re.I|re.S)
+            title = re.sub(r"\s+"," ", m.group(1)).strip() if m else "(제목 없음)"
             st.success(f"페이지 제목: {title}")
-            st.write("상위 텍스트 20:")
-            for i, c in enumerate(candidates, 1):
-                st.write(f"{i}. {c}")
+
+            # 앵커 텍스트
+            anchor_texts = re.findall(r"<a[^>]*>(.*?)</a>", html, flags=re.I|re.S)
+            clean = []
+            for t in anchor_texts:
+                s = re.sub(r"<.*?>", "", t)
+                s = re.sub(r"\s+", " ", s).strip()
+                if 8 <= len(s) <= 80:
+                    clean.append(s)
+
+            # 가격 패턴
+            price_matches = re.findall(r"([₩]?\s?\d{1,3}(?:,\d{3})+(?:\s?원)?)", html)
+
+            names = list(dict.fromkeys(clean))[:30]
+            prices = list(dict.fromkeys(price_matches))[:30]
+            rows = []
+            for i in range(max(len(names), len(prices))):
+                nm = names[i] if i < len(names) else ""
+                pr = prices[i] if i < len(prices) else ""
+                rows.append({"#": i+1, "name": nm, "price": pr})
+            df_11 = pd.DataFrame(rows)
+            st.dataframe(df_11, use_container_width=True, height=420)
+            st.download_button("CSV 다운로드", df_11.to_csv(index=False).encode("utf-8-sig"),
+                               file_name="11st_snapshot.csv", mime="text/csv")
         except Exception as e:
-            st.error(f"요약 실패: {e}")
+            st.error(f"요약 실패: {e} — 새창 열기를 사용하세요.")
 
 st.markdown('---')
 
 # ====================== 상품명 생성기 ======================
 st.markdown("### ✍️ 상품명 생성기 (규칙 기반 + OpenAI API)")
+
 # 금칙어/치환 테이블
 st.markdown("#### 🚫 금칙어 필터")
 if "filter_rules" not in st.session_state:
@@ -238,9 +273,10 @@ rules = st.data_editor(
         "mode": st.column_config.SelectboxColumn("모드", options=["replace","remove"]),
         "replace_to": st.column_config.TextColumn("치환어"),
     },
-    key="rules_editor_v18"
+    key="rules_editor_v20"
 )
 
+# 입력
 c1, c2, c3 = st.columns(3)
 with c1:
     brand = st.text_input("브랜드", "")
@@ -349,5 +385,4 @@ if st.button("제목 5개 생성"):
     st.info("복사: 셀 더블클릭 후 Ctrl/Cmd+C. (브라우저 보안상 자동복사 제한)")
 
 st.markdown('---')
-st.caption("© ENVY v18 — 환율/마진/데이터랩/11번가/상품명 통합")
-
+st.caption("© ENVY v20 — 환율/마진(퍼센트/더하기)·데이터랩·11번가·상품명 통합")
