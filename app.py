@@ -1,13 +1,14 @@
 
-# ENVY v26 • Single-file (Merged)
-# All modules merged for single-file distribution (calculators, utils, datalab, namegen, elevenst, main)
+# ENVY v26 • Single-file (Altair Version)
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
+import altair as alt
 import json, time, random, html
+from dataclasses import dataclass
+from typing import Literal, Dict
 
-st.set_page_config(page_title="ENVY v26 • Single-file", page_icon="✅", layout="wide")
+st.set_page_config(page_title="ENVY v26 • Single-file Altair", page_icon="✅", layout="wide")
 
 # -------------------- utils --------------------
 def download_bytes(filename: str, data: bytes, label: str = "다운로드"):
@@ -48,9 +49,6 @@ def copy_button(text: str, key: str):
     """, height=46)
 
 # -------------------- calculators --------------------
-from dataclasses import dataclass
-from typing import Literal, Dict
-
 @dataclass
 class MarginInputs:
     exchange_rate: float = 190.0
@@ -95,9 +93,8 @@ def solve_sale(mi: MarginInputs) -> Dict[str,float]:
     on_cost = (profit/c*100) if c>0 else 0.0
     return dict(sale_price=P,revenue_after_fees=revenue,fees_total=fees,net_profit=profit,cost_total=c,net_margin_on_sale=on_sale,net_margin_on_cost=on_cost)
 
-# -------------------- datalab --------------------
+# -------------------- datalab with Altair --------------------
 def _mock_fetch(category: str, period: str):
-    # 모의 API: 일부 카테고리는 누락/지연을 발생시켜 예외처리 테스트
     if "누락" in category:
         raise ValueError("API 응답 누락")
     n=20
@@ -118,11 +115,9 @@ def robust_fetch(category: str, period: str, retries=2, delay=0.4):
     raise last_err
 
 def render_datalab():
-    st.subheader("데이터랩 Top100 + 비교 그래프")
+    st.subheader("데이터랩 Top100 + 비교 그래프 (Altair)")
     cat = st.text_input("카테고리", value="식품")
     period = st.selectbox("기간", ["최근7일","최근30일","최근90일"], index=1)
-
-    # API 호출 + 예외처리
     try:
         df = robust_fetch(cat, period, retries=2)
     except Exception as e:
@@ -134,19 +129,19 @@ def render_datalab():
 
     df["diff"] = df["curr"] - df["prev"]
     df["pct"] = (df["diff"] / df["prev"].replace(0,1)) * 100.0
-
     st.dataframe(df.head(100), use_container_width=True)
 
-    st.write("기간 비교 그래프 (상승=초록, 하락=빨강)")
-    topn = st.slider("표시 개수", 5, min(30, len(df)), 15)
+    topn = st.slider("표시 개수", 5, min(30,len(df)), 15)
     show = df.head(topn).copy()
-    colors = ["green" if x>=0 else "red" for x in show["diff"]]
+    show["color"] = np.where(show["diff"]>=0, "green", "red")
 
-    fig, ax = plt.subplots(figsize=(8,4))
-    ax.bar(show["keyword"], show["diff"], color=colors)
-    ax.set_ylabel("증감")
-    ax.set_xticklabels(show["keyword"], rotation=45, ha="right")
-    st.pyplot(fig, clear_figure=True)
+    chart = alt.Chart(show).mark_bar().encode(
+        x=alt.X("keyword", sort=None),
+        y="diff",
+        color=alt.Color("color:N", scale=None),
+        tooltip=["keyword","curr","prev","diff","pct"]
+    ).properties(width=600, height=300)
+    st.altair_chart(chart, use_container_width=True)
 
     st.download_button("CSV 내보내기", data=to_csv_bytes(df), file_name="datalab_top100.csv", mime="text/csv")
 
@@ -156,7 +151,6 @@ RULES = {
     "joiner": [" | ", " · ", " — "],
     "suffix": ["FastShip", "HotDeal", "2025"]
 }
-
 def rule_based(brand:str, base:str, kws:list) -> list:
     names = []
     for _ in range(5):
@@ -169,13 +163,11 @@ def rule_based(brand:str, base:str, kws:list) -> list:
 
 def render_namegen():
     st.subheader("상품명 생성기 (규칙 기반 + OpenAI 모드)")
-
     brand = st.text_input("브랜드", value="envy")
     base = st.text_input("베이스(핵심 키워드)", value="K-coffee mix")
-    keywords = st.text_input("연관키워드(쉼표로 구분)", value="Maxim, Kanu, Korea")
-    badwords = st.text_input("금칙어(쉼표로 구분)", value="copy, fake, replica")
+    keywords = st.text_input("연관키워드", value="Maxim, Kanu, Korea")
+    badwords = st.text_input("금칙어", value="copy, fake, replica")
     limit = st.slider("글자수 제한", 20, 120, 80)
-
     mode = st.radio("모드", ["규칙 기반","OpenAI API"], horizontal=True)
     tmpl = st.text_area("OpenAI 프롬프트 템플릿", value="브랜드: {brand}\\n핵심: {base}\\n키워드: {keywords}\\n금칙어: {bans}\\n길이제한: {limit}\\n조건에 맞는 상품명 5개.", height=120)
 
@@ -184,7 +176,7 @@ def render_namegen():
         out=[]
         for t in cands:
             t2 = " ".join(t.split())
-            if any(b in t2.lower() for b in bans):
+            if any(b in t2.lower() for b in bans): 
                 continue
             if len(t2)>limit: t2=t2[:limit]
             out.append(t2)
@@ -195,16 +187,16 @@ def render_namegen():
         if mode=="규칙 기반":
             cands = rule_based(brand, base, kws)
         else:
-            key = st.secrets.get("OPENAI_API_KEY", "") if hasattr(st, "secrets") else ""
+            key = st.secrets.get("OPENAI_API_KEY", "") if hasattr(st,"secrets") else ""
             _ = tmpl.format(brand=brand, base=base, keywords=", ".join(kws), bans=badwords, limit=limit)
             if not key:
-                st.warning("OPENAI_API_KEY가 없어 규칙 기반으로 대체합니다.")
+                st.warning("OPENAI_API_KEY 없음 → 규칙 기반 사용")
             cands = rule_based(brand, base, kws)
         cands = filter_and_trim(cands)
         st.session_state["name_cands"]=cands
 
     st.markdown("---")
-    st.write("**A/B 테스트 모드** — 두 세트 생성 후 투표")
+    st.write("A/B 테스트 모드")
     cols = st.columns(2)
     for i in range(2):
         with cols[i]:
@@ -216,9 +208,8 @@ def render_namegen():
             for idx, t in enumerate(cands):
                 st.write(f"{idx+1}. {t}")
                 copy_button(t, key=f"ab_{i}_{idx}")
-
     st.markdown("---")
-    st.write("**생성 결과**")
+    st.write("생성 결과")
     for idx, t in enumerate(st.session_state.get("name_cands", [])):
         st.write(f"{idx+1}. {t}")
         copy_button(t, key=f"cand_{idx}")
@@ -233,39 +224,34 @@ def _summary(df: pd.DataFrame) -> pd.DataFrame:
 
 def render_elevenst():
     st.subheader("11번가 요약")
-    url = st.text_input("리스트/검색 URL (옵션)", placeholder="https://www.11st.co.kr/...")
-    st.caption("모바일 embed는 정책상 제외. 대신 요약 카드 + 링크 아웃 제공.")
-
-    use_cache = st.checkbox("캐시(샘플) 사용", value=True)
+    url = st.text_input("URL (옵션)", placeholder="https://www.11st.co.kr/...")
+    st.caption("모바일 embed 제외 → 요약 카드 + 링크 제공")
+    use_cache = st.checkbox("캐시(샘플)", value=True)
     if use_cache:
         df = pd.DataFrame({
-            "title": [f"샘플상품{i}" for i in range(1,11)],
+            "title": [f"샘플{i}" for i in range(1,11)],
             "price": [i*1000 for i in range(10)],
             "sales": [i*3 for i in range(10)],
             "link": [url or "https://www.11st.co.kr/"]*10
         })
     else:
-        up = st.file_uploader("크롤 결과 CSV 업로드", type=["csv"])
+        up = st.file_uploader("CSV 업로드", type=["csv"])
         if up is None:
-            st.info("CSV 업로드 또는 캐시 사용을 선택하세요.")
+            st.info("CSV 업로드 또는 캐시 선택")
             return
         df = pd.read_csv(up)
-
     for _, r in df.iterrows():
-        st.markdown(f"**{r.get('title','')}**\n\n- 가격: {r.get('price','-')}\n- 판매량: {r.get('sales','-')}\n- 링크: {r.get('link','-')}\n")
-
+        st.markdown(f"**{r.get('title','')}** — 가격 {r.get('price','-')} | 판매 {r.get('sales','-')} | [링크]({r.get('link','-')})")
     st.write("요약표")
     st.dataframe(_summary(df))
-
     st.download_button("CSV 다운로드", data=to_csv_bytes(df), file_name="11st_list.csv", mime="text/csv")
 
-# -------------------- main app --------------------
-st.title("✅ ENVY v26 • Single-file (Merged)")
-st.caption("단일 파일 배포용 • v23 앵커 기반 복구판 연속성 보장")
+# -------------------- main --------------------
+st.title("✅ ENVY v26 • Single-file Altair")
+st.caption("Altair 그래프 적용 • 단일 파일 버전")
 
 apply_mobile_css()
 
-# Sidebar calculator
 with st.sidebar:
     st.header("환율/마진 계산기")
     mode = st.radio("모드", ["로켓그로스","해외구매대행"], horizontal=True)
@@ -275,7 +261,6 @@ with st.sidebar:
     target = st.number_input("목표마진(%)", 0.0, 100.0, 10.0, 0.1)
     basis = st.selectbox("마진 기준", ["on_cost","on_sale"], index=0)
     fee_mode = st.selectbox("수수료 처리", ["deduct_from_payout","add_on_top"], index=0)
-
     if mode=="로켓그로스":
         cny = st.number_input("상품원가(CNY)", 0.0, 1e9, 830.0, 1.0)
         total = 0.0
@@ -286,13 +271,10 @@ with st.sidebar:
     intl = st.number_input("국제배송", 0.0, 1e9, 0.0, 100.0)
     pack = st.number_input("포장비", 0.0, 1e9, 0.0, 100.0)
     other = st.number_input("기타비용", 0.0, 1e9, 0.0, 100.0)
-
-    mi = MarginInputs(
-        exchange_rate=ex, product_cost_cny=cny, total_cost_krw=total,
-        domestic_ship=domestic, intl_ship=intl, packaging=pack, other=other,
-        card_fee_pct=card, market_fee_pct=market, target_margin_pct=target,
-        basis=basis, fee_mode=fee_mode, mode="rocket" if mode=="로켓그로스" else "buying"
-    )
+    mi = MarginInputs(exchange_rate=ex,product_cost_cny=cny,total_cost_krw=total,
+        domestic_ship=domestic,intl_ship=intl,packaging=pack,other=other,
+        card_fee_pct=card,market_fee_pct=market,target_margin_pct=target,
+        basis=basis,fee_mode=fee_mode,mode="rocket" if mode=="로켓그로스" else "buying")
     res = solve_sale(mi)
     st.metric("권장 판매가", f"{res['sale_price']:,.0f} KRW")
     st.metric("순이익", f"{res['net_profit']:,.0f} KRW")
@@ -302,21 +284,19 @@ tab1, tab2, tab3, tab4 = st.tabs(["데이터랩","상품명 생성기","11번가
 with tab1: render_datalab()
 with tab2: render_namegen()
 with tab3: render_elevenst()
-
 with tab4:
-    st.subheader("시나리오 저장/불러오기 (JSON)")
+    st.subheader("시나리오 저장/불러오기")
     if st.button("현재 설정 저장"):
         payload = dict(margin_inputs=mi.__dict__)
         download_bytes("envy_v26_scenario.json", save_scenario_json(payload), "JSON 다운로드")
     up = st.file_uploader("JSON 불러오기", type=["json"])
-    if up is not None:
+    if up:
         loaded = load_scenario_json(up)
         st.write("불러온 시나리오:", loaded)
-        # 자동 주입
         try:
             vals = loaded.get("margin_inputs", {})
             for k,v in vals.items():
                 st.session_state[k]=v
-            st.success("사이드바 입력에 자동 반영했습니다. 값 확인 후 필요시 수정하세요.")
+            st.success("사이드바 입력 자동 반영 완료")
         except Exception:
-            st.warning("자동 반영 실패. 형식을 확인하세요.")
+            st.warning("자동 반영 실패")
