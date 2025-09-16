@@ -190,15 +190,23 @@ with col1:
 # --- 11st ---
 with col2:
     st.subheader("🛒 11번가 AmazonBest")
+with col2:
+    st.subheader("🛒 11번가 AmazonBest")
+
+    # 사이드바 옵션 (프록시/UA/표시 모드 유지하되, 본문은 '둘다' 제공)
     with st.sidebar.expander("🛒 11번가 옵션", expanded=False):
         st.caption("프록시 예시: https://your-proxy.example/fetch?url=")
         proxy_base = st.text_input("프록시 베이스 URL", value=st.session_state.get("e11_proxy", ""))
         ua = st.text_input("User-Agent (선택)", value=st.session_state.get("e11_ua", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"))
         st.session_state["e11_proxy"] = proxy_base
         st.session_state["e11_ua"] = ua
-        e11_mode = st.radio("표시 모드", ["iframe", "우회(피드/프록시)", "새창"], index=0, horizontal=True)
 
+    # 1) 항시 제공: 새창 열기 버튼 (100% 보장)
+    st.link_button("🔗 새창에서 11번가 AmazonBest 열기", "https://m.11st.co.kr/browsing/AmazonBest")
+
+    # 2) 기본 제공: 우회(프록시/직결) 테이블
     def fetch_e11_list(proxy_base:str, ua:str):
+        import json, re, requests
         headers = {"User-Agent": ua} if ua else {}
         target = "https://m.11st.co.kr/browsing/AmazonBest"
         text = ""
@@ -216,7 +224,7 @@ with col2:
         try:
             m = re.search(r'(\{.*\"AmazonBest\".*\})', text, re.DOTALL)
             if m:
-                blob = m.group(1).replace("\\n","")
+                blob = m.group(1).replace("\n","")
                 js = json.loads(blob)
                 items = []
                 try:
@@ -237,9 +245,9 @@ with col2:
 
         # regex fallback
         try:
-            names = re.findall(r'"productName"\\s*:\\s*"([^"]{3,120})"', text)
-            prices = re.findall(r'"finalPrice"\\s*:\\s*"?(\\d[\\d,]{2,})"?', text)
-            links  = re.findall(r'"detailUrl"\\s*:\\s*"([^"]+)"', text)
+            names = re.findall(r'\"productName\"\s*:\s*\"([^\"]{3,120})\"', text)
+            prices = re.findall(r'\"finalPrice\"\s*:\s*\"?(\d[\d,]{2,})\"?', text)
+            links  = re.findall(r'\"detailUrl\"\s*:\s*\"([^\"]+)\"', text)
             for i, n in enumerate(names[:20]):
                 price = prices[i] if i < len(prices) else ""
                 link  = links[i]  if i < len(links)  else ""
@@ -257,7 +265,12 @@ with col2:
             ]
         return rows
 
-    if e11_mode == "iframe":
+    rows = fetch_e11_list(st.session_state.get("e11_proxy",""), st.session_state.get("e11_ua",""))
+    st.caption("우회(프록시/직결) 테이블 – 차단 시 샘플 데이터로 폴백합니다.")
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, height=420)
+
+    # 3) 선택 제공: iframe (차단될 수 있음)
+    with st.expander("🧪 iframe으로 직접 보기 (환경에 따라 차단됨)", expanded=False):
         html = """
         <iframe src='https://m.11st.co.kr/browsing/AmazonBest'
                 width='100%' height='780' frameborder='0'
@@ -265,12 +278,6 @@ with col2:
                 sandbox='allow-same-origin allow-scripts allow-popups allow-forms'>
         </iframe>"""
         st.components.v1.html(html, height=800)
-    elif e11_mode == "새창":
-        st.link_button("🔗 새창에서 11번가 AmazonBest 열기", "https://m.11st.co.kr/browsing/AmazonBest")
-    else:
-        rows = fetch_e11_list(st.session_state.get("e11_proxy",""), st.session_state.get("e11_ua",""))
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, height=780)
-
 # --- Title generator ---
 st.subheader("✍️ 상품명 생성기")
 _left, _right = st.columns([3,2])
