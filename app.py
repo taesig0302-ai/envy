@@ -1,259 +1,331 @@
+
 # -*- coding: utf-8 -*-
-import os, re, math, json, time, hashlib
-from typing import List, Tuple, Dict
+# ENVY v23 — DataLab: Rank + Keyword + Graph(solid line)
+# UI 레이아웃은 v22 고정 유지
+
+import os, re
+from datetime import datetime, timedelta
+from typing import List, Tuple
 import requests
 import pandas as pd
 from bs4 import BeautifulSoup
 import altair as alt
 import streamlit as st
 
-# ---------------------------
-# 기본 설정
-# ---------------------------
 st.set_page_config(page_title="ENVY", page_icon="🦊", layout="wide")
 
-# 상단 로고/타이틀
-st.markdown(
-    """
-    <div style='display:flex;align-items:center;gap:12px;margin-bottom:8px'>
-      <span style='font-size:26px;font-weight:700'>ENVY</span>
-      <span style='opacity:.7'>소싱 & 가격/키워드 도구 — v16</span>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+# ---------- Branding ----------
+st.markdown(r"""
+<style>
+.block-container { padding-top: 0.4rem; }
+header, footer { visibility: hidden; height: 0; }
+.topbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:4px 0 10px 0; }
+.brand { font-size:22px; font-weight:800; }
+.badge { background:#111827; color:#fff; padding:2px 8px; border-radius:8px; font-size:12px; }
+.note { font-size:12px; opacity:.7; }
+.iframe-wrap { position:relative; width:100%; padding-top: 62%; border:1px solid rgba(0,0,0,.1); border-radius:8px; overflow:hidden; }
+.iframe-wrap iframe { position:absolute; top:0; left:0; width:100%; height:100%; border:0; }
+</style>
+""", unsafe_allow_html=True)
+st.markdown(r"""
+<div class="topbar">
+  <div class="brand">ENVY <span class="badge">v23</span></div>
+  <div class="note">소싱 · 키워드 · 가격</div>
+</div>
+""", unsafe_allow_html=True)
 
-# 공통 HTTP 헤더 & 캐시 유틸
-REQ_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-}
+REQ_HEADERS = {"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
 
-@st.cache_data(ttl=1800)  # 30분 캐시
-def fetch_html(url: str, timeout: int = 10) -> str:
+@st.cache_data(ttl=1800)
+def fetch_html(url: str, timeout=12) -> str:
     r = requests.get(url, headers=REQ_HEADERS, timeout=timeout)
     r.raise_for_status()
     return r.text
 
-def count_kor_bytes(text: str) -> Tuple[int, int]:
-    # 글자수와 바이트수(UTF-8 기준 한글 3바이트 가정)
+def count_kor_bytes(text: str) -> Tuple[int,int]:
     chars = len(text)
     b = 0
     for ch in text:
-        b += 3 if re.match(r"[ㄱ-힣]", ch) else len(ch.encode("utf-8"))
+        if re.match(r"[ㄱ-힣]", ch): b += 3
+        else: b += len(ch.encode("utf-8"))
     return chars, b
 
-def apply_banwords(text: str, rules: List[Tuple[str, str]]) -> str:
+def apply_rules(t: str, rules: List[Tuple[str,str]]) -> str:
     for bad, repl in rules:
-        text = re.sub(re.escape(bad), repl, text, flags=re.IGNORECASE)
-    return text
+        t = re.sub(re.escape(bad), repl, t, flags=re.IGNORECASE)
+    return " ".join(t.split())
 
-def spaced_join(*parts):
-    return " ".join([p.strip() for p in parts if p and p.strip()])
+def wt_recent(df: pd.DataFrame, col="ratio", w7=0.6, w3=0.3, w1=0.1) -> float:
+    if df.empty: return 0.0
+    s1 = df[col].tail(1).sum()
+    s3 = df[col].tail(3).sum()
+    s7 = df[col].tail(7).sum()
+    return w7*s7 + w3*s3 + w1*s1
 
+# ---------- Sidebar: 환율/마진 계산기 (v22 유지) ----------
+st.sidebar.markdown("### ⚙️ 환율/마진 계산기")
 
-# ---------------------------
-# 사이드바: 환율/마진 계산기
-# ---------------------------
-st.sidebar.markdown("###⚙️ 빠른 계산")
+fx_amt = st.sidebar.number_input("상품 원가", min_value=0.0, value=1.0, step=1.0, key="fx_amt")
+fx_cur = st.sidebar.selectbox("통화", ["USD ($)","EUR (€)","JPY (¥)","CNY (¥)"], index=0, key="fx_cur")
+FX = {"USD ($)":1391.7,"EUR (€)":1510.0,"JPY (¥)":9.2,"CNY (¥)":191.3}
+st.sidebar.caption(f"표시 환율: 1 {fx_cur.split()[0]} ≈ ₩{FX[fx_cur]:,.2f}")
+st.sidebar.success(f"원화 환산: ₩{(fx_amt*FX[fx_cur]):,.0f}")
 
-with st.sidebar:
-    # 환율 빠른 계산(표시 목적) — 실제 환율 API는 프로젝트에서 쓰던 걸 이어붙일 수 있음
-    st.caption("환율 계산기 (표시)")
-    fx_amt = st.number_input("상품 원가", min_value=0.0, value=1.0, step=1.0)
-    fx_cur = st.selectbox("통화", ["USD ($)", "EUR (€)", "JPY (¥)", "CNY (¥)"], index=0)
+st.sidebar.markdown("---")
 
-    # 데모 환율(수동 값, 10분마다 갱신된다고 가정)
-    REF_RATES = {"USD ($)": 1391.7, "EUR (€)": 1510.0, "JPY (¥)": 9.2, "CNY (¥)": 191.3}
-    rate = REF_RATES.get(fx_cur, 1391.7)
-    st.info(f"환율(표시): 1 {fx_cur.split()[0]} ≈ ₩{rate:,.2f}")
-    st.success(f"원화 환산: ₩{(fx_amt*rate):,.0f}")
+cur_amt = st.sidebar.number_input("현지 금액", min_value=0.0, value=0.0, step=1.0, key="cur_amt")
+cur_code = st.sidebar.selectbox("현지 통화", ["USD","EUR","JPY","CNY"], index=0, key="cur_code")
+ship_domestic = st.sidebar.number_input("국제배송비(=국내배송비)", min_value=0.0, value=0.0, step=100.0, key="ship_dom")
+fee_card = st.sidebar.number_input("카드 수수료(%)", min_value=0.0, value=4.0, step=0.5, key="fee_card")
+fee_market = st.sidebar.number_input("마켓 수수료(%)", min_value=0.0, value=15.0, step=0.5, key="fee_market")
+margin_mode = st.sidebar.radio("마진 방식", ["퍼센트마진(%)", "더하기마진(원)"], horizontal=False, key="margin_mode")
+target_margin_pct = st.sidebar.number_input("목표 마진(%)", min_value=0.0, value=40.0, step=1.0, disabled=(margin_mode!="퍼센트마진(%)"), key="target_pct")
+target_add_krw = st.sidebar.number_input("더하기 마진(원)", min_value=0.0, value=0.0, step=100.0, disabled=(margin_mode!="더하기마진(원)"), key="target_add")
 
-    st.markdown("---")
-    st.caption("간이 마진 계산")
-    cur_amt = st.number_input("현지 금액", min_value=0.0, value=0.0, step=1.0)
-    cur_code = st.selectbox("현지 통화", ["USD","EUR","JPY","CNY"], index=0)
-    ship_domestic = st.number_input("국제배송비(=국내배송비로 사용)", min_value=0.0, value=0.0, step=100.0)
-    fee_card = st.number_input("카드 수수료(%)", min_value=0.0, value=4.0, step=0.5)
-    fee_market = st.number_input("마켓 수수료(%)", min_value=0.0, value=15.0, step=0.5)
-    target_margin = st.number_input("목표 마진(%)", min_value=0.0, value=40.0, step=1.0)
+CC = {"USD":1391.7, "EUR":1510.0, "JPY":9.2, "CNY":191.3}
+KRW_cost = cur_amt * CC[cur_code]
+C_total = KRW_cost + ship_domestic
+r_card = max(0.0, 1 - fee_card/100.0)
+r_market = max(0.0, 1 - fee_market/100.0)
 
-    # 단순 환산(통화별 데모 레이트)
-    CC = {"USD":1391.7, "EUR":1510.0, "JPY":9.2, "CNY":191.3}
-    KRW_cost = cur_amt * CC[cur_code]
-    est_sell = (KRW_cost + ship_domestic) / (1 - fee_card/100) / (1 - fee_market/100) * (1 + target_margin/100)
-    real_margin = est_sell - (KRW_cost + ship_domestic)
-    real_margin_rate = (real_margin / est_sell * 100) if est_sell else 0
+if margin_mode == "퍼센트마진(%)":
+    r_margin = max(0.0, 1 - target_margin_pct/100.0)
+    denom = r_card * r_market * r_margin
+    est_sell = (C_total / denom) if denom > 0 else 0.0
+else:
+    denom = r_card * r_market
+    est_sell = (C_total + target_add_krw) / denom if denom > 0 else 0.0
 
-    st.metric("예상 판매가", f"₩{est_sell:,.0f}")
-    st.metric("예상 순이익(마진)", f"₩{real_margin:,.0f} / {real_margin_rate:.1f}%")
+real_margin = est_sell - C_total
+real_margin_rate = (real_margin / est_sell * 100) if est_sell else 0
+st.sidebar.metric("예상 판매가", f"₩{est_sell:,.0f}")
+st.sidebar.metric("예상 순이익(마진)", f"₩{real_margin:,.0f} / {real_margin_rate:.1f}%")
 
-# ---------------------------
-# 본문 4열: 데이터랩 / 11번가 / 금칙어 / 제목 생성기
-# ---------------------------
-col1, col2 = st.columns([1.1, 1.4])
+# ---------- Top Row: DataLab / Itemscout / Recent-3d ----------
+c1, c2, c3 = st.columns([1.6, 1.2, 1.0])
 
-# ====== (1) 데이터랩 ======
-with col1:
-    st.header("📊 네이버 데이터랩 (Top20 키워드)")
+with c1:
+    st.markdown("#### 📊 네이버 데이터랩 — 랭킹·키워드·그래프(실선)")
+    # API 키 자동 감지 (UI 숨김)
+    cid = os.getenv("NAVER_CLIENT_ID", st.secrets.get("NAVER_CLIENT_ID", "")) if hasattr(st, "secrets") else os.getenv("NAVER_CLIENT_ID","")
+    csec = os.getenv("NAVER_CLIENT_SECRET", st.secrets.get("NAVER_CLIENT_SECRET","")) if hasattr(st, "secrets") else os.getenv("NAVER_CLIENT_SECRET","")
+    if not (cid and csec):
+        st.info("API 키 미설정: 데모 시드로 표시됩니다. (설정 UI는 숨김)")
 
-    d_colA, d_colB = st.columns([2,1])
-    with d_colA:
-        cat = st.selectbox("카테고리", [
-            "패션의류","패션잡화","화장품/미용","디지털/가전","가전/디지털기기",
-            "식품","출산/유아동","생활/건강","스포츠/레저","여가/생활편의"
-        ], index=0)
-    with d_colB:
-        lab_mode = st.radio("모드", ["API", "우회(경량 크롤링)"], horizontal=True)
+    cat = st.selectbox("카테고리", ["패션의류","화장품/미용","식품","스포츠/레저","생활/건강","디지털/가전","출산/유아동","가구/인테리어","반려동물","문구/취미"], index=0)
+    period = st.radio("기간", ["30일","60일","90일"], horizontal=True, index=0)
+    days = int(period.replace("일",""))
+    end_date = datetime.today().date()
+    start_date = end_date - timedelta(days=days-1)
 
-    # 실제 API 연결 함수(자리)
+    SEED = {
+        "패션의류": ["맨투맨","슬랙스","청바지","가디건","롱스커트","부츠컷","와이드팬츠","조거팬츠","니트","셔츠","블레이저","후드집업","롱원피스","트레이닝","연청바지","흑청바지","슬림핏","A라인 스커트","니트조끼","보이핏"],
+        "화장품/미용": ["쿠션","선크림","립밤","아이섀도우","클렌징폼","마스카라","립틴트","프라이머","토너","에센스","앰플","픽서","립오일","립글로스","아이브로우","쉐이딩","하이라이터","블러셔","세럼","클렌징오일"],
+        "식품": ["라면","커피","참치","스팸","젤리","간식","과자","초콜릿","김","견과","시리얼","과일","김자반","햇반","즉석국","만두","치즈","우유","요거트","식빵"],
+        "스포츠/레저": ["런닝화","요가매트","테니스공","배드민턴라켓","축구공","헬스장갑","무릎보호대","수영모","스노클","자전거장갑","스포츠양말","라켓가방","하프팬츠","피클볼","워킹화","헬스벨트","덤벨","폼롤러","보호대","배드민턴공"],
+        "생활/건강": ["행주","수세미","빨래바구니","세탁망","물티슈","수납함","휴지통","방향제","청소기","필터","제습제","방충제","고무장갑","욕실화","발매트","칫솔","치약","샴푸","린스","바디워시"],
+        "디지털/가전": ["무선마우스","키보드","충전기","C타입케이블","허브","USB","SSD","HDD","모니터암","웹캠","마이크","헤드셋","스피커","태블릿거치대","모바일배터리","공유기","랜카드","라우터","TV스틱","로봇청소기"],
+        "출산/유아동": ["기저귀","물티슈","젖병","유산균","분유","아기세제","아기로션","아기수건","아기욕조","턱받이","치발기","콧물흡입기","체온계","슬립수트","젖병소독기","아기베개","유모차걸이","휴대용기저귀","보온병","컵"],
+        "가구/인테리어": ["러그","쿠션","커튼","블라인드","거울","수납장","선반","행거","책상","의자","스툴","사이드테이블","식탁등","LED등","디퓨저","액자","침대커버","이불커버","베개커버","무드등"],
+        "반려동물": ["배변패드","건식사료","습식사료","간식스틱","츄르","캣닢","장난감","하네스","리드줄","스크래쳐","캣타워","모래","매트","급식기","급수기","방석","하우스","브러시","발톱깎이","미용가위"],
+        "문구/취미": ["젤펜","볼펜","노트","다이어리","포스트잇","형광펜","수채화물감","팔레트","마카","연필","지우개","스케치북","컬러링북","키트","퍼즐","보드게임","테이프커터","커팅매트","도안집","클립"],
+    }
+
     @st.cache_data(ttl=900)
-    def datalab_keywords_via_api(category: str) -> List[str]:
-        # TODO: 네이버 데이터랩 API 실제 호출 코드 삽입
-        raise RuntimeError("데이터랩 API 키/엔드포인트 미연결")
+    def datalab_search_trend(client_id: str, client_secret: str, keywords: List[str], start: str, end: str) -> pd.DataFrame:
+        url = "https://openapi.naver.com/v1/datalab/search"
+        headers = {"X-Naver-Client-Id": client_id, "X-Naver-Client-Secret": client_secret, "Content-Type":"application/json"}
+        groups = [{"groupName": kw, "keywords":[kw]} for kw in keywords]
+        body = {"startDate": start, "endDate": end, "timeUnit":"date", "keywordGroups": groups, "device":"pc,mobile", "ages":[], "gender":""}
+        r = requests.post(url, headers=headers, json=body, timeout=10)
+        r.raise_for_status()
+        js = r.json()
+        rows = []
+        for res in js.get("results", []):
+            kw = res.get("title")
+            for point in res.get("data", []):
+                rows.append({"keyword": kw, "date": point["period"], "ratio": point["ratio"]})
+        df = pd.DataFrame(rows)
+        if not df.empty:
+            df["date"] = pd.to_datetime(df["date"])
+        return df
 
-    @st.cache_data(ttl=900)
-    def datalab_keywords_via_scrape(category: str) -> List[str]:
-        demo = {
-            "패션의류": ["맨투맨","슬랙스","청바지","가디건","롱스커트",
-                     "부츠컷","와이드팬츠","조거팬츠","박시핏","패딩후드",
-                     "롱원피스","롱코트","데님셔츠","블레이저","셔츠원피스",
-                     "오버핏","브라운톤","겨울셔츠","린넨셔츠","퀼팅점퍼"]
-        }
-        return demo.get(category, [f"{category}{i}" for i in range(1,21)])
-
+    # 데이터 준비
     try:
-        keywords = datalab_keywords_via_api(cat) if lab_mode=="API" else datalab_keywords_via_scrape(cat)
-        st.success(f"키워드 {len(keywords)}개")
+        if cid and csec:
+            df_ts = datalab_search_trend(cid, csec, SEED[cat], (datetime.today()-timedelta(days=days-1)).date().isoformat(), datetime.today().date().isoformat())
+            tops = []
+            for kw, g in df_ts.groupby("keyword"):
+                tops.append({"keyword": kw, "score_recent": round(wt_recent(g, "ratio"), 2)})
+            df_top = pd.DataFrame(tops).sort_values("score_recent", ascending=False).head(20).reset_index(drop=True)
+            df_top.index = df_top.index + 1
+            api_mode = True
+        else:
+            raise RuntimeError("키 미설정")
     except Exception as e:
-        st.warning(f"API 실패 → 우회 모드로 전환: {e}")
-        keywords = datalab_keywords_via_scrape(cat)
+        df_top = pd.DataFrame({"keyword": SEED[cat][:20]})
+        df_top["score_recent"] = 0.0
+        df_top.index = df_top.index + 1
+        api_mode = False
+        st.warning(f"API 미사용/실패 → 데모 Top20 사용 ({e})")
 
-    df_kw = pd.DataFrame({"keyword": keywords})
-    st.dataframe(df_kw, use_container_width=True, hide_index=True)
+    # 좌: 랭킹/키워드 표, 우: 실선 그래프
+    left, right = st.columns([0.55, 0.45])
+    with left:
+        table = df_top.rename_axis("rank").reset_index()[["rank","keyword"]]
+        st.dataframe(table, use_container_width=True, hide_index=True)
+    with right:
+        if api_mode and not df_top.empty:
+            pick = df_top["keyword"].head(10).tolist()
+            frames = []
+            for kw in pick:
+                dfp = datalab_search_trend(cid, csec, [kw], (datetime.today()-timedelta(days=days-1)).date().isoformat(), datetime.today().date().isoformat())
+                dfp["keyword"] = kw
+                frames.append(dfp)
+            if frames:
+                df_plot = pd.concat(frames)
+                # solid line (default); emphasize with strokeWidth
+                chart = alt.Chart(df_plot).mark_line(strokeWidth=2).encode(
+                    x=alt.X("date:T", title="date"),
+                    y=alt.Y("ratio:Q", title="ratio"),
+                    color=alt.Color("keyword:N", title="keyword"),
+                    tooltip=["keyword:N","date:T","ratio:Q"]
+                ).properties(height=240).interactive()
+                st.altair_chart(chart, use_container_width=True)
+        else:
+            st.caption("API 키 입력 시 실측 그래프 표시")
 
-    with st.expander("📈 1/7/30일 트렌드(데모) / CSV 저장"):
-        dates = pd.date_range(end=pd.Timestamp.today(), periods=30)
-        vals = [max(10, 100 + 20*math.sin(i/2)) for i in range(30)]
-        df_tr = pd.DataFrame({"date": dates, "score": vals})
-        pick = st.radio("기간", ["1일","7일","30일"], horizontal=True, index=2)
-        days = {"1일":1, "7일":7, "30일":30}[pick]
-        chart = alt.Chart(df_tr.tail(days)).mark_line(point=True).encode(
-            x="date:T", y="score:Q"
-        ).properties(height=220)
-        st.altair_chart(chart, use_container_width=True)
-        st.download_button("CSV 내려받기", data=df_tr.to_csv(index=False).encode("utf-8"),
-                           file_name=f"datalab_{cat}.csv", mime="text/csv")
-
-# ====== (2) 11번가 리더 모드 ======
-with col2:
-    st.header("🛍️ 11번가 리더 모드 (우회 요약/표)")
-    m_col1, m_col2 = st.columns([3,1])
-    with m_col1:
-        url = st.text_input("URL 입력", value="https://m.11st.co.kr/browsing/AmazonBest")
-    with m_col2:
-        run_11 = st.button("불러오기")
-
-    @st.cache_data(ttl=1800)
-    def parse_11st_best(url: str) -> pd.DataFrame:
-        html = fetch_html(url)
-        soup = BeautifulSoup(html, "html.parser")
-        items = []
-        # 구조가 수시로 변하므로, 텍스트에서 '원' 패턴 추출 + a 링크 시도
-        for li in soup.select("li"):
-            name = li.get_text(" ", strip=True)
-            if not name:
-                continue
-            price = None
-            m = re.search(r"(\d{1,3}(?:,\d{3})+)\s*원", name)
-            if m:
-                price = int(m.group(1).replace(",",""))
-            a = li.find("a", href=True)
-            link = ("https:" + a["href"]) if a and a["href"].startswith("//") else (a["href"] if a else "")
-            if name:
-                items.append({"상품명": name[:120], "가격": price, "링크": link})
-            if len(items) >= 100:
-                break
-        return pd.DataFrame(items)
-
-    if run_11:
+with c2:
+    st.markdown("#### 🔎 아이템스카우트 — CSV/HTML")
+    csvfile = st.file_uploader("CSV 업로드 (내보내기 파일)", type=["csv"], key="is_csv_v23")
+    if csvfile:
         try:
-            df11 = parse_11st_best(url)
+            df_is = pd.read_csv(csvfile)
+            st.dataframe(df_is.head(50), use_container_width=True)
+        except Exception as e:
+            st.error(f"CSV 파싱 실패: {e}")
+    html_txt = st.text_area("HTML 소스 붙여넣기", height=120, key="is_html_v23")
+    if st.button("HTML에서 키워드 추출", key="is_btn_v23"):
+        try:
+            soup = BeautifulSoup(html_txt, "html.parser")
+            texts = [t.get_text(" ", strip=True) for t in soup.find_all(["a","span","div"])]
+            from collections import Counter
+            cand = []
+            for t in texts:
+                if 1 <= len(t) <= 30 and re.search(r"[가-힣A-Za-z]", t):
+                    cand.append(t)
+            cnt = Counter(cand)
+            df_html_kw = pd.DataFrame(cnt.most_common(50), columns=["keyword","freq"])
+            st.dataframe(df_html_kw, use_container_width=True)
+        except Exception as e:
+            st.error(f"추출 실패: {e}")
+
+with c3:
+    st.markdown("#### 🏆 최근 3일 베스트 (Placeholder)")
+    demo_b3 = pd.DataFrame({
+        "#": list(range(1,11)),
+        "상품명": [f"데모 상품 {i}" for i in range(1,11)],
+        "가격": [i*10000 for i in range(1,11)]
+    })
+    st.dataframe(demo_b3, use_container_width=True, hide_index=True)
+
+# ---------- Bottom Row: (왼) AI 소싱 레이더 / (오) 11번가 ----------
+b1, b2 = st.columns([1.6, 1.4])
+
+with b1:
+    st.markdown("#### 🧭 AI 소싱 레이더 — 점수")
+    if 'df_top' in locals() and not df_top.empty:
+        df_kw_score = df_top[["keyword","score_recent"]].copy()
+        expo_w = st.slider("노출 가중치(11번가)", 0.0, 20.0, 10.0, 1.0)
+        df_kw_score["score"] = df_kw_score["score_recent"] + expo_w
+        df_kw_score = df_kw_score.sort_values("score", ascending=False).reset_index(drop=True)
+        st.dataframe(df_kw_score.head(20), use_container_width=True)
+        ch = alt.Chart(df_kw_score.head(15)).mark_bar().encode(
+            x=alt.X("score:Q", title="score"),
+            y=alt.Y("keyword:N", sort="-x", title="keyword"),
+            tooltip=["keyword","score"]
+        ).properties(height=240)
+        st.altair_chart(ch, use_container_width=True)
+    else:
+        st.info("데이터랩 Top20이 생성되면 점수를 계산합니다.")
+
+with b2:
+    st.markdown("#### 🛍️ 11번가 아마존 베스트 (모바일 — 요약 표)")
+    url_11 = st.text_input("URL", value="https://m.11st.co.kr/MW/html/main.html", key="u11_v23")
+    if st.button("불러오기", key="u11_btn_v23"):
+        try:
+            html = fetch_html(url_11)
+            soup = BeautifulSoup(html, "html.parser")
+            items = []
+            selectors = ["li", "div"]
+            for sel in selectors:
+                for li in soup.select(sel):
+                    txt = li.get_text(" ", strip=True)
+                    if not txt: continue
+                    m = re.search(r"(\d{1,3}(?:,\d{3})+)\s*원", txt)
+                    price = int(m.group(1).replace(",","")) if m else None
+                    a = li.find("a", href=True)
+                    link = ""
+                    if a:
+                        href = a["href"]
+                        link = ("https:" + href) if href.startswith("//") else href
+                    img = li.find("img")
+                    thumb = img["src"] if img and img.has_attr("src") else ""
+                    items.append({"상품명": txt[:120], "가격": price, "링크": link, "썸네일": thumb})
+                    if len(items) >= 100: break
+                if items: break
+            df11 = pd.DataFrame(items)
             if df11.empty:
-                st.warning("파싱 결과가 비었습니다. (사이트 구조 변경/차단 가능)")
+                st.warning("파싱 결과가 비었습니다. (구조변경/차단 가능)")
             else:
                 st.dataframe(df11, use_container_width=True, hide_index=True)
-                st.caption("※ 최대 100개 요약. 정확도는 페이지 구조/차단에 영향을 받습니다.")
+                st.download_button("CSV 다운로드", data=df11.to_csv(index=False).encode("utf-8-sig"), file_name="11st_best.csv", mime="text/csv")
         except Exception as e:
             st.error(f"요청 실패: {e}")
-    st.caption("정책상 iframe 차단 시 우회 요약 권장 / 실제 상세확인은 브라우저 새창에서.")
+    st.caption("※ 직접 임베드는 정책상 차단될 수 있어 요약표로 대체.")
 
-st.markdown("---")
+# ---------- Title Generator (v22 유지) ----------
+st.markdown("#### ✍️ 상품명 생성기 + 🚫 금칙어")
+gen_click = st.button("제목 5개 생성")
+brand = st.text_input("브랜드", value="", key="brand_v23")
+base = st.text_input("기본 문장", value="", key="base_v23")
+kw_raw = st.text_input("키워드(,)", value="슬랙스, 와이드, 기모", key="kraw_v23")
+limit_chars = st.number_input("최대 글자수", 1, 120, 50, key="lchars_v23")
+limit_bytes = st.number_input("최대 바이트수", 1, 200, 80, key="lbytes_v23")
 
-# ====== (3) 금칙어 → (4) 상품명 생성기 ======
-cL, cR = st.columns([1.0, 1.4])
+if "ban_df" not in st.session_state:
+    st.session_state["ban_df"] = pd.DataFrame({"금칙어":["무료배송","증정","초특가"],"대체어":["","","특가"]})
+ban_df = st.data_editor(st.session_state["ban_df"], num_rows="dynamic", use_container_width=True, key="bandf_v23")
+st.session_state["ban_df"] = ban_df
+rules = [(r["금칙어"], r["대체어"]) for _, r in ban_df.dropna().iterrows() if r["금칙어"]]
 
-with cL:
-    st.header("🚫 금칙어 테이블")
-    st.caption("대체어가 비어있으면 삭제, 값이 있으면 치환")
-    ban_df = st.data_editor(
-        pd.DataFrame({"금칙어": ["무료배송","증정","초특가"], "대체어": ["", "", "특가"]}),
-        num_rows="dynamic", use_container_width=True
-    )
-    rules = [(r["금칙어"], r["대체어"]) for _, r in ban_df.dropna().iterrows() if r["금칙어"]]
+def gen_titles(brand, base, kws, rules, limit_chars, limit_bytes, n=5):
+    out = []
+    for i in range(n):
+        kk = kws[i:] + kws[:i]
+        title = " ".join([brand, base, " ".join(kk)]).strip()
+        title = apply_rules(title, rules)
+        # 길이/바이트 제한
+        chars = len(title)
+        b = 0
+        for ch in title:
+            if re.match(r"[ㄱ-힣]", ch): b += 3
+            else: b += len(ch.encode("utf-8"))
+        while (chars > limit_chars or b > limit_bytes) and kk:
+            kk = kk[:-1]
+            title = " ".join([brand, base, " ".join(kk)]).strip()
+            title = apply_rules(title, rules)
+            chars = len(title)
+            b = 0
+            for ch in title:
+                if re.match(r"[ㄱ-힣]", ch): b += 3
+                else: b += len(ch.encode("utf-8"))
+        out.append({"제목": title, "글자수": chars, "바이트": b})
+    return pd.DataFrame(out)
 
-with cR:
-    st.header("✍️ 상품명 생성기 (규칙 기반 / OpenAI API)")
-    mode = st.radio("모드", ["규칙 기반(무료)", "OpenAI API"], horizontal=True)
+if gen_click:
+    kws = [k.strip() for k in kw_raw.split(",") if k.strip()]
+    df_titles = gen_titles(brand, base, kws, rules, limit_chars, limit_bytes, n=5)
+    st.dataframe(df_titles, use_container_width=True, hide_index=True)
 
-    g1,g2,g3 = st.columns([1,1,2])
-    with g1: brand = st.text_input("브랜드", value="")
-    with g2: base = st.text_input("기본 문장", value="")
-    with g3: keywords_raw = st.text_input("키워드(쉼표 , 구분)", placeholder="슬랙스, 와이드, 기모")
-
-    limit_chars = st.number_input("최대 글자수", 1, 120, 50)
-    limit_bytes = st.number_input("최대 바이트수", 1, 200, 80)
-
-    def gen_one(brand, base, kws, rules):
-        title = spaced_join(brand, base, " ".join(kws))
-        title = apply_banwords(title, rules)
-        ch, bt = count_kor_bytes(title)
-        while (ch > limit_chars or bt > limit_bytes) and kws:
-            kws = kws[:-1]
-            title = spaced_join(brand, base, " ".join(kws))
-            title = apply_banwords(title, rules)
-            ch, bt = count_kor_bytes(title)
-        return title, ch, bt
-
-    if st.button("제목 5개 생성"):
-        kws = [k.strip() for k in keywords_raw.split(",") if k.strip()]
-        results = []
-        for i in range(5):
-            kk = kws[i:] + kws[:i]  # 간단 회전 규칙
-            title, ch, bt = gen_one(brand, base, kk, rules)
-            results.append({"제목": title, "글자수": ch, "바이트": bt})
-        st.session_state["titles"] = pd.DataFrame(results)
-
-    if "titles" in st.session_state:
-        df_t = st.session_state["titles"]
-        st.dataframe(df_t, use_container_width=True, hide_index=True)
-        for i, row in df_t.iterrows():
-            st.text_input(f"결과 {i+1}", value=row["제목"], key=f"t{i}")
-            st.button("복사", key=f"copy{i}", on_click=lambda v=row["제목"]: st.toast("복사 완료 ✅"))
-
-# ====== (5) 아이템스카우트(옵션) ======
-st.markdown("---")
-st.subheader("🔎 아이템스카우트 연동 (선택)")
-use_is = st.toggle("사용하기", value=False, help="API 키가 있어야 합니다.")
-if use_is:
-    api_key = st.text_input("아이템스카우트 API 키", type="password")
-    kw = st.text_input("조회 키워드", value=brand or "")
-    if st.button("키워드 데이터 가져오기") and api_key and kw:
-        try:
-            # 실제 엔드포인트/파라미터는 문서에 맞게 수정
-            # url = f"https://api.itemscout.io/keyword?kw={kw}&key={api_key}"
-            # data = requests.get(url, timeout=10).json()
-            # st.json(data)
-            st.info("데모: 실제 API 스펙 연결 시 결과가 표시됩니다.")
-        except Exception as e:
-            st.error(f"가져오기 실패: {e}")
+st.caption("© ENVY v23 — DataLab Rank·Keyword·Graph 적용 / UI 고정 유지")
