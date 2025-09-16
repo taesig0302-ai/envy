@@ -1,14 +1,13 @@
 
-# ENVY v26.3 • Full Version (UI Fix + Sourcing + NameGen with HuggingFace KoGPT2)
-# ⚠️ HuggingFace API Key is hardcoded (local test only, do not share)
+# ENVY v26.5 • Full (DataLab line chart + 11st mobile embed attempt)
+# ⚠️ HF API Key is hardcoded for local testing. Do NOT share.
 import streamlit as st
 import pandas as pd
 import numpy as np
 import altair as alt
-import json, random, html, requests
+import json, random, html, requests, textwrap
 
-st.set_page_config(page_title="ENVY v26.3 Full", page_icon="🚀", layout="wide")
-
+st.set_page_config(page_title="ENVY v26.5 Full", page_icon="🚀", layout="wide")
 HF_API_KEY = "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"
 
 # -------------------- utils --------------------
@@ -18,23 +17,14 @@ def download_bytes(filename: str, data: bytes, label: str = "다운로드"):
 def to_csv_bytes(df: pd.DataFrame) -> bytes:
     return df.to_csv(index=False).encode("utf-8-sig")
 
-def save_scenario_json(payload: dict) -> bytes:
-    return (json.dumps(payload, ensure_ascii=False, indent=2)).encode("utf-8-sig")
-
-def load_scenario_json(uploaded_file) -> dict:
-    try:
-        return json.load(uploaded_file)
-    except Exception:
-        return {}
-
 def apply_mobile_css():
     st.markdown(
         """
         <style>
         @media (max-width: 640px) {
             .block-container { padding-left: 0.6rem; padding-right: 0.6rem; }
-            [data-testid="column"] { flex-direction: column !important; width: 100% !important; }
         }
+        .card { padding: 12px 14px; border: 1px solid #eee; border-radius: 10px; }
         </style>
         """,
         unsafe_allow_html=True
@@ -50,7 +40,7 @@ def copy_button(text: str, key: str):
     """
     st.components.v1.html(html_str, height=46)
 
-# -------------------- calculators --------------------
+# -------------------- margin calc --------------------
 class MarginInputs:
     def __init__(self, exchange_rate=190.0, product_cost_cny=0.0, total_cost_krw=0.0,
                  domestic_ship=0.0, intl_ship=0.0, packaging=0.0, other=0.0,
@@ -62,11 +52,9 @@ class MarginInputs:
         self.basis=basis; self.fee_mode=fee_mode; self.mode=mode
 
 def pct(x): return x/100.0
-
 def aggregate_cost_krw(mi: MarginInputs) -> float:
     base = mi.product_cost_cny * mi.exchange_rate if mi.mode=="rocket" else mi.total_cost_krw
     return max(0.0, base + mi.domestic_ship + mi.intl_ship + mi.packaging + mi.other)
-
 def solve_sale(mi: MarginInputs):
     c = aggregate_cost_krw(mi)
     cf, mf, tm = pct(mi.card_fee_pct), pct(mi.market_fee_pct), pct(mi.target_margin_pct)
@@ -82,136 +70,152 @@ def solve_sale(mi: MarginInputs):
             denom=(1-cf-mf); P=(c*(1+tm))/max(1e-9, denom)
         else:
             denom=(1-cf-mf-tm); P=c/max(1e-9, denom)
-    revenue = P*(1-cf-mf)
-    fees = P-revenue
-    profit = revenue - c
-    on_sale = (profit/P*100) if P>0 else 0.0
-    on_cost = (profit/c*100) if c>0 else 0.0
-    return dict(sale_price=P,revenue_after_fees=revenue,fees_total=fees,net_profit=profit,
-                cost_total=c,net_margin_on_sale=on_sale,net_margin_on_cost=on_cost)
+    revenue = P*(1-cf-mf); fees = P-revenue; profit = revenue - c
+    on_sale = (profit/P*100) if P>0 else 0.0; on_cost = (profit/c*100) if c>0 else 0.0
+    return dict(sale_price=P, revenue_after_fees=revenue, fees_total=fees, net_profit=profit,
+                cost_total=c, net_margin_on_sale=on_sale, net_margin_on_cost=on_cost)
 
-# -------------------- tab contents --------------------
-def render_datalab():
-    st.subheader("데이터랩 Top100 (네이버 API 자리)")
-    df = pd.DataFrame({
-        "keyword":[f"키워드{i}" for i in range(1,21)],
-        "curr":np.random.randint(50,200,20),
-        "prev":np.random.randint(50,200,20)
-    })
-    df["diff"]=df["curr"]-df["prev"]
-    df["color"]=np.where(df["diff"]>=0,"green","red")
-    chart = alt.Chart(df).mark_bar().encode(
-        x="keyword", y="diff", color=alt.Color("color", scale=None),
-        tooltip=["keyword","curr","prev","diff"]
-    ).properties(width=600,height=300)
-    st.altair_chart(chart,use_container_width=True)
+# -------------------- sections --------------------
+def sec_datalab(container):
+    with container:
+        st.subheader("데이터랩 (카테고리/키워드 표시 + 실선 그래프)")
+        # Inputs visible
+        colA, colB, colC = st.columns([1,1,1])
+        with colA:
+            category = st.text_input("카테고리", "식품 > 커피/믹스/차")
+        with colB:
+            keyword = st.text_input("대표 키워드", "커피 믹스")
+        with colC:
+            period = st.selectbox("기간", ["최근7일","최근30일","최근90일"], index=1)
+        # Mock data; replace with real API later
+        n=20
+        df = pd.DataFrame({
+            "rank": list(range(1, n+1)),
+            "keyword": [f"{keyword}-{i}" for i in range(1, n+1)],
+            "curr": np.clip(np.random.normal(120, 25, n).astype(int), 10, None),
+            "prev": np.clip(np.random.normal(100, 25, n).astype(int), 5, None),
+        })
+        st.caption(f"카테고리: {category} • 키워드 예시: {keyword}")
+        # Line chart (solid lines)
+        dfm = df.melt(id_vars=["rank","keyword"], value_vars=["curr","prev"], var_name="series", value_name="value")
+        line = alt.Chart(dfm).mark_line().encode(
+            x=alt.X("rank:Q", title="랭크(1=상위)"),
+            y=alt.Y("value:Q", title="검색량(지수)"),
+            color=alt.Color("series:N", title="기간", scale=alt.Scale(domain=["curr","prev"], range=["#1f77b4","#ff7f0e"])),
+            tooltip=["rank","keyword","series","value"]
+        ).properties(height=230)
+        st.altair_chart(line, use_container_width=True)
+        st.download_button("CSV 내보내기", data=to_csv_bytes(df), file_name="datalab_top.csv", mime="text/csv")
 
-def render_itemscout():
-    st.subheader("아이템스카우트 (무료 placeholder)")
-    st.table(pd.DataFrame({
-        "키워드":["예시1","예시2","예시3"],
-        "검색량":[1234,4321,2222],
-        "경쟁도":["낮음","높음","중간"]
-    }))
+def sec_itemscout(container):
+    with container:
+        st.subheader("아이템스카우트")
+        st.dataframe(pd.DataFrame({
+            "키워드":["예시1","예시2","예시3","예시4"],
+            "검색량":[1234,4321,2222,3100],
+            "경쟁도":["낮음","높음","중간","낮음"]
+        }), use_container_width=True)
 
-def render_elevenst():
-    st.subheader("11번가 요약 (샘플)")
-    df = pd.DataFrame({
-        "title":[f"상품{i}" for i in range(1,6)],
-        "price":[i*1000 for i in range(1,6)],
-        "sales":[i*10 for i in range(1,6)]
-    })
-    st.dataframe(df)
+def sec_11st(container):
+    with container:
+        st.subheader("11번가 (모바일 화면 임베드 시도)")
+        url = st.text_input("상품/리스트 URL", "https://www.11st.co.kr/")
+        st.caption("모바일 뷰 임베드가 차단되면 요약표와 링크만 표시됩니다.")
+        # Try to embed mobile view
+        mobile_url = url.replace("www.11st.co.kr","m.11st.co.kr")
+        iframe_html = f"""
+        <div style="width:100%;height:520px;border:1px solid #eee;border-radius:10px;overflow:hidden">
+            <iframe src="{mobile_url}" width="100%" height="100%" frameborder="0" sandbox="allow-same-origin allow-scripts allow-popups allow-forms"></iframe>
+        </div>
+        """
+        st.components.v1.html(iframe_html, height=540)
+        # Fallback summary
+        df = pd.DataFrame({
+            "title":[f"상품{i}" for i in range(1,6)],
+            "price":[i*1000 for i in range(1,6)],
+            "sales":[i*7 for i in range(1,6)],
+            "link":[url]*5
+        })
+        with st.expander("임베드 실패 대비 요약표 보기"):
+            st.dataframe(df, use_container_width=True)
+            st.download_button("CSV 다운로드", data=to_csv_bytes(df), file_name="11st_list.csv", mime="text/csv")
 
-def render_sourcing():
-    st.subheader("소싱레이더")
-    st.markdown("### 국내")
-    st.write("- 네이버 데이터랩 (API 자리)")
-    st.write("- 아이템스카우트 (무료 placeholder)")
-    st.write("- 셀러라이프 (무료 placeholder)")
-    st.markdown("### 글로벌")
-    st.write("- Amazon Best Seller (크롤링 placeholder)")
-    st.write("- Rakuten Ichiba Ranking (API placeholder)")
+def sec_sourcing(container):
+    with container:
+        st.subheader("소싱레이더")
+        st.markdown("- 국내: 네이버(실API 자리), 아이템스카우트/셀러라이프 placeholder")
+        st.markdown("- 글로벌: Amazon Best Seller(크롤링 자리), Rakuten Ranking(API 자리)")
 
-def render_namegen():
-    st.subheader("상품명 생성기 (규칙 + HuggingFace KoGPT2)")
-    brand = st.text_input("브랜드", "envy")
-    base = st.text_input("베이스 키워드", "K-coffee mix")
-    keywords = st.text_input("연관키워드", "Maxim, Kanu, Korea")
-    badwords = st.text_input("금칙어", "copy, fake, replica")
-    limit = st.slider("글자수 제한", 20, 120, 80)
-    mode = st.radio("모드 선택", ["규칙 기반","HuggingFace AI"], horizontal=True)
+def sec_namegen(container):
+    with container:
+        st.subheader("상품명 생성기 (규칙 + HuggingFace KoGPT2)")
+        brand = st.text_input("브랜드", "envy", key="ng_brand")
+        base = st.text_input("베이스 키워드", "K-coffee mix", key="ng_base")
+        keywords = st.text_input("연관키워드", "Maxim, Kanu, Korea", key="ng_kws")
+        badwords = st.text_input("금칙어", "copy, fake, replica", key="ng_bans")
+        limit = st.slider("글자수 제한", 20, 120, 80, key="ng_limit")
+        mode = st.radio("모드", ["규칙 기반","HuggingFace AI"], horizontal=True, key="ng_mode")
 
-    def filter_and_trim(cands:list) -> list:
-        bans = {w.strip().lower() for w in badwords.split(",") if w.strip()}
-        out=[]
-        for t in cands:
-            t2 = " ".join(t.split())
-            if any(b in t2.lower() for b in bans): continue
-            if len(t2)>limit: t2=t2[:limit]
-            out.append(t2)
-        return out
+        def filter_and_trim(cands:list) -> list:
+            bans = {w.strip().lower() for w in st.session_state["ng_bans"].split(",") if w.strip()}
+            out=[]
+            for t in cands:
+                t2 = " ".join(t.split())
+                if any(b in t2.lower() for b in bans): continue
+                if len(t2)>st.session_state["ng_limit"]: t2=t2[:st.session_state["ng_limit"]]
+                out.append(t2)
+            return out
 
-    if st.button("생성"):
-        kws=[k.strip() for k in keywords.split(",") if k.strip()]
-        cands=[]
-        if mode=="규칙 기반":
-            for _ in range(5):
-                pref=random.choice(["[New]","[Hot]","[Korea]"])
-                suf=random.choice(["2025","FastShip","HotDeal"])
-                join=random.choice([" | "," · "," - "])
-                cands.append(f"{pref} {brand}{join}{base} {', '.join(kws[:2])} {suf}")
-        else:
-            if not HF_API_KEY:
-                st.warning("HuggingFace Key 없음 → 규칙 기반으로 대체")
+        if st.button("생성", key="ng_go"):
+            kws=[k.strip() for k in st.session_state["ng_kws"].split(",") if k.strip()]
+            cands=[]
+            if st.session_state["ng_mode"]=="규칙 기반":
                 for _ in range(5):
-                    cands.append(f"{brand} {base} {random.choice(kws)}")
+                    pref=random.choice(["[New]","[Hot]","[Korea]"])
+                    suf=random.choice(["2025","FastShip","HotDeal"])
+                    join=random.choice([" | "," · "," - "])
+                    cands.append(f"{pref} {st.session_state['ng_brand']}{join}{st.session_state['ng_base']} {', '.join(kws[:2])} {suf}")
             else:
-                st.info("HuggingFace Inference API 호출 (모델: skt/kogpt2-base-v2)")
                 API_URL = "https://api-inference.huggingface.co/models/skt/kogpt2-base-v2"
-                headers = {"Authorization": f"Bearer {HF_API_KEY}" }
-                payload = {"inputs": f"상품명 추천: {brand} {base} {', '.join(kws)}"}
+                headers = {"Authorization": f"Bearer {HF_API_KEY}", "X-Wait-For-Model": "true"}
+                prompt = f"상품명 추천 5개: 브랜드={st.session_state['ng_brand']}, 베이스={st.session_state['ng_base']}, 키워드={', '.join(kws)}. 한국어로 간결하게."
+                payload = {"inputs": prompt, "parameters": {"max_new_tokens": 64, "return_full_text": False}}
                 try:
-                    resp = requests.post(API_URL, headers=headers, json=payload, timeout=15)
+                    resp = requests.post(API_URL, headers=headers, json=payload, timeout=30)
                     if resp.status_code==200:
                         data = resp.json()
-                        text = data[0].get("generated_text","")
-                        lines = [line.strip() for line in text.split("\n") if line.strip()]
-                        cands = lines[:5] if lines else [text[:limit]]
+                        if isinstance(data, list) and data and "generated_text" in data[0]:
+                            text = data[0]["generated_text"]
+                        else:
+                            text = json.dumps(data, ensure_ascii=False)
+                        lines = [line.strip("-• ").strip() for line in text.split("\n") if line.strip()]
+                        if len(lines)<5:
+                            lines = [s.strip() for s in textwrap.fill(text, 120).split(".") if s.strip()]
+                        cands = lines[:5]
                     else:
-                        st.error(f"HuggingFace API 오류: {resp.status_code}")
+                        try:
+                            err = resp.json()
+                        except Exception:
+                            err = resp.text
+                        st.error(f"HuggingFace API 오류: {resp.status_code} / {err}")
                 except Exception as e:
                     st.error(f"HuggingFace 호출 실패: {e}")
-        cands = filter_and_trim(cands)
-        st.session_state["name_cands"]=cands
+            st.session_state["name_cands"]=filter_and_trim(cands)
 
-    st.markdown("---")
-    st.write("생성 결과")
-    for idx, t in enumerate(st.session_state.get("name_cands", [])):
-        st.write(f"{idx+1}. {t}")
-        copy_button(t, key=f"cand_{idx}")
+        for i, t in enumerate(st.session_state.get("name_cands", []), start=1):
+            st.write(f"{i}. {t}")
+            copy_button(t, key=f"name_{i}")
 
-def render_sellerlife():
-    st.subheader("셀러라이프 (무료 placeholder)")
-    st.table(pd.DataFrame({
-        "키워드":["샘플1","샘플2","샘플3"],
-        "트렌드":["상승","하락","유지"]
-    }))
-
-def render_scenario(mi):
-    st.subheader("시나리오 저장/불러오기")
-    if st.button("현재 설정 저장"):
-        payload = dict(margin_inputs=mi.__dict__)
-        download_bytes("envy_v26_scenario.json", save_scenario_json(payload), "JSON 다운로드")
-    up = st.file_uploader("JSON 불러오기", type=["json"])
-    if up:
-        loaded = load_scenario_json(up)
-        st.write("불러온 시나리오:", loaded)
+def sec_sellerlife(container):
+    with container:
+        st.subheader("셀러라이프")
+        st.dataframe(pd.DataFrame({
+            "키워드":["샘플1","샘플2","샘플3"],
+            "트렌드":["상승","하락","유지"]
+        }), use_container_width=True)
 
 # -------------------- main --------------------
-st.title("🚀 ENVY v26.3 Full Version")
-st.caption("UI Fix + 소싱레이더 + HuggingFace 한국어 모델")
-
+st.title("🚀 ENVY v26.5 Full (DataLab 라인차트 + 11번가 모바일 임베드)")
 apply_mobile_css()
 
 with st.sidebar:
@@ -240,16 +244,14 @@ with st.sidebar:
     res = solve_sale(mi)
     st.metric("권장 판매가", f"{res['sale_price']:,.0f} KRW")
     st.metric("순이익", f"{res['net_profit']:,.0f} KRW")
-    st.caption(f"순마진(판매가): {res['net_margin_on_sale']:.2f}% • 순마진(원가): {res['net_margin_on_cost']:.2f}%")
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
-    ["데이터랩","아이템스카우트","11번가","소싱레이더","상품명 생성기","셀러라이프","시나리오 저장/불러오기"]
-)
+# Layout: 3 + 3 columns
+c1, c2, c3 = st.columns(3)
+sec_datalab(c1)
+sec_itemscout(c2)
+sec_11st(c3)
 
-with tab1: render_datalab()
-with tab2: render_itemscout()
-with tab3: render_elevenst()
-with tab4: render_sourcing()
-with tab5: render_namegen()
-with tab6: render_sellerlife()
-with tab7: render_scenario(mi)
+c4, c5, c6 = st.columns(3)
+sec_sourcing(c4)
+sec_namegen(c5)
+sec_sellerlife(c6)
