@@ -71,7 +71,7 @@ def fmt_krw(x: float) -> str:
 with st.sidebar:
     st.header("① 환율 계산기")
     fx_ccy = st.selectbox("기준 통화", ["USD", "EUR", "JPY", "CNY"], index=0, key="sb_fx_base")
-    # (임시) 실시간 API로 바꿀 수 있음
+    # (임시) 실시간 API로 교체 가능
     _fx_map = {"USD": 1400.0, "EUR": 1500.0, "JPY": 9.0, "CNY": 190.0}
     fx_rate = _fx_map.get(fx_ccy, 1400.0)
     st.caption(f"자동 환율: 1 {fx_ccy} = {fx_rate:,.2f} ₩")
@@ -419,7 +419,8 @@ with d3:
 
     if st.button("생성", key="gen_go"):
         if mode_gen == "규칙 기반":
-            out = f\"{brand} {base_kw} {rel_kw}\".replace(",", " ")
+            # ✅ 문제였던 f-string 이스케이프 제거 (정상)
+            out = f"{brand} {base_kw} {rel_kw}".replace(",", " ")
             for w in ban_kw.split(","):
                 out = out.replace(w.strip(), "")
             st.success(out[:limit_len])
