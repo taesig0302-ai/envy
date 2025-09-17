@@ -1,54 +1,100 @@
-import streamlit as st
-import requests
-import pandas as pd
-import datetime
+# === THEME TOGGLE & GLOBAL CSS ===
+if "theme" not in st.session_state:
+    st.session_state["theme"] = "light"
 
-# ============ 기본 페이지 설정 ============
-st.set_page_config(
-    page_title="ENVY v27.7 Full",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+theme_is_dark = st.sidebar.toggle("🌗 다크 모드", value=(st.session_state["theme"]=="dark"), key="__ui_theme_toggle")
+st.session_state["theme"] = "dark" if theme_is_dark else "light"
 
-st.title("🚀 ENVY v27.7 Full (Rakuten API + DataLab)")
+PRIMARY = "#2563eb" if st.session_state["theme"]=="light" else "#60a5fa"
+BG_PANEL = "#f8fafc" if st.session_state["theme"]=="light" else "#0b1220"
+FG_TEXT = "#0f172a" if st.session_state["theme"]=="light" else "#e5e7eb"
 
-# ============ 사이드바 : 환율/마진 계산기 ============
-st.sidebar.header("환율 설정")
-base_currency = st.sidebar.selectbox("기준 통화", ["USD", "EUR", "JPY", "CNY"], index=0)
+st.markdown(f"""
+<style>
+section[data-testid="stSidebar"] .block-container {{ padding-top: 6px !important; }}
+.envy-box {{
+  background:{BG_PANEL};
+  border:1px solid rgba(100,100,100,0.12);
+  border-radius:10px; padding:12px 14px; margin:6px 0;
+}}
+.envy-title {{ font-weight:700; color:{FG_TEXT}; margin-bottom:4px; }}
+.envy-kpi {{ font-size:20px; font-weight:800; color:{PRIMARY}; }}
+.envy-kpi-sub {{ font-size:12px; opacity:0.8; }}
+</style>
+""", unsafe_allow_html=True)
+with st.sidebar:
+    st.header("① 환율 계산기")
+    fx_ccy = st.selectbox("기준 통화", ["USD","EUR","JPY","CNY"], index=0, key="sb_fx_base")
+    fx_rate = {"USD":1400,"EUR":1500,"JPY":9,"CNY":190}.get(fx_ccy, 1400)  # (임시) 실시간 쓰면 get_fx_rate로 교체
 
-# (임시 환율 - 나중에 API 연동)
-exchange_rates = {"USD": 1400, "EUR": 1500, "JPY": 9, "CNY": 190}
-rate = exchange_rates.get(base_currency, 1400)
+    st.caption(f"자동 환율: 1 {fx_ccy} = {fx_rate:,.2f} ₩")
+    fx_price = st.number_input(f"판매금액 ({fx_ccy})", min_value=0.0, max_value=1e12, value=100.0, step=1.0, key="sb_fx_price_foreign")
+    fx_krw = fx_price * fx_rate
 
-# 환율 계산기
-st.sidebar.subheader("① 환율 계산기")
-foreign_price = st.sidebar.number_input(f"판매금액 ({base_currency})", 0.0, 1000000.0, 100.0)
-converted_price = foreign_price * rate
-st.sidebar.text_input("환산 금액(읽기전용)", f"{converted_price:,.0f} KRW", disabled=True)
+    st.markdown(f"""
+    <div class="envy-box">
+      <div class="envy-title">환산 금액 (읽기 전용)</div>
+      <div class="envy-kpi">₩{fx_krw:,.0f}</div>
+      <div class="envy-kpi-sub">환율 자동 반영</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# 마진 계산기
-st.sidebar.subheader("② 마진 계산기 (v23)")
-m_sale_foreign = st.sidebar.number_input(f"판매금액 ({base_currency})", 0.0, 1000000.0, 100.0)
-m_converted = m_sale_foreign * rate
-st.sidebar.text_input("환산 금액(읽기전용)", f"{m_converted:,.0f} KRW", disabled=True)
+    st.markdown("---")
+    st.header("② 마진 계산기 (v23)")
+    m_ccy = st.selectbox("기준 통화(판매금액)", ["USD","EUR","JPY","CNY"], index=0, key="sb_m_base")
+    m_rate = {"USD":1400,"EUR":1500,"JPY":9,"CNY":190}.get(m_ccy, 1400)  # (임시) 실시간 쓰면 get_fx_rate로 교체
+    st.caption(f"자동 환율: 1 {m_ccy} = {m_rate:,.2f} ₩")
 
-card_fee = st.sidebar.number_input("카드수수료 (%)", 0.0, 100.0, 4.0)
-market_fee = st.sidebar.number_input("마켓수수료 (%)", 0.0, 100.0, 14.0)
-shipping_fee = st.sidebar.number_input("배송비 (₩)", 0.0, 1000000.0, 0.0)
+    m_sale_foreign = st.number_input(f"판매금액 ({m_ccy})", min_value=0.0, max_value=1e12, value=100.0, step=1.0, key="sb_m_sale_foreign")
+    m_sale_krw = m_sale_foreign * m_rate
 
-margin_mode = st.sidebar.radio("마진 방식", ["퍼센트 마진(%)", "더하기 마진(₩)"])
-margin_value = st.sidebar.number_input("마진율 / 추가금", 0.0, 1000000.0, 10.0)
+    st.markdown(f"""
+    <div class="envy-box">
+      <div class="envy-title">판매금액 (환산)</div>
+      <div class="envy-kpi">₩{m_sale_krw:,.0f}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# 계산식 (v23 로직)
-if margin_mode == "퍼센트 마진(%)":
-    final_price = m_converted * (1 + card_fee/100 + market_fee/100) * (1 + margin_value/100) + shipping_fee
-else:
-    final_price = m_converted * (1 + card_fee/100 + market_fee/100) + shipping_fee + margin_value
+    card = st.number_input("카드수수료 (%)", min_value=0.0, max_value=100.0, value=4.0, step=0.1, key="sb_card")
+    market = st.number_input("마켓수수료 (%)", min_value=0.0, max_value=100.0, value=14.0, step=0.1, key="sb_market")
+    ship = st.number_input("배송비 (₩)", min_value=0.0, max_value=1e10, value=0.0, step=100.0, key="sb_ship")
+    mode = st.radio("마진 방식", ["퍼센트 마진(%)","더하기 마진(₩)"], horizontal=True, key="sb_mode")
 
-profit = final_price - m_converted
+    # v23 공식
+    def _calc_percent(cost_krw, cf, mf, t, ship):
+        denom = max(1e-9, 1 - cf - mf)
+        target_rev = (cost_krw + ship) * (1 + t)
+        P = target_rev / denom
+        revenue = P * (1 - cf - mf)
+        profit = revenue - (cost_krw + ship)
+        return P, profit, (profit/P*100 if P>0 else 0.0)
 
-st.sidebar.markdown(f"💰 **판매가격 (계산 결과):** {final_price:,.0f} KRW")
-st.sidebar.markdown(f"📈 **순이익 (마진):** {profit:,.0f} KRW")
+    def _calc_add(cost_krw, cf, mf, add, ship):
+        denom = max(1e-9, 1 - cf - mf)
+        target_rev = (cost_krw + ship) + add
+        P = target_rev / denom
+        revenue = P * (1 - cf - mf)
+        profit = revenue - (cost_krw + ship)
+        return P, profit, (profit/P*100 if P>0 else 0.0)
+
+    if mode=="퍼센트 마진(%)":
+        margin_pct = st.number_input("마진율 (%)", min_value=0.0, max_value=500.0, value=10.0, step=0.1, key="sb_margin_pct")
+        P, profit, on_sale = _calc_percent(m_sale_krw, card/100.0, market/100.0, margin_pct/100.0, ship)
+    else:
+        add_margin = st.number_input("더하기 마진 (₩)", min_value=0.0, max_value=1e12, value=10000.0, step=100.0, key="sb_add_margin")
+        P, profit, on_sale = _calc_add(m_sale_krw, card/100.0, market/100.0, add_margin, ship)
+
+    st.markdown(f"""
+    <div class="envy-box">
+      <div class="envy-title">판매가격 (계산 결과)</div>
+      <div class="envy-kpi">₩{P:,.0f}</div>
+      <div class="envy-kpi-sub">마진율(판매가 기준): {on_sale:.2f}%</div>
+    </div>
+    <div class="envy-box">
+      <div class="envy-title">순이익(마진)</div>
+      <div class="envy-kpi">₩{profit:,.0f}</div>
+    </div>
+    """, unsafe_allow_html=True)
 # ============ Part 2: DataLab + Itemscout + SellerLife ============
 
 import altair as alt
@@ -166,147 +212,57 @@ with c2:
 with c3:
     st.subheader("셀러라이프")
     st.info("셀러라이프 연동 대기(별도 API/프록시 연결 예정)")
-# ============ Part 3: AI 키워드 레이더 (국내/글로벌) ============
+import streamlit as st
+import requests
+import pandas as pd
+import datetime
 
-import re
-from bs4 import BeautifulSoup
+# ============ 기본 페이지 설정 ============
+st.set_page_config(
+    page_title="ENVY v27.7 Full",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# Rakuten AppID (상용)
-RAKUTEN_APP_ID = "1043271015809337425"  # ← 네가 발급받은 AppID 그대로 사용
+st.title("🚀 ENVY v27.7 Full (Rakuten API + DataLab)")
 
-def _retry_get(url, headers=None, timeout=12, tries=4):
-    last = None
-    for i in range(tries):
-        try:
-            r = requests.get(url, headers=headers, timeout=timeout)
-            if r.status_code in (200, 201):
-                return r
-            if r.status_code in (403, 429):
-                import time as _t; _t.sleep(1.2 * (2**i))
-                continue
-            last = r
-        except Exception as e:
-            last = e
-    raise RuntimeError(f"GET 실패: {last}")
+# ============ 사이드바 : 환율/마진 계산기 ============
+st.sidebar.header("환율 설정")
+base_currency = st.sidebar.selectbox("기준 통화", ["USD", "EUR", "JPY", "CNY"], index=0)
 
-# ---- Amazon 베스트셀러 (HTML 파싱 + 프록시 옵션) ----
-def fetch_amazon_bestsellers(limit:int=15, proxy:str|None=None) -> pd.DataFrame:
-    url = "https://www.amazon.com/Best-Sellers/zgbs"
-    if proxy:
-        url = f"{proxy}?target=" + requests.utils.quote(url, safe="")
-    headers = {**COMMON_HEADERS, "Referer": "https://www.amazon.com/"}
-    r = _retry_get(url, headers=headers, timeout=12, tries=4)
+# (임시 환율 - 나중에 API 연동)
+exchange_rates = {"USD": 1400, "EUR": 1500, "JPY": 9, "CNY": 190}
+rate = exchange_rates.get(base_currency, 1400)
 
-    soup = BeautifulSoup(r.text, "html.parser")
-    titles=[]
-    selectors = [
-        "div.p13n-sc-truncate",
-        "div._cDEzb_p13n-sc-css-line-clamp-3_g3dy1",
-        "div._cDEzb_p13n-sc-css-line-clamp-2_EWgCb",
-        "div.a-section.a-spacing-small > h3, div.a-section.a-spacing-small > a > span",
-        "span.zg-text-center-align > div > a > div",
-    ]
-    for sel in selectors:
-        for el in soup.select(sel):
-            t = re.sub(r"\s+"," ", el.get_text(strip=True))
-            if t and t not in titles:
-                titles.append(t)
-            if len(titles) >= limit:
-                break
-        if len(titles) >= limit:
-            break
+# 환율 계산기
+st.sidebar.subheader("① 환율 계산기")
+foreign_price = st.sidebar.number_input(f"판매금액 ({base_currency})", 0.0, 1000000.0, 100.0)
+converted_price = foreign_price * rate
+st.sidebar.text_input("환산 금액(읽기전용)", f"{converted_price:,.0f} KRW", disabled=True)
 
-    if not titles:
-        raise RuntimeError("Amazon 파싱 실패(구조변경/차단 가능)")
-    df = pd.DataFrame({"rank": range(1, len(titles)+1), "keyword": titles[:limit]})
-    df["score"] = [300 - i for i in range(1, len(df)+1)]
-    df["source"] = "Amazon US"
-    return df[["source","rank","keyword","score"]]
+# 마진 계산기
+st.sidebar.subheader("② 마진 계산기 (v23)")
+m_sale_foreign = st.sidebar.number_input(f"판매금액 ({base_currency})", 0.0, 1000000.0, 100.0)
+m_converted = m_sale_foreign * rate
+st.sidebar.text_input("환산 금액(읽기전용)", f"{m_converted:,.0f} KRW", disabled=True)
 
-# ---- Rakuten 공식 Ranking API ----
-def fetch_rakuten_ranking_api(app_id: str, genre_id: str|None=None,
-                              period: str="day", limit:int=15) -> pd.DataFrame:
-    """
-    Rakuten Ichiba Item Ranking API (정식)
-    https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628
-    """
-    url = "https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628"
-    params = {"applicationId": app_id, "format": "json", "periodType": period}
-    if genre_id:
-        params["genreId"] = genre_id
-    r = requests.get(url, params=params, timeout=12)
-    if r.status_code != 200:
-        raise RuntimeError(f"Rakuten API 오류: {r.status_code} / {r.text[:120]}")
-    js = r.json()
-    items = js.get("Items", [])
-    rows=[]
-    for it in items[:limit]:
-        I = it.get("Item", {})
-        rows.append({
-            "rank": I.get("rank"),
-            "keyword": I.get("itemName"),
-            "score": 220 - (I.get("rank") or len(rows)+1),
-        })
-    if not rows:
-        raise RuntimeError("Rakuten API 응답에 항목이 없습니다.")
-    df = pd.DataFrame(rows)
-    df["source"] = "Rakuten JP"
-    return df[["source","rank","keyword","score"]]
+card_fee = st.sidebar.number_input("카드수수료 (%)", 0.0, 100.0, 4.0)
+market_fee = st.sidebar.number_input("마켓수수료 (%)", 0.0, 100.0, 14.0)
+shipping_fee = st.sidebar.number_input("배송비 (₩)", 0.0, 1000000.0, 0.0)
 
-# ---- 하단 3열 중: 좌측(레이더) / 중간(11번가) / 우측(상품명 생성기) ----
-d1, d2, d3 = st.columns(3)
+margin_mode = st.sidebar.radio("마진 방식", ["퍼센트 마진(%)", "더하기 마진(₩)"])
+margin_value = st.sidebar.number_input("마진율 / 추가금", 0.0, 1000000.0, 10.0)
 
-with d1:
-    st.subheader("AI 키워드 레이더 (국내/글로벌)")
+# 계산식 (v23 로직)
+if margin_mode == "퍼센트 마진(%)":
+    final_price = m_converted * (1 + card_fee/100 + market_fee/100) * (1 + margin_value/100) + shipping_fee
+else:
+    final_price = m_converted * (1 + card_fee/100 + market_fee/100) + shipping_fee + margin_value
 
-    mode = st.radio("모드", ["국내","글로벌"], horizontal=True, key="air_mode")
-    if mode == "국내":
-        src = st.session_state.get("datalab_df")
-        if src is not None and len(src):
-            radar = (src.assign(source="DataLab",
-                                score=lambda x: 1000 - x["rank"]*10)
-                       [["source","keyword","score","rank"]]
-                       .sort_values(["score","rank"], ascending=[False, True]))
-            st.dataframe(radar, use_container_width=True, height=420)
-            st.download_button("국내 키워드 CSV",
-                               radar.to_csv(index=False).encode("utf-8-sig"),
-                               "radar_domestic.csv", mime="text/csv",
-                               key="air_csv_dom")
-        else:
-            st.info("데이터랩 결과가 없어 표시할 키워드가 없습니다.")
-    else:
-        # 글로벌: Amazon + Rakuten (공식 API)
-        amz_proxy = st.text_input("Amazon 프록시(선택)",
-                                  "", key="amz_proxy",
-                                  placeholder="https://your-proxy/app?target=<url>")
-        rak_genre = st.text_input("Rakuten genreId (선택, 비우면 종합)",
-                                  "", key="rak_genre")
+profit = final_price - m_converted
 
-        # 수집
-        try:
-            df_amz = fetch_amazon_bestsellers(15, proxy=(amz_proxy or None))
-        except Exception as e:
-            st.error(f"Amazon 수집 실패: {e}")
-            df_amz = pd.DataFrame(columns=["source","rank","keyword","score"])
-
-        try:
-            df_rak = fetch_rakuten_ranking_api(RAKUTEN_APP_ID,
-                                               genre_id=(rak_genre or None),
-                                               period="day", limit=15)
-        except Exception as e:
-            st.error(f"Rakuten API 실패: {e}")
-            df_rak = pd.DataFrame(columns=["source","rank","keyword","score"])
-
-        df_glb = pd.concat([df_amz, df_rak], ignore_index=True)
-        if len(df_glb):
-            df_glb = df_glb.sort_values(["score","rank"], ascending=[False, True])
-            st.dataframe(df_glb, use_container_width=True, height=420)
-            st.download_button("글로벌 키워드 CSV",
-                               df_glb.to_csv(index=False).encode("utf-8-sig"),
-                               "radar_global.csv", mime="text/csv",
-                               key="air_csv_glb")
-        else:
-            st.info("글로벌 소스 수집 결과가 없습니다.")
+st.sidebar.markdown(f"💰 **판매가격 (계산 결과):** {final_price:,.0f} KRW")
+st.sidebar.markdown(f"📈 **순이익 (마진):** {profit:,.0f} KRW")
 # ============ Part 4: 11번가 (모바일 프록시 + 요약표) & 상품명 생성기 ============
 
 # ---- 중간 컬럼 (11번가) ----
