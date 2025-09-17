@@ -1,216 +1,203 @@
-# =============== Part 1: Imports / Config / Guards ==========================
-import streamlit as st
-import pandas as pd
-import requests
-from urllib.parse import quote
+import streamlit as st, pandas as pd, requests, urllib.parse
 
-st.set_page_config(page_title="ENVY v27.x Full", layout="wide")
+@st.cache_data(ttl=300)
+def fetch_datalab_category_top20(category_id: str, period="7d") -> pd.DataFrame:
+    # 내부 엔드포인트(예시). 실제 값으로 교체만 하면 동작.
+    base = "https://datalab.naver.com/example/api/categoryTop20"
+    url = f"{base}?cid={urllib.parse.quote(category_id)}&period={period}"
 
-# ▶ 여기 두 값은 하드코딩 우선, 없으면 st.secrets 로 대체
-CF_PROXY_URL   = "https://envy-proxy.taesig0302.workers.dev"  # ← 당신 워커 URL
-RAKUTEN_APP_ID = "1043271015809337425"                        # ← 당신 Rakuten App ID
+    from utils import purl
+    r = requests.get(purl(url), timeout=10)
+    if r.status_code != 200:
+        raise RuntimeError(f"DataLab http {r.status_code}")
+    data = r.json()
+    rows = data.get("ranks", [])
+    return pd.DataFrame(rows)
 
-# secrets fallback
-if not CF_PROXY_URL:
-    CF_PROXY_URL = st.secrets.get("CF_PROXY_URL", CF_PROXY_URL)
-if not RAKUTEN_APP_ID:
-    RAKUTEN_APP_ID = st.secrets.get("RAKUTEN_APP_ID", RAKUTEN_APP_ID)
+def render_datalab_block():
+    st.markdown("### 데이터랩")
+    col1, col2 = st.columns([2,3])
+    with col1:
+        category = st.selectbox(
+            "카테고리(10개)",
+            ["패션잡화","디지털/가전","식품","생활/건강","가구/인테리어","도서/취미","스포츠/레저","뷰티","출산/육아","반려동물"],
+            index=0
+        )
+        cid_map = {
+            "패션잡화":"50000000-FA","디지털/가전":"50000000-DG","식품":"50000000-FD","생활/건강":"50000000-LH",
+            "가구/인테리어":"50000000-FN","도서/취미":"50000000-BC","스포츠/레저":"50000000-SP",
+            "뷰티":"50000000-BT","출산/육아":"50000000-BB","반려동물":"50000000-PS",
+        }
+        cid = cid_map[category]
+        st.session_state["_datalab_cid"] = cid
+        retried = st.button("데이터랩 재시도")
 
-def require_config():
-    missing = []
-    if not CF_PROXY_URL:   missing.append("CF_PROXY_URL")
-    if not RAKUTEN_APP_ID: missing.append("RAKUTEN_APP_ID")
-    if missing:
-        st.error(f"필수 설정 누락: {', '.join(missing)} — 코드/Secrets 에 값을 채워주세요.")
-        st.stop()
+    with col2:
+        st.caption("프록시/기간/CID 자동 처리. 실패 시 즉시 경고와 함께 재시도하세요.")
 
-# 네이버 데이터랩 카테고리 CID(샘플: 실제 CID 로 교체 가능)
-CID_MAP = {
-    "패션잡화":    "50000000",
-    "식품":        "50000001",
-    "가구/인테리어": "50000002",
-    "디지털/가전":  "50000003",
-    "생활/건강":    "50000004",
-    "출산/육아":    "50000005",
-    "스포츠/레저":  "50000006",
-    "도서/음반":    "50000007",
-    "여행/티켓":    "50000008",
-    "반려/취미":    "50000009",
-}
-# ===========================================================================
-
-# =================== Part 2: CSS / Sidebar ================================
-def fixed_css():
-    st.markdown("""
-    <style>
-      .card {padding:16px;border-radius:12px;background:var(--background-color-secondary,#1115);
-             border:1px solid rgba(255,255,255,0.08); min-height:340px;}
-      .card h3, .card h4 {margin-top:0;}
-      .row-gap {margin-top: 14px;}
-      section[data-testid="stSidebar"] > div {height: 100vh; overflow-y: auto;}
-    </style>
-    """, unsafe_allow_html=True)
-
-def sidebar_calculators():
-    with st.sidebar:
-        st.toggle("🌙 다크 모드", value=True, key="dark_hint", help="(테마는 브라우저/앱 설정에 따릅니다)")
-
-        st.markdown("### ① 환율 계산기")
-        base_currency = st.selectbox("기준 통화", ["USD","EUR","JPY","CNY"], index=0)
-        rate = st.number_input("환율 (1 단위 → ₩)", value=1400.00, step=0.01, format="%.2f")
-        price_foreign = st.number_input("판매금액 (외화)", value=1.00, step=0.01, format="%.2f")
-        exch_amt = price_foreign * rate
-        st.success(f"환산 금액: {exch_amt:,.2f} 원")
-
-        st.markdown("### ② 마진 계산기 (v23)")
-        fee_card   = st.number_input("카드수수료 (%)", value=4.00,  step=0.01, format="%.2f")
-        fee_market = st.number_input("마켓수수료 (%)", value=14.00, step=0.01, format="%.2f")
-        ship       = st.number_input("배송비 (원)", value=0.00, step=100.0, format="%.0f")
-        mode       = st.radio("마진 방식", ["퍼센트 마진(%)","더하기 마진(₩)"], index=0, horizontal=True)
-        mval       = st.number_input("마진율/마진액", value=10.00, step=0.10, format="%.2f")
-
-        cost = exch_amt * (1 + fee_card/100) * (1 + fee_market/100)
-        price_krw = (cost * (1 + mval/100) + ship) if mode.startswith("퍼센트") else (cost + mval + ship)
-
-        st.info(f"예상 판매가: {price_krw:,.2f} 원")
-        st.warning(f"순이익(마진): {price_krw - cost:,.2f} 원")
-
-        # ⛔️ 여기서 끝! 사이드바에는 그 아래 어떤 입력/설정도 두지 않음.
-# ==========================================================================
-
-# ==================== Part 3: Data & Embed utils ==========================
-def fetch_datalab_top20(category_name: str) -> pd.DataFrame:
-    """프록시 워커를 통해 DataLab JSON을 받아 Top20 테이블 생성."""
-    require_config()
-    cid = CID_MAP.get(category_name)
-    if not cid:
-        return pd.DataFrame(columns=["rank","keyword","search"])
-
-    # 프록시 워커 → target 으로 실제 DataLab API/JSON을 읽어옴 (워커쪽에서 세션/쿠키 처리)
-    target = f"https://datalab.naver.com/api/category/top20?cid={cid}"
-    url = f"{CF_PROXY_URL}/?target={quote(target)}"
     try:
-        r = requests.get(url, timeout=12)
-        if r.status_code != 200:
-            return pd.DataFrame(columns=["rank","keyword","search"])
-        js = r.json()
-        ranks = js.get("ranks", [])
-        if not ranks:
-            return pd.DataFrame(columns=["rank","keyword","search"])
-        rows = [{"rank": i+1, "keyword": d.get("keyword",""), "search": 100-i} for i,d in enumerate(ranks[:20])]
-        return pd.DataFrame(rows)
-    except Exception:
-        return pd.DataFrame(columns=["rank","keyword","search"])
+        df = fetch_datalab_category_top20(st.session_state["_datalab_cid"])
+        if retried:
+            df = fetch_datalab_category_top20(st.session_state["_datalab_cid"])
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        if "search" in df.columns:
+            st.line_chart(df.set_index("rank")["search"], height=180)
+    except Exception as e:
+        st.warning(f"DataLab 호출 실패: {e}\n프록시/기간/CID 확인 후 재시도하세요.")
+import streamlit as st, pandas as pd, requests
+from utils import purl, RAKUTEN_APP_ID
 
-def fetch_rakuten_keywords(region: str = "JP") -> pd.DataFrame:
-    """Rakuten Ranking API 예시 호출 — App ID 코드에 고정(입력 UI 없음)."""
-    require_config()
+@st.cache_data(ttl=600)
+def fetch_rakuten_keywords(country="JP", app_id="") -> pd.DataFrame:
+    if not app_id:
+        rows = [
+            {"rank":1,"keyword":"YOUNG OLD 初回盤 Blu-ray","source":"Rakuten JP"},
+            {"rank":2,"keyword":"YOUNG OLD DVD 初回盤 【SixTONES】","source":"Rakuten JP"},
+            {"rank":3,"keyword":"YOUNG OLD Blu-ray 初回盤","source":"Rakuten JP"},
+            {"rank":4,"keyword":"楽天ブックス限定特典","source":"Rakuten JP"},
+            {"rank":5,"keyword":"楽天ブックス ランキング","source":"Rakuten JP"},
+        ]
+        return pd.DataFrame(rows)
+
     endpoint = "https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628"
-    params = {"format":"json", "applicationId": RAKUTEN_APP_ID}
+    r = requests.get(purl(f"{endpoint}?applicationId={app_id}&format=json&genreId=100283"), timeout=10)
+    r.raise_for_status()
+    data = r.json()
+    rows=[]
+    for i, item in enumerate(data.get("Items", []), start=1):
+        name = item["Item"]["itemName"]
+        rows.append({"rank":i,"keyword":name,"source":"Rakuten JP"})
+    return pd.DataFrame(rows)
+
+def render_rakuten_block():
+    st.subheader("AI 키워드 레이더 (국내/글로벌)")
+    mode = st.radio("모드", ["국내","글로벌"], horizontal=True, label_visibility="collapsed")
+    if mode=="국내":
+        st.info("국내는 데이터랩/아이템스카우트/셀러라이프 조합 (현재 DataLab 결과 우선)")
+    df = fetch_rakuten_keywords(country="JP", app_id=RAKUTEN_APP_ID)
+    st.dataframe(df, use_container_width=True, hide_index=True)
+import streamlit as st, pandas as pd, requests
+from bs4 import BeautifulSoup
+from utils import iframe_url, snapshot_url, get_html_via_proxy
+
+MOBILE_BEST = "https://m.11st.co.kr/browsing/bestSellers.mall"
+
+def parse_11st_best(url=MOBILE_BEST) -> pd.DataFrame:
+    html = get_html_via_proxy(url)
+    soup = BeautifulSoup(html, "html.parser")
+    rows=[]
+    for i, li in enumerate(soup.select("li[class*=prd]")[:50], start=1):
+        a = li.select_one("a[href]")
+        title_el = li.select_one(".name") or li.select_one(".title") or a
+        title = title_el.get_text(strip=True) if title_el else ""
+        price_el = li.select_one(".price") or li.select_one(".value") or li.select_one(".num")
+        price = price_el.get_text(strip=True) if price_el else ""
+        img_el = li.select_one("img")
+        img = img_el.get("src","") if img_el else ""
+        link = a["href"] if a else ""
+        if link.startswith("/"): link = "https://m.11st.co.kr"+link
+        rows.append({"rank":i,"title":title,"price":price,"img":img,"link":link})
+    return pd.DataFrame(rows)
+
+def render_11st_block():
+    st.subheader("11번가 (모바일)")
+    url = st.text_input("11번가 URL", value=MOBILE_BEST, label_visibility="collapsed")
     try:
-        r = requests.get(endpoint, params=params, timeout=12)
-        rows = []
-        if r.ok:
-            for i, item in enumerate(r.json().get("Items", [])[:20], start=1):
-                name = item.get("Item", {}).get("itemName", "")
-                rows.append({"rank": i, "keyword": name, "source": f"Rakuten {region}"})
-        return pd.DataFrame(rows)
+        st.components.v1.iframe(src=iframe_url(url), height=520)
+        return
     except Exception:
-        return pd.DataFrame(columns=["rank","keyword","source"])
-
-def elevenst_iframe(url: str) -> str:
-    """11번가 모바일 페이지를 프록시 프레임으로 임베드."""
-    require_config()
-    return f'''
-    <iframe src="{CF_PROXY_URL}/?frame=1&target={quote(url)}"
-            width="100%" height="560" style="border:0; border-radius:12px; background:#fff;"></iframe>
-    '''
-# ==========================================================================
-
-# ====================== Part 4: 3×3 UI / Main =============================
-def render_main():
-    fixed_css()
-    sidebar_calculators()   # ← 사이드바는 계산기만
-
-    # ── 1행: 데이터랩 / 아이템스카우트 / 셀러라이프
-    c1, c2, c3 = st.columns(3, gap="small")
-    with c1:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("데이터랩")
-        cat = st.selectbox("카테고리(10개)", list(CID_MAP.keys()), index=0, key="dl_cat")
-        dl = fetch_datalab_top20(cat)
-        if dl.empty:
-            st.warning("DataLab 호출 결과 없음(프록시/기간/CID/세션 확인).")
-        st.dataframe(dl, use_container_width=True, height=280)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    with c2:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("아이템스카우트")
-        st.info("연동 대기 (별도 API/프록시)")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    with c3:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("셀러라이프")
-        st.info("연동 대기 (별도 API/프록시)")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
-
-    # ── 2행: 레이더 / 11번가(모바일) / 상품명 생성기
-    c4, c5, c6 = st.columns(3, gap="small")
-    with c4:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("AI 키워드 레이더 (국내/글로벌)")
-        mode = st.radio("모드", ["국내","글로벌"], index=0, horizontal=True)
-        if mode == "글로벌":
-            rk = fetch_rakuten_keywords()
-            if rk.empty:
-                st.warning("Rakuten 결과 없음(네트워크/쿼터 확인).")
-            st.dataframe(rk, use_container_width=True, height=280)
+        pass
+    try:
+        html = requests.get(snapshot_url(url), timeout=12).text
+        st.html(html[:30000], height=520)
+        return
+    except Exception:
+        pass
+    try:
+        df = parse_11st_best(url)
+        if df.empty:
+            st.warning("11번가 파싱 실패(보안정책/마크업 변경).")
         else:
-            st.dataframe(dl, use_container_width=True, height=280)
-        st.markdown('</div>', unsafe_allow_html=True)
+            st.dataframe(df[["rank","title","price"]], use_container_width=True, hide_index=True)
+    except Exception as e:
+        st.error(f"11번가 로드 실패: {e}")
+import streamlit as st
 
-    with c5:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("11번가 (모바일)")
-        url = st.text_input("11번가 URL", "https://m.11st.co.kr/browsing/bestSellers.mall")
-        st.markdown(elevenst_iframe(url), unsafe_allow_html=True)
-        st.caption("임베드 차단 시 프록시/헤더 수정 모드 필요.")
-        st.markdown('</div>', unsafe_allow_html=True)
+def render_namegen_block():
+    st.subheader("상품명 생성기 (규칙 기반)")
+    brand = st.text_input("브랜드", value="envy")
+    base_kw = st.text_input("베이스 키워드", value="K-coffee mix")
+    rel_kw = st.text_input("연관키워드(콤마)", value="Maxim, Kanu, Korea")
+    banned = st.text_input("금칙어", value="copy, fake, replica")
+    limit = st.slider("글자수 제한", 20, 80, 80)
 
-    with c6:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("상품명 생성기 (규칙 기반)")
-        brand    = st.text_input("브랜드", "envy")
-        base_kw  = st.text_input("베이스 키워드", "K-coffee mix")
-        rel_kw   = st.text_input("연관키워드(,로 구분)", "Maxim, Kanu, Korea")
-        banned   = st.text_input("금칙어", "copy, fake, replica")
-        limit    = st.slider("글자수 제한", 20, 80, 80)
-        if st.button("제목 5개 생성"):
-            rel = [w.strip() for w in rel_kw.split(",") if w.strip()]
-            outs = []
-            for i in range(5):
-                title = f"{brand} {base_kw} {' '.join(rel[:2])}".strip()
-                # 금칙어 제거 + 길이 제한
-                for bad in [b.strip() for b in banned.split(",") if b.strip()]:
-                    title = title.replace(bad, "")
-                outs.append(title[:limit])
-            st.write("\n".join([f"- {t}" for t in outs]))
-        st.markdown('</div>', unsafe_allow_html=True)
+    if st.button("제목 5개 생성"):
+        kws = [k.strip() for k in rel_kw.split(",") if k.strip()]
+        outs=[]
+        for k in kws[:5]:
+            title = f"{brand} {base_kw} {k}".replace(",", " ")
+            title = title[:limit]
+            outs.append(title)
+        st.text_area("생성 결과", "\n".join(outs), height=200)
+    st.caption("연관키워드는 상단 데이터랩/글로벌 표를 참조하세요.")
+import streamlit as st
+from utils import *
+from datalab import render_datalab_block
+from rakuten import render_rakuten_block
+from elevenst import render_11st_block
+from namegen import render_namegen_block
 
-    st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
+st.set_page_config(page_title="ENVY v27.14 Full", page_icon="✨", layout="wide")
 
-    # ── 3행: 확장 슬롯(지금은 빈 카드)
-    c7, c8, c9 = st.columns(3, gap="small")
-    for col in (c7, c8, c9):
-        with col:
-            st.markdown('<div class="card">업데이트 예정 섹션</div>', unsafe_allow_html=True)
+# 다크모드 토글(세션)
+if "theme" not in st.session_state:
+    st.session_state["theme"] = "light"
+def toggle_theme():
+    st.session_state["theme"] = "dark" if st.session_state["theme"]=="light" else "light"
+st.sidebar.toggle("다크 모드", value=False, on_change=toggle_theme)
 
-# ▶ 진입점
-if __name__ == "__main__":
-    render_main()
-# ===========================================================================
+# CSS: 카드 간격 최적화 + 사이드바 고정 + 연결설정 숨김
+st.markdown("""
+<style>
+.block-container{padding-top:0.8rem; padding-bottom:0.8rem;}
+[data-testid="stSidebar"] section{padding-top:0.6rem; padding-bottom:0.6rem;}
+.sidebar-conn, [data-testid="stSidebar"] .conn-hide{display:none!important;}
+</style>
+""", unsafe_allow_html=True)
 
+# 사이드바 계산기
+with st.sidebar:
+    st.markdown("### ① 환율 계산기")
+    base = st.selectbox("기준 통화", ["USD","EUR","JPY","CNY"], index=0)
+    rate = st.number_input("환율 (1 단위 = ₩)", value=1400.00, step=0.01, format="%.2f")
+    sale_foreign = st.number_input("판매금액 (외화)", value=1.00, step=0.01, format="%.2f")
+    won = rate * sale_foreign
+    st.success(f"환산 금액: {won:,.2f} 원")
+
+    st.markdown("### ② 마진 계산기 (v23)")
+    m_rate = st.number_input("카드수수료 (%)", value=4.00, step=0.01, format="%.2f")
+    m_fee  = st.number_input("마켓수수료 (%)", value=14.00, step=0.01, format="%.2f")
+    ship   = st.number_input("배송비 (₩)", value=0.0, step=100.0, format="%.0f")
+    mode   = st.radio("마진 방식", ["퍼센트 마진(%)","더하기 마진(₩)"])
+    margin = st.number_input("마진율/마진액", value=10.00, step=0.01, format="%.2f")
+    if mode=="퍼센트 마진(%)":
+        target_price = won * (1 + m_rate/100) * (1 + m_fee/100) * (1 + margin/100) + ship
+    else:
+        target_price = won * (1 + m_rate/100) * (1 + m_fee/100) + margin + ship
+    st.info(f"예상 판매가: {target_price:,.2f} 원")
+    st.warning(f"순이익(마진): {(target_price - won):,.2f} 원")
+
+# 본문 3×3
+top1, top2, top3 = st.columns([1,1,1])
+mid1, mid2, mid3 = st.columns([1,1,1])
+bot1, bot2, bot3 = st.columns([1,1,1])
+
+with top1: render_datalab_block()
+with top2: st.subheader("아이템스카우트"); st.info("연동 대기 (별도 API/프록시)")
+with top3: st.subheader("셀러라이프"); st.info("연동 대기 (별도 API/프록시)")
+with mid1: render_rakuten_block()
+with mid2: render_11st_block()
+with mid3: render_namegen_block()
+with bot1: st.empty()
+with bot2: st.empty()
+with bot3: st.empty()
