@@ -1,7 +1,7 @@
-# ENVY v27.3 Full • 단일 버전
-# - 환율/마진 계산기 (v23 공식, 환율칸 제거)
+# ENVY v27.3 Full • 단일 버전 (Key 충돌 Fix)
+# - 환율/마진 계산기 (v23 공식, 환율칸 제거, key 분리)
 # - 네이버 데이터랩 (실데이터, CID 매핑)
-# - 아이템스카우트 / 셀러라이프 / AI 키워드 레이더 (데이터랩 키워드 공유)
+# - 아이템스카우트 / 셀러라이프 / AI 키워드 레이더
 # - 11번가 (프록시 임베드 + fallback)
 # - 상품명 생성기 (규칙 + HuggingFace KoGPT2)
 
@@ -14,11 +14,11 @@ import requests, json, datetime, random, textwrap, html, urllib.parse
 st.set_page_config(page_title="ENVY v27.3 Full", page_icon="🚀", layout="wide")
 
 # -------------------- Config --------------------
-HF_API_KEY = "hf_xxxxxxxxxxxxxxxxxxxxxxxxx"   # 👉 네 HuggingFace Key 여기 넣음
+HF_API_KEY = "hf_xxxxxxxxxxxxxxxxxxxxxxxxx"   # 👉 HuggingFace Key 직접 박기 (테스트 용)
 CURRENCY_SYMBOL = {"KRW":"₩","USD":"$","EUR":"€","JPY":"¥","CNY":"CN¥"}
 FX_ORDER = ["USD","EUR","JPY","CNY"]
 
-# 네이버 쇼핑 카테고리 CID 매핑 (고정)
+# 네이버 쇼핑 카테고리 CID 매핑
 NAVER_CATEGORIES = {
     "패션의류": "50000000",
     "패션잡화": "50000001",
@@ -74,7 +74,7 @@ def margin_calc_add(cost_krw: float, card_pct: float, market_pct: float, add_mar
     revenue = P * (1 - cf - mf)
     profit = revenue - (cost_krw + shipping_krw)
     return P, profit, (profit/P*100 if P>0 else 0.0)
-# -------------------- FX Auto fetch --------------------
+# -------------------- FX Auto fetch (15분 캐시) --------------------
 @st.cache_data(ttl=900, show_spinner=False)
 def get_fx_rate(base_ccy: str) -> float:
     try:
@@ -86,12 +86,57 @@ def get_fx_rate(base_ccy: str) -> float:
             return float(r.json()["rates"]["KRW"])
     except Exception:
         pass
+    # 네트워크 실패 시 안전 기본값
     return {"USD": 1400.0, "EUR": 1500.0, "JPY": 9.5, "CNY": 190.0}.get(base_ccy, 1400.0)
 
-def readonly_money(label: str, value_krw: float):
-    st.text_input(label, f"{CURRENCY_SYMBOL['KRW']}{value_krw:,.0f} KRW", disabled=True)
+def readonly_money(label: str, value_krw: float, key: str):
+    st.text_input(label, f"{CURRENCY_SYMBOL['KRW']}{value_krw:,.0f} KRW", disabled=True, key=key)
 
-# -------------------- Naver DataLab --------------------
+# -------------------- UI 헤더 --------------------
+st.title("🚀 ENVY v27.3 Full (실데이터)")
+
+# -------------------- Sidebar (환율/마진 계산기 · key 충돌 방지) --------------------
+with st.sidebar:
+    # 환율 공통 설정
+    st.header("환율 설정")
+    base_ccy = st.selectbox("기준 통화", FX_ORDER, index=0, key="sb_base_ccy")
+    sym = CURRENCY_SYMBOL.get(base_ccy, "")
+    fx_rate = get_fx_rate(base_ccy)
+    st.caption(f"자동 환율: 1 {sym} = {fx_rate:,.2f} ₩")
+
+    st.markdown("---")
+    st.header("① 환율 계산기")
+    fx_price_foreign = st.number_input(
+        f"판매금액 ({sym})", 0.0, 1e12, 100.0, 1.0, key="sb_fx_price_foreign"
+    )
+    fx_price_krw = fx_price_foreign * fx_rate
+    readonly_money("환산 금액(읽기전용)", fx_price_krw, key="sb_fx_price_krw")
+
+    st.markdown("---")
+    st.header("② 마진 계산기 (v23)")
+    m_sale_foreign = st.number_input(
+        f"판매금액 ({sym})", 0.0, 1e12, fx_price_foreign, 1.0, key="sb_m_sale_foreign"
+    )
+    m_sale_krw = m_sale_foreign * fx_rate
+    readonly_money("환산 금액(읽기전용)", m_sale_krw, key="sb_m_sale_krw")
+
+    card = st.number_input("카드수수료 (%)", 0.0, 100.0, 4.0, 0.1, key="sb_card")
+    market = st.number_input("마켓수수료 (%)", 0.0, 100.0, 14.0, 0.1, key="sb_market")
+    ship = st.number_input("배송비 (₩)", 0.0, 1e9, 0.0, 100.0, key="sb_ship")
+    mode = st.radio("마진 방식", ["퍼센트 마진(%)","더하기 마진(₩)"], horizontal=True, key="sb_mode")
+
+    if mode == "퍼센트 마진(%)":
+        margin_pct = st.number_input("마진율 (%)", 0.0, 500.0, 10.0, 0.1, key="sb_margin_pct")
+        P, profit, on_sale = margin_calc_percent(m_sale_krw, card, market, margin_pct, ship)
+    else:
+        add_margin = st.number_input("더하기 마진 (₩)", 0.0, 1e12, 10000.0, 100.0, key="sb_add_margin")
+        P, profit, on_sale = margin_calc_add(m_sale_krw, card, market, add_margin, ship)
+
+    st.metric("판매가격 (계산 결과)", f"{CURRENCY_SYMBOL['KRW']}{P:,.0f} KRW")
+    st.metric("순이익(마진)", f"{CURRENCY_SYMBOL['KRW']}{profit:,.0f} KRW")
+    st.caption(f"마진율(판매가 기준): {on_sale:.2f}%")
+
+# -------------------- Naver DataLab (실데이터; 오류 시 Mock 사용하지 않음) --------------------
 def fetch_datalab_top20(cid: str, start_date: str, end_date: str, time_unit: str="date") -> pd.DataFrame:
     url = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordRank.naver"
     headers = {
@@ -112,59 +157,19 @@ def fetch_datalab_top20(cid: str, start_date: str, end_date: str, time_unit: str
     if r.status_code != 200:
         raise RuntimeError(f"DataLab 응답 오류: {r.status_code}")
     data = r.json()
-    if "keywordList" not in data:
-        raise RuntimeError("DataLab 구조 변경됨")
+    if "keywordList" not in data or not isinstance(data["keywordList"], list):
+        raise RuntimeError("DataLab 구조 변경 또는 데이터 없음")
     rows = []
     for item in data["keywordList"][:20]:
         rows.append({
-            "rank": item.get("rank", len(rows)+1),
+            "rank": item.get("rank") or len(rows)+1,
             "keyword": item.get("keyword",""),
-            "search": item.get("ratio",0)
+            "search": item.get("ratio") or 0
         })
     return pd.DataFrame(rows).sort_values("rank").reset_index(drop=True)
 
-# -------------------- UI --------------------
-st.title("🚀 ENVY v27.3 Full (실데이터)")
-
-with st.sidebar:
-    # 환율 공통 설정
-    st.header("환율 설정")
-    base_ccy = st.selectbox("기준 통화", FX_ORDER, index=0)
-    sym = CURRENCY_SYMBOL.get(base_ccy, "")
-    fx_rate = get_fx_rate(base_ccy)
-    st.caption(f"자동 환율: 1 {sym} = {fx_rate:,.2f} ₩")
-
-    st.markdown("---")
-    st.header("① 환율 계산기")
-    fx_price_foreign = st.number_input(f"판매금액 ({sym})", 0.0, 1e12, 100.0, 1.0)
-    fx_price_krw = fx_price_foreign * fx_rate
-    readonly_money("환산 금액(읽기전용)", fx_price_krw)
-
-    st.markdown("---")
-    st.header("② 마진 계산기 (v23)")
-    m_sale_foreign = st.number_input(f"판매금액 ({sym})", 0.0, 1e12, fx_price_foreign, 1.0)
-    m_sale_krw = m_sale_foreign * fx_rate
-    readonly_money("환산 금액(읽기전용)", m_sale_krw)
-
-    card = st.number_input("카드수수료 (%)", 0.0, 100.0, 4.0, 0.1)
-    market = st.number_input("마켓수수료 (%)", 0.0, 100.0, 14.0, 0.1)
-    ship = st.number_input("배송비 (₩)", 0.0, 1e9, 0.0, 100.0)
-    mode = st.radio("마진 방식", ["퍼센트 마진(%)","더하기 마진(₩)"], horizontal=True)
-
-    if mode == "퍼센트 마진(%)":
-        margin_pct = st.number_input("마진율 (%)", 0.0, 500.0, 10.0, 0.1)
-        P, profit, on_sale = margin_calc_percent(m_sale_krw, card, market, margin_pct, ship)
-    else:
-        add_margin = st.number_input("더하기 마진 (₩)", 0.0, 1e12, 10000.0, 100.0)
-        P, profit, on_sale = margin_calc_add(m_sale_krw, card, market, add_margin, ship)
-
-    st.metric("판매가격 (계산 결과)", f"{CURRENCY_SYMBOL['KRW']}{P:,.0f} KRW")
-    st.metric("순이익(마진)", f"{CURRENCY_SYMBOL['KRW']}{profit:,.0f} KRW")
-    st.caption(f"마진율(판매가 기준): {on_sale:.2f}%")
-
-# -------------------- DataLab Section --------------------
 st.subheader("데이터랩 (실시간 Top20 · 실선그래프)")
-category = st.selectbox("카테고리 선택", list(NAVER_CATEGORIES.keys()), index=0)
+category = st.selectbox("카테고리 선택", list(NAVER_CATEGORIES.keys()), index=0, key="dl_cat")
 cid = NAVER_CATEGORIES[category]
 today = datetime.date.today()
 start = (today - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
@@ -174,13 +179,18 @@ try:
     df_dl = fetch_datalab_top20(cid, start, end)
     st.table(df_dl)
     st.session_state["datalab_df"] = df_dl.copy()
+
     chart = alt.Chart(df_dl).mark_line().encode(
-        x="rank:Q", y="search:Q", tooltip=["rank","keyword","search"]
+        x=alt.X("rank:Q", title="랭크(1=상위)"),
+        y=alt.Y("search:Q", title="검색량(지수)"),
+        tooltip=["rank","keyword","search"]
     ).properties(height=250)
     st.altair_chart(chart, use_container_width=True)
+
+    st.download_button("Top20 CSV 다운로드", data=to_csv_bytes(df_dl),
+                       file_name="datalab_top20.csv", mime="text/csv", key="dl_csv")
 except Exception as e:
     st.error(f"데이터랩 오류: {e}")
-
 # -------------------- ItemScout --------------------
 st.subheader("아이템스카우트 (데이터랩 공유 키워드)")
 src = st.session_state.get("datalab_df")
@@ -200,7 +210,7 @@ else:
 
 # -------------------- AI Radar --------------------
 st.subheader("AI 키워드 레이더 (국내/글로벌)")
-mode = st.radio("모드", ["국내","글로벌"], horizontal=True)
+mode = st.radio("모드", ["국내","글로벌"], horizontal=True, key="air_mode")
 if mode=="국내":
     src = st.session_state.get("datalab_df")
     if src is not None:
@@ -219,9 +229,13 @@ else:
 
 # -------------------- 11st --------------------
 st.subheader("11번가 (모바일 프록시 임베드)")
-url = st.text_input("대상 URL", "https://www.11st.co.kr/")
-proxy = st.text_input("프록시 엔드포인트(선택)", "", help="예) https://your-proxy/app?target=<m.11st url>")
-src_url = f"{proxy}?target={urllib.parse.quote(url.replace('www.11st.co.kr','m.11st.co.kr'), safe='')}" if proxy else url.replace("www.11st.co.kr","m.11st.co.kr")
+url = st.text_input("대상 URL", "https://www.11st.co.kr/", key="m11_url")
+proxy = st.text_input("프록시 엔드포인트(선택)", "", key="m11_proxy",
+                      help="예) https://your-proxy/app?target=<m.11st url>")
+src_url = (
+    f"{proxy}?target={urllib.parse.quote(url.replace('www.11st.co.kr','m.11st.co.kr'), safe='')}"
+    if proxy else url.replace("www.11st.co.kr","m.11st.co.kr")
+)
 
 st.components.v1.html(f"""
 <div style="width:100%;height:520px;border:1px solid #eee;border-radius:10px;overflow:hidden">
@@ -238,16 +252,16 @@ df_11 = pd.DataFrame({
 with st.expander("임베드 실패 대비 요약표 보기"):
     st.dataframe(df_11, use_container_width=True)
     st.download_button("CSV 다운로드", data=to_csv_bytes(df_11),
-                       file_name="11st_list.csv", mime="text/csv")
+                       file_name="11st_list.csv", mime="text/csv", key="m11_csv")
 
 # -------------------- 상품명 생성기 --------------------
 st.subheader("상품명 생성기 (규칙 + HuggingFace KoGPT2)")
-brand = st.text_input("브랜드", "envy")
-base = st.text_input("베이스 키워드", "K-coffee mix")
-keywords = st.text_input("연관키워드", "Maxim, Kanu, Korea")
-badwords = st.text_input("금칙어", "copy, fake, replica")
-limit = st.slider("글자수 제한", 20, 120, 80)
-mode = st.radio("모드", ["규칙 기반","HuggingFace AI"], horizontal=True)
+brand = st.text_input("브랜드", "envy", key="ng_brand")
+base = st.text_input("베이스 키워드", "K-coffee mix", key="ng_base")
+keywords = st.text_input("연관키워드", "Maxim, Kanu, Korea", key="ng_kws")
+badwords = st.text_input("금칙어", "copy, fake, replica", key="ng_bans")
+limit = st.slider("글자수 제한", 20, 120, 80, key="ng_limit")
+mode = st.radio("모드", ["규칙 기반","HuggingFace AI"], horizontal=True, key="ng_mode")
 
 def filter_and_trim(cands):
     bans = {w.strip().lower() for w in badwords.split(",") if w.strip()}
@@ -260,7 +274,7 @@ def filter_and_trim(cands):
     return out
 
 cands=[]
-if st.button("생성"):
+if st.button("생성", key="ng_go"):
     kws=[k.strip() for k in keywords.split(",") if k.strip()]
     if mode=="규칙 기반":
         for _ in range(5):
@@ -276,8 +290,11 @@ if st.button("생성"):
             headers = {"Authorization": f"Bearer {HF_API_KEY}", "X-Wait-For-Model": "true"}
             prompt = f"상품명 추천 5개: 브랜드={brand}, 베이스={base}, 키워드={keywords}. 한국어로 간결하게."
             try:
-                resp = requests.post(API_URL, headers=headers,
-                    json={"inputs": prompt, "parameters": {"max_new_tokens": 64, "return_full_text": False}}, timeout=30)
+                resp = requests.post(
+                    API_URL, headers=headers,
+                    json={"inputs": prompt, "parameters": {"max_new_tokens": 64, "return_full_text": False}},
+                    timeout=30
+                )
                 if resp.status_code==200:
                     data = resp.json()
                     text = data[0].get("generated_text","") if isinstance(data,list) and data else str(data)
@@ -286,7 +303,7 @@ if st.button("생성"):
                         lines = [s.strip() for s in textwrap.fill(text, 120).split(".") if s.strip()]
                     cands = lines[:5]
                 else:
-                    st.error(f"HuggingFace API 오류: {resp.status_code} / {resp.text[:200]}")
+                    st.error(f"HuggingFace API 오류: {resp.status_code} / {resp.text[:180]}")
             except Exception as e:
                 st.error(f"HuggingFace 호출 실패: {e}")
     st.session_state["name_cands"]=filter_and_trim(cands)
@@ -294,3 +311,4 @@ if st.button("생성"):
 for i,t in enumerate(st.session_state.get("name_cands", []), start=1):
     st.write(f"{i}. {t}")
     copy_button(t, key=f"name_{i}")
+
