@@ -254,10 +254,11 @@ with c1:
 
 with c2:
     h3("아이템스카우트")
-    st.button("연동 대기(별도 API/프록시)", disabled=True, use_container_width=True)
+    st.button("연동 대기(별도 API/프록시)", disabled=True, use_container_width=True, key="btn_itemscout")
+
 with c3:
     h3("셀러라이프")
-    st.button("연동 대기(별도 API/프록시)", disabled=True, use_container_width=True)
+    st.button("연동 대기(별도 API/프록시)", disabled=True, use_container_width=True, key="btn_sellerlife")
 
 st.markdown("---")
 
