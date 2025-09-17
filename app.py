@@ -1,11 +1,4 @@
-# envy_app_single.py — 단일파일 풀버전 (utils/datalab/rakuten/11번가/namegen 포함)
-# 필요 사항: ~/.streamlit/secrets.toml
-#   ENVY_PROXY_URL = "https://<your-worker>.workers.dev"
-#   RAKUTEN_APP_ID = "1043271015809337425"  # 없으면 데모 데이터
-#   RENDER_API     = ""
-#
-# 실행: streamlit run envy_app_single.py
-
+# envy_app_single_v2.py — 단일파일 풀버전 (요청사항 반영: 이모지/통화기호/읽기전용 출력/다크모드 바닥채움/DataLab 그래프 폴백/11번가 폴백 강화)
 import streamlit as st
 import requests, urllib.parse, pandas as pd
 from bs4 import BeautifulSoup
@@ -16,6 +9,8 @@ RAKUTEN_APP_ID = st.secrets.get("RAKUTEN_APP_ID", "")
 RENDER_API = st.secrets.get("RENDER_API", "")
 
 MOBILE_UA = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Mobile Safari/537.36"
+
+CURRENCY_SYMBOL = {"USD":"$", "EUR":"€", "JPY":"¥", "CNY":"¥"}
 
 def _need_proxy():
     if not PROXY:
@@ -52,9 +47,17 @@ def fetch_datalab_category_top20(category_id: str, period="7d") -> pd.DataFrame:
     r = requests.get(purl(url), timeout=10, headers={"user-agent": MOBILE_UA})
     if r.status_code != 200:
         raise RuntimeError(f"DataLab http {r.status_code}")
-    data = r.json()
+    # JSON 파싱 실패 대비
+    try:
+        data = r.json()
+    except Exception:
+        return pd.DataFrame()
     rows = data.get("ranks", [])
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    # 그래프용 'search' 미존재 시 폴백(랭크 역가중치)
+    if "search" not in df.columns and not df.empty:
+        df["search"] = (df["rank"].max() + 1) - df["rank"]
+    return df
 
 def render_datalab_block():
     st.markdown("### 데이터랩")
@@ -81,11 +84,10 @@ def render_datalab_block():
         if retried:
             df = fetch_datalab_category_top20(st.session_state["_datalab_cid"])
         if df.empty:
-            st.warning("DataLab 결과가 비었습니다. 엔드포인트/세션 구조를 확인하세요.")
+            st.warning("DataLab 결과가 비었습니다. 엔드포인트/세션/프록시를 확인하세요.")
             return
         st.dataframe(df, use_container_width=True, hide_index=True)
-        if "search" in df.columns:
-            st.line_chart(df.set_index("rank")["search"], height=180)
+        st.line_chart(df.set_index("rank")["search"], height=180)
     except Exception as e:
         st.warning(f"DataLab 호출 실패: {e}\n프록시/기간/CID 확인 후 재시도하세요.")
 
@@ -126,7 +128,7 @@ def render_rakuten_block():
 MOBILE_BEST = "https://m.11st.co.kr/browsing/bestSellers.mall"
 
 def parse_11st_best(url=MOBILE_BEST) -> pd.DataFrame:
-    """가변 마크업 대비 넓게 스캔 → 필터링"""
+    """가변 마크업 대비 넓게 스캔 → 필터링 (폴백 강화)"""
     html = get_html_via_proxy(url)
     soup = BeautifulSoup(html, "html.parser")
     rows=[]; rank=0
@@ -201,17 +203,15 @@ def render_namegen_block():
     st.caption("연관키워드는 상단 데이터랩/글로벌 표를 참조하세요.")
 
 # =====================[ Part 5: 메인 앱 ]=============================
-st.set_page_config(page_title="ENVY v27.14 Full (Single)", page_icon="✨", layout="wide")
+st.set_page_config(page_title="ENVY v27.15 Single", page_icon="✨", layout="wide")
 
-# 다크모드 토글 (세션 + 즉시 반영)
+# 다크/라이트 모드 토글 (이모지 포함)
 if "theme" not in st.session_state:
     st.session_state["theme"] = "light"
-
 def toggle_theme():
     st.session_state["theme"] = "dark" if st.session_state["theme"]=="light" else "light"
-
 with st.sidebar:
-    st.toggle("다크 모드", value=(st.session_state["theme"]=="dark"), on_change=toggle_theme)
+    st.toggle("🌗 다크 모드", value=(st.session_state["theme"]=="dark"), on_change=toggle_theme)
 
 # 즉시 반영 JS
 st.components.v1.html(f"""
@@ -225,9 +225,12 @@ st.components.v1.html(f"""
 </script>
 """, height=0)
 
-# CSS (사이드바/색상 변수/간격)
+# CSS (사이드바/색상 변수/간격 + 바닥 흰 띠 제거)
 st.markdown("""
 <style>
+html, body, [data-testid="stAppViewContainer"], [data-testid="stToolbar"], .block-container {
+  background: var(--bg) !important; color: var(--text) !important;
+}
 .block-container{padding-top:0.8rem; padding-bottom:0.8rem;}
 [data-testid="stSidebar"] section{padding-top:0.6rem; padding-bottom:0.6rem;}
 .sidebar-conn, [data-testid="stSidebar"] .conn-hide {display:none !important;}
@@ -236,30 +239,38 @@ body.envy-dark  { --bg:#0e1117; --bg2:#161b22; --text:#e6edf3; --primary:#6ea8fe
 .block-container{ background:var(--bg); color:var(--text);}
 section[data-testid="stSidebar"]{ background:var(--bg2); color:var(--text);}
 a { color:var(--primary) !important; }
+.output-green {background:#e6ffcc; border:1px solid #b6f3a4; padding:8px 12px; border-radius:6px;}
 </style>
 """, unsafe_allow_html=True)
 
-# 사이드바 계산기
+# ==== 사이드바 계산기 ====
 with st.sidebar:
     st.markdown("### ① 환율 계산기")
-    base = st.selectbox("기준 통화", ["USD","EUR","JPY","CNY"], index=0)
-    rate = st.number_input("환율 (1 단위 = ₩)", value=1400.00, step=0.01, format="%.2f")
-    sale_foreign = st.number_input("판매금액 (외화)", value=1.00, step=0.01, format="%.2f")
+    base = st.selectbox("기준 통화", list(CURRENCY_SYMBOL.keys()), index=0)
+    sym = CURRENCY_SYMBOL.get(base, "")
+    rate = st.number_input(f"환율 (1 {base} = ₩)", value=1400.00, step=0.01, format="%.2f")
+    sale_foreign = st.number_input(f"판매금액 (외화 {sym})", value=1.00, step=0.01, format="%.2f")
     won = rate * sale_foreign
-    st.success(f"환산 금액: {won:,.2f} 원")
+    st.markdown(f'<div class="output-green">환산 금액: <b>{won:,.2f} 원</b></div>', unsafe_allow_html=True)
 
     st.markdown("### ② 마진 계산기 (v23)")
+    m_base = st.selectbox("매입 통화", list(CURRENCY_SYMBOL.keys()), index=0)
+    m_sym = CURRENCY_SYMBOL.get(m_base, "")
+    purchase_foreign = st.number_input(f"매입금액 (외화 {m_sym})", value=0.00, step=0.01, format="%.2f")
+    base_cost_won = rate * purchase_foreign if purchase_foreign>0 else won  # 매입금액 입력 시 우선
+    st.markdown(f'<div class="output-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
+
     m_rate = st.number_input("카드수수료 (%)", value=4.00, step=0.01, format="%.2f")
     m_fee  = st.number_input("마켓수수료 (%)", value=14.00, step=0.01, format="%.2f")
     ship   = st.number_input("배송비 (₩)", value=0.0, step=100.0, format="%.0f")
     mode   = st.radio("마진 방식", ["퍼센트 마진(%)","더하기 마진(₩)"], horizontal=True)
     margin = st.number_input("마진율/마진액", value=10.00, step=0.01, format="%.2f")
     if mode=="퍼센트 마진(%)":
-        target_price = won * (1 + m_rate/100) * (1 + m_fee/100) * (1 + margin/100) + ship
+        target_price = base_cost_won * (1 + m_rate/100) * (1 + m_fee/100) * (1 + margin/100) + ship
     else:
-        target_price = won * (1 + m_rate/100) * (1 + m_fee/100) + margin + ship
-    st.info(f"예상 판매가: {target_price:,.2f} 원")
-    st.warning(f"순이익(마진): {(target_price - won):,.2f} 원")
+        target_price = base_cost_won * (1 + m_rate/100) * (1 + m_fee/100) + margin + ship
+    st.markdown(f'<div class="output-green">예상 판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
+    st.warning(f"순이익(마진): {(target_price - base_cost_won):,.2f} 원")
 
 # 본문 3×3 레이아웃
 top1, top2, top3 = st.columns([1,1,1])
