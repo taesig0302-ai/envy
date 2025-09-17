@@ -24,27 +24,28 @@ if st.session_state["dark_mode"]:
     </style>
     """, unsafe_allow_html=True)
 
-# 사이드바 여백 축소 + 결과 pill
+# 사이드바 여백/간격 + 결과 pill + 카드
 st.markdown("""
 <style>
-section[data-testid="stSidebar"] .block-container {
-  padding: 6px 10px !important;
-}
-section[data-testid="stSidebar"] [data-testid="stVerticalBlock"]{ gap:6px !important; }
+section[data-testid="stSidebar"] .block-container { padding:12px 14px !important; }
+section[data-testid="stSidebar"] [data-testid="stVerticalBlock"]{ gap:10px !important; }
+
 .pill {border-radius:10px; padding:10px 12px; font-weight:700; font-size:14px; margin:6px 0 2px 0; border:1px solid;}
 .pill.green  { background:#E6F4EA; color:#0F5132; border-color:#BADBCC; }
 .pill.blue   { background:#E7F1FE; color:#0B3D91; border-color:#B6D0FF; }
 .pill.yellow { background:#FFF4CC; color:#7A5D00; border-color:#FFE08A; }
+
 .envy-card { border:1px solid #e5e7eb; border-radius:12px; padding:14px; }
 .envy-card h3 { margin-top:0; margin-bottom:10px; }
 </style>
 """, unsafe_allow_html=True)
 
-def fmt_krw(x: float) -> str:
+def fmt_money2(x: float) -> str:
+    """1,234.56 원 형태로 두 자리 고정"""
     try:
-        return f"{x:,.0f} 원"
+        return f"{x:,.2f} 원"
     except Exception:
-        return "0 원"
+        return "0.00 원"
 
 def show_pill(where, label: str, value: str, color: str):
     where.markdown(f'<div class="pill {color}">{label}: {value}</div>', unsafe_allow_html=True)
@@ -55,23 +56,29 @@ rate_map = {"USD": 1400.00, "EUR": 1500.00, "JPY": 9.50, "CNY": 190.00}
 
 fx_cur = st.sidebar.selectbox("기준 통화", list(rate_map.keys()), index=0, key="fx_cur")
 fx_rate = rate_map.get(fx_cur, 1400.0)
-fx_price = st.sidebar.number_input(f"판매금액 ({fx_cur})", 0.0, 1e9, 100.0, step=1.0, key="fx_price")
+fx_price = st.sidebar.number_input(
+    f"판매금액 ({fx_cur})", min_value=0.0, max_value=1e12,
+    value=100.00, step=0.01, format="%.2f", key="fx_price"
+)
 fx_amount = fx_price * fx_rate
-show_pill(st.sidebar, "환산 금액(읽기전용)", fmt_krw(fx_amount), "green")
+show_pill(st.sidebar, "환산 금액(읽기전용)", fmt_money2(fx_amount), "green")
 
 st.sidebar.header("② 마진 계산기 (v23)")
 m_cur = st.sidebar.selectbox("기준 통화(판매금액)", list(rate_map.keys()), index=0, key="m_cur")
 m_rate = rate_map.get(m_cur, 1400.0)
-m_price = st.sidebar.number_input(f"판매금액 ({m_cur})", 0.0, 1e9, 100.0, step=1.0, key="m_price")
+m_price = st.sidebar.number_input(
+    f"판매금액 ({m_cur})", min_value=0.0, max_value=1e12,
+    value=100.00, step=0.01, format="%.2f", key="m_price"
+)
 m_fx = m_price * m_rate
-show_pill(st.sidebar, "판매금액(환산)", fmt_krw(m_fx), "green")
+show_pill(st.sidebar, "판매금액(환산)", fmt_money2(m_fx), "green")
 
-fee_card   = st.sidebar.number_input("카드수수료 (%)", 0.0, 100.0, 4.0, step=0.1, key="fee_card")
-fee_market = st.sidebar.number_input("마켓수수료 (%)", 0.0, 100.0, 14.0, step=0.1, key="fee_market")
-ship_cost  = st.sidebar.number_input("배송비 (₩)", 0.0, 1e9, 0.0, step=100.0, key="ship_cost")
+fee_card   = st.sidebar.number_input("카드수수료 (%)", 0.00, 100.00, 4.00, 0.01, format="%.2f", key="fee_card")
+fee_market = st.sidebar.number_input("마켓수수료 (%)", 0.00, 100.00, 14.00, 0.01, format="%.2f", key="fee_market")
+ship_cost  = st.sidebar.number_input("배송비 (₩)",     0.00, 1e12,   0.00, 0.01, format="%.2f", key="ship_cost")
 
 m_type = st.sidebar.radio("마진 방식", ["퍼센트 마진(%)","더하기 마진(₩)"], index=0, key="m_type")
-m_val  = st.sidebar.number_input("마진율/금액", 0.0, 1e9, 10.0, step=1.0, key="m_val")
+m_val  = st.sidebar.number_input("마진율/금액", 0.00, 1e12, 10.00, 0.01, format="%.2f", key="m_val")
 
 calc_price = m_fx * (1 + fee_card/100 + fee_market/100)
 if m_type.startswith("퍼센트"):
@@ -81,8 +88,8 @@ else:
 calc_price += ship_cost
 
 profit = calc_price - m_fx
-show_pill(st.sidebar, "예상 판매가", fmt_krw(calc_price), "blue")
-show_pill(st.sidebar, "순이익(마진)", fmt_krw(profit), "yellow")
+show_pill(st.sidebar, "예상 판매가", fmt_money2(calc_price), "blue")
+show_pill(st.sidebar, "순이익(마진)", fmt_money2(profit), "yellow")
 # === envy_app.py — Part 3 ===
 
 @st.cache_data(ttl=3600)
@@ -170,7 +177,7 @@ def fetch_amazon_top(region: str = "JP") -> pd.DataFrame:
     return pd.DataFrame({"rank": range(1, 6), "keyword": ["샘플A","샘플B","샘플C","샘플D","샘플E"], "source": [f"Amazon {region}"]*5})
 
 
-# 11번가 URL → 모바일 도메인으로 보정
+# 11번가 URL → 모바일 보정
 from urllib.parse import urlparse, urlunparse
 def normalize_11st_mobile(url: str) -> str:
     try:
@@ -184,7 +191,7 @@ def normalize_11st_mobile(url: str) -> str:
     except Exception:
         return "https://m.11st.co.kr"
 # === envy_app.py — Part 4 ===
-st.title("🚀 ENVY v27.11 Full")
+st.title("🚀 ENVY v27.11.1 Full")
 
 # ── 윗줄: 데이터랩 / 아이템스카우트 / 셀러라이프
 top1, top2, top3 = st.columns(3, gap="large")
@@ -192,7 +199,6 @@ top1, top2, top3 = st.columns(3, gap="large")
 with top1:
     st.markdown('<div class="envy-card">', unsafe_allow_html=True)
     st.markdown("### 데이터랩")
-    # 네이버 10대 카테고리 CID
     cid_map = {
         "패션의류": "50000002", "패션잡화": "50000001", "화장품/미용": "50000007",
         "디지털/가전": "50000003", "가구/인테리어": "50000004", "생활/건강": "50000005",
