@@ -8,11 +8,15 @@ from bs4 import BeautifulSoup
 # 와이드 레이아웃
 st.set_page_config(page_title="ENVY Full", layout="wide")
 
+# ====== 공통 상수 ======
 COMMON_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
     "Accept-Language": "ko,en;q=0.9",
     "Accept": "text/html,application/json;q=0.9,*/*;q=0.8",
 }
+DEFAULT_WORKER = "https://envy-proxy.taesig0302.workers.dev"   # ← 네가 만든 프록시
+# 라쿠텐 App ID는 보안상 빈 값 기본. 입력란에서 넣어 쓰면 됨.
+DEFAULT_RAKUTEN_APP_ID = ""
 
 # 다크모드 토글
 if "dark_mode" not in st.session_state:
@@ -58,11 +62,11 @@ def fmt_money2(x: float) -> str:
 def show_pill(where, label: str, value: str, color: str):
     where.markdown(f'<div class="pill {color}">{label}: {value}</div>', unsafe_allow_html=True)
 
-# 프록시 입력 헬퍼(안전)
+# 안전한 프록시 입력
 def proxy_input(label: str, default_url: str, key: str) -> str:
     return st.text_input(label, value=default_url, key=key)
 
-# 상품명 생성기 유틸
+# 제목 생성기 유틸
 def _sanitize(t: str) -> str:
     return re.sub(r"\s+", " ", (t or "").replace(",", " ")).strip()
 
@@ -83,6 +87,13 @@ def build_titles(brand: str, base_kw: str, rel_candidates: list[dict],
         else: titles.append(_sanitize(brand)[:max_len])
         if len(titles) >= k: break
     return titles
+
+# ==== UI 고정 락 ====
+UI_LOCK_VERSION = "v27.13-ui-lock"
+if "ui_lock" not in st.session_state:
+    st.session_state["ui_lock"] = UI_LOCK_VERSION
+elif st.session_state["ui_lock"] != UI_LOCK_VERSION:
+    st.warning("⚠️ UI 레이아웃 버전 불일치. 레이아웃이 달라졌습니다.")
 # === envy_app.py — Part 2 ===
 st.sidebar.header("① 환율 계산기")
 rate_map = {"USD": 1400.00, "EUR": 1500.00, "JPY": 9.50, "CNY": 190.00}
@@ -114,7 +125,6 @@ profit = calc_price - m_fx
 show_pill(st.sidebar, "예상 판매가", fmt_money2(calc_price), "blue")
 show_pill(st.sidebar, "순이익(마진)", fmt_money2(profit), "yellow")
 # === envy_app.py — Part 3 ===
-
 def _rot_ua():
     pool = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
@@ -131,7 +141,7 @@ def _proxied_url(proxy:str|None, target:str)->str:
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def fetch_datalab_top20(cid: str, start_date: str, end_date: str, proxy: str | None = None) -> pd.DataFrame:
-    """네이버 데이터랩 Top20 (프록시 지원, 쿠키 예열, 재시도, 실패 시 더미+경고)"""
+    """네이버 데이터랩 Top20 (프록시 경유, 쿠키 예열, 재시도, 실패시 더미+경고)"""
     try:
         end = datetime.datetime.strptime(end_date, "%Y-%m-%d").date()
     except:
@@ -174,45 +184,38 @@ def fetch_datalab_top20(cid: str, start_date: str, end_date: str, proxy: str | N
     return stub
 
 @st.cache_data(ttl=900, show_spinner=False)
-def fetch_amazon_top(region: str = "JP", proxy: str | None = None) -> pd.DataFrame:
-    """아마존 베스트셀러 (프록시 지원, 지역화 헤더, 파서 보강, 실패 시 더미+경고)"""
-    base = "https://www.amazon.co.jp" if region.upper() == "JP" else "https://www.amazon.com"
-    url  = f"{base}/gp/bestsellers"
-    hdr = {**COMMON_HEADERS, "User-Agent": _rot_ua()}
-    hdr["Accept-Language"] = "ja-JP,ja;q=0.9,en;q=0.8" if region.upper()=="JP" else "en-US,en;q=0.9,ko;q=0.6"
-
-    last_err = None
-    for _ in range(3):
-        try:
-            r = requests.get(_proxied_url(proxy, url), headers=hdr, timeout=12)
-            if r.status_code == 200 and r.text:
-                soup = BeautifulSoup(r.text, "html.parser")
-                titles, sels = [], [
-                    ".p13n-sc-truncate",
-                    "div._cDEzb_p13n-sc-css-line-clamp-3_g3dy1",
-                    "div._cDEzb_p13n-sc-css-line-clamp-2_EWgCb",
-                    "span.zg-text-center-align > div > a > div",
-                    "a.a-link-normal.a-text-normal",
-                    "div.a-section.a-spacing-small.p13n-sc-uncoverable-faceout > a > span",
-                ]
-                for sel in sels:
-                    for el in soup.select(sel):
-                        t = re.sub(r"\s+"," ", el.get_text(strip=True))
-                        if t and t not in titles: titles.append(t)
-                        if len(titles) >= 20: break
-                    if len(titles) >= 20: break
-                if titles:
-                    return pd.DataFrame({"rank": range(1, len(titles)+1), "keyword": titles, "source":[f"Amazon {region.upper()}"]*len(titles)})
-                last_err = "empty-parse"
-            else:
-                last_err = f"http-{r.status_code}"
-        except Exception as e:
-            last_err = str(e)
-        _sleep_jitter(0.8, 0.8)
-
-    df = pd.DataFrame({"rank": [1,2,3,4,5], "keyword":["샘플A","샘플B","샘플C","샘플D","샘플E"], "source":[f"Amazon {region.upper()}"]*5})
-    df.attrs["warning"] = f"Amazon 파싱 실패: {last_err} (프록시/차단 가능)"
-    return df
+def fetch_rakuten_ranking(app_id: str, genre_id: str = "0") -> pd.DataFrame:
+    """
+    Rakuten Ichiba Ranking API (무료)
+    app_id: 라쿠텐 애플리케이션 ID (필수)
+    genre_id: 장르 ID (0=전체)
+    """
+    if not app_id:
+        df = pd.DataFrame({"rank": [], "keyword": [], "source": []})
+        df.attrs["warning"] = "Rakuten App ID 필요"
+        return df
+    try:
+        url = "https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628"
+        params = {"applicationId": app_id, "genreId": genre_id, "format": "json"}
+        r = requests.get(url, params=params, headers=COMMON_HEADERS, timeout=12)
+        if r.status_code == 200:
+            js = r.json()
+            items = js.get("Items", [])
+            rows = []
+            for i, it in enumerate(items, start=1):
+                name = it.get("Item", {}).get("itemName", "")
+                if name:
+                    rows.append({"rank": i, "keyword": name, "source": "Rakuten JP"})
+                if len(rows) >= 20: break
+            if rows:
+                return pd.DataFrame(rows)
+        df = pd.DataFrame({"rank":[1,2,3,4,5], "keyword":["샘플A","샘플B","샘플C","샘플D","샘플E"], "source":["Rakuten JP"]*5})
+        df.attrs["warning"] = f"Rakuten 응답 비정상: http-{r.status_code}"
+        return df
+    except Exception as e:
+        df = pd.DataFrame({"rank":[1,2,3,4,5], "keyword":["샘플A","샘플B","샘플C","샘플D","샘플E"], "source":["Rakuten JP"]*5})
+        df.attrs["warning"] = f"Rakuten 호출 실패: {e}"
+        return df
 
 # 11번가 모바일 도메인 보정
 from urllib.parse import urlparse, urlunparse
@@ -227,11 +230,16 @@ def normalize_11st_mobile(url: str) -> str:
     except Exception:
         return "https://m.11st.co.kr"
 # === envy_app.py — Part 4 ===
-st.title("🚀 ENVY v27.13 Full")
+st.title("🚀 ENVY v27.14 Full (UI-LTS)")
 
-# ── 윗줄: 데이터랩 / 아이템스카우트 / 셀러라이프
-top1, top2, top3 = st.columns([1,1,1], gap="large")
+def build_fixed_layout():
+    top_cols = st.columns([1,1,1], gap="large")
+    bot_cols = st.columns([1,1,1], gap="large")
+    return top_cols, bot_cols
 
+(top1, top2, top3), (bot1, bot2, bot3) = build_fixed_layout()
+
+# ── top1: 데이터랩
 with top1:
     st.markdown('<div class="envy-card">', unsafe_allow_html=True)
     st.markdown("### 데이터랩")
@@ -241,13 +249,14 @@ with top1:
         "스포츠/레저":"50000009","자동차용품":"50000100",
     }
     dl_cat = st.selectbox("카테고리(10개)", list(cid_map.keys()), 5, key="dl_cat_main")
-    proxy_dl = proxy_input("프록시(데이터랩)", "https://envy-proxy.taesig0302.workers.dev", "dl_proxy_main")
+    proxy_dl = proxy_input("프록시(데이터랩)", DEFAULT_WORKER, "dl_proxy_main")
 
     today = datetime.date.today()
     start = (today - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
     end   = today.strftime("%Y-%m-%d")
 
-    if st.button("데이터랩 재시도", key="btn_retry_dl"):
+    col_a, col_b = st.columns([1,1])
+    if col_a.button("데이터랩 재시도", key="btn_retry_dl"):
         fetch_datalab_top20.clear()
 
     df_dl = fetch_datalab_top20(cid_map[dl_cat], start, end, proxy_dl if proxy_dl else None)
@@ -257,35 +266,35 @@ with top1:
     st.caption("• 프록시가 POST 바디/헤더를 그대로 전달하는 ‘투명 프록시’인지 확인하세요.")
     st.markdown('</div>', unsafe_allow_html=True)
 
+# ── top2: 아이템스카우트
 with top2:
     st.markdown('<div class="envy-card"><h3>아이템스카우트</h3><p>연동 대기 (별도 API/프록시)</p></div>', unsafe_allow_html=True)
 
+# ── top3: 셀러라이프
 with top3:
     st.markdown('<div class="envy-card"><h3>셀러라이프</h3><p>연동 대기 (별도 API/프록시)</p></div>', unsafe_allow_html=True)
 
-# ── 아랫줄: AI 레이더 / 11번가 / 상품명 생성기
-bot1, bot2, bot3 = st.columns([1,1,1], gap="large")
-
+# ── bot1: AI 키워드 레이더 (국내=DataLab, 글로벌=Rakuten)
 with bot1:
     st.markdown('<div class="envy-card">', unsafe_allow_html=True)
     st.markdown("### AI 키워드 레이더")
     mode = st.radio("모드", ["국내","글로벌"], 0, horizontal=True, key="radar_mode_main")
 
-    proxy_amz = proxy_input("프록시(아마존)", "https://envy-proxy.taesig0302.workers.dev", "amz_proxy")
-    if st.button("아마존 재시도", key="btn_retry_amz"):
-        fetch_amazon_top.clear()
-
     if mode == "국내":
         st.dataframe(df_dl, use_container_width=True, height=300)
     else:
-        region = st.selectbox("Amazon 지역", ["JP","US"], 0, key="amz_region_main")
-        df_amz = fetch_amazon_top(region=region, proxy=proxy_amz if proxy_amz else None)
-        warn_amz = getattr(df_amz, "attrs", {}).get("warning")
-        if warn_amz: st.warning(warn_amz)
-        st.dataframe(df_amz, use_container_width=True, height=300)
-        st.caption("• 비로그인 공개 베스트 파싱. 차단 시 프록시/시간차 재시도 권장.")
+        rk_app_id = st.text_input("Rakuten App ID", value=DEFAULT_RAKUTEN_APP_ID, help="라쿠텐 애플리케이션 ID")
+        col1, col2 = st.columns([1,1])
+        if col1.button("라쿠텐 재시도", key="btn_rkt_retry"):
+            fetch_rakuten_ranking.clear()
+        df_rk = fetch_rakuten_ranking(rk_app_id)
+        warn_rk = getattr(df_rk, "attrs", {}).get("warning")
+        if warn_rk: st.warning(warn_rk)
+        st.dataframe(df_rk, use_container_width=True, height=300)
+        st.caption("• 글로벌: 라쿠텐 랭킹(무료 API) 기반. App ID 넣으면 실데이터 표시.")
     st.markdown('</div>', unsafe_allow_html=True)
 
+# ── bot2: 11번가 (모바일)
 with bot2:
     st.markdown('<div class="envy-card">', unsafe_allow_html=True)
     st.markdown("### 11번가 (모바일)")
@@ -297,6 +306,7 @@ with bot2:
     )
     st.markdown('</div>', unsafe_allow_html=True)
 
+# ── bot3: 상품명 생성기
 with bot3:
     st.markdown('<div class="envy-card">', unsafe_allow_html=True)
     st.markdown("### 상품명 생성기")
