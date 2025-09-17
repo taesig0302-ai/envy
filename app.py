@@ -119,8 +119,15 @@ def request_datalab_via_proxy(proxy_url: str, cid: str,
     프록시(Cloudflare Worker) → Naver DataLab POST
     application/x-www-form-urlencoded 로 전송
     """
-    base = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordRank.naver"
-    target = f"{proxy_url.rstrip('/')}/?target={base}"
+   target = f"{proxy_url.rstrip('/')}/datalab?cid={cid}&start={start_date}&end={end_date}"
+try:
+    r = requests.get(target, timeout=12)   # Worker가 내부에서 POST 수행
+    r.raise_for_status()
+    data = r.json() if "application/json" in (r.headers.get("content-type","")) else json.loads(r.text)
+    result = data.get("result", []) or data.get("keywordList", []) or data  # 여러 포맷 대응
+    return result
+except Exception:
+    return []
 
     headers = {"content-type": "application/x-www-form-urlencoded; charset=UTF-8"}
     payload = urlencode({
