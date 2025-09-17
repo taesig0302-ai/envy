@@ -1,308 +1,339 @@
-# ===== v27.13 • ENVY Full – Part 1 / 4 =====
-# Imports & Globals
-import os, io, time as _t, json, datetime
-from datetime import date, timedelta
+# ====== ENVY v27.13 Full — Part 1/4 ======
+import time
+import math
+import json
 import requests
-import pandas as pd
+import datetime as dt
+from urllib.parse import urlencode
 import streamlit as st
+import pandas as pd
+import numpy as np
+import textwrap
+from typing import Dict, List, Tuple
+import streamlit.components.v1 as components
 
 st.set_page_config(page_title="ENVY v27.13 Full", layout="wide")
 
-# ------------------------
-# Display helpers
-# ------------------------
-def h3(title): st.markdown(f"### {title}")
-def note(msg): st.info(msg, icon="ℹ️")
-def warn(msg): st.warning(msg, icon="⚠️")
-def success(msg): st.success(msg, icon="✅")
-def err(msg): st.error(msg, icon="❌")
+# ---------------------------
+# 스타일(카드 강조색, 폰트 등)
+# ---------------------------
+CARD_CSS = """
+<style>
+/* 카드 느낌 */
+.block-container {padding-top: 0.8rem;}
+div[data-testid="stMetricValue"] { font-weight: 700; }
+.eny-badge {padding: 6px 10px; border-radius: 10px; font-size: 13px; display:inline-block; margin-top: 2px;}
+.eny-green {background:#e7f6ec; color:#118d57; border:1px solid #b6e2c4;}
+.eny-blue {background:#e6f0ff; color:#1a51b2; border:1px solid #c2d3ff;}
+.eny-yellow{background:#fff9e6; color:#8f6a00; border:1px solid #ffe6a7;}
+/* 간격 살짝 촘촘 */
+[data-testid="stSidebar"] .stSelectbox, 
+[data-testid="stSidebar"] .stNumberInput {margin-bottom: 0.5rem;}
+</style>
+"""
+st.markdown(CARD_CSS, unsafe_allow_html=True)
 
-# ------------------------
-# Proxy / API constants
-# ------------------------
-DEFAULT_PROXY = "https://envy-proxy.taesig0302.workers.dev"
-# 네가 준 라쿠텐 App ID(기본값) – 사용자가 비워도 이 값으로 동작
-DEFAULT_RAKUTEN_APP_ID = "1043271015809337425"
-
-# 공통 헤더 (브라우저 흉내)
-COMMON_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
-    "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+# ---------------------------
+# 통화/기호/고정 환율(실패시)
+# ---------------------------
+CURRENCY_SYMBOL = {
+    "USD": "$",
+    "EUR": "€",
+    "JPY": "¥",
+    "CNY": "¥",
+    "KRW": "₩",
+}
+FALLBACK_RATE = {  # KRW 기준
+    "USD": 1400.00,
+    "EUR": 1500.00,
+    "JPY": 9.50,
+    "CNY": 190.00,
 }
 
-# 프록시를 통해 호출할 URL 구성
-def proxied_url(proxy_base: str, target: str) -> str:
-    proxy = (proxy_base or DEFAULT_PROXY).rstrip("/")
-    return f"{proxy}/?target={target}"
+def fetch_fx_rate(base: str, to: str = "KRW") -> float:
+    """exchangerate.host 사용. 실패 시 FALLBACK"""
+    try:
+        url = f"https://api.exchangerate.host/latest?base={base}&symbols={to}"
+        r = requests.get(url, timeout=6)
+        r.raise_for_status()
+        return float(r.json()["rates"][to])
+    except Exception:
+        return FALLBACK_RATE.get(base, 1400.0)
 
-# 날짜 유틸
-def today_str(): return date.today().strftime("%Y-%m-%d")
-def yday_str(d: str | None = None):
-    if d:
-        end = datetime.datetime.strptime(d, "%Y-%m-%d").date()
-    else:
-        end = date.today()
-    return (end - timedelta(days=1)).strftime("%Y-%m-%d")
+def fmt_money(v: float, code: str = "KRW") -> str:
+    sym = CURRENCY_SYMBOL.get(code, "")
+    if code == "KRW":
+        return f"{sym}{v:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+    return f"{sym}{v:,.2f}"
 
-# 카테고리 10개 (네이버 데이터랩 코드)
+# ---------------------------
+# 환율/마진 계산
+# ---------------------------
+def convert_price(amount_foreign: float, base_currency: str) -> float:
+    rate = fetch_fx_rate(base_currency, "KRW")
+    return round(amount_foreign * rate, 2)
+
+def calc_margin_by_percent(price_foreign: float, base_currency: str,
+                           card_fee_pct: float, market_fee_pct: float,
+                           shipping_krw: float, margin_pct: float) -> Tuple[float, float]:
+    """판매가/순이익: 퍼센트 마진 방식"""
+    rate = fetch_fx_rate(base_currency, "KRW")
+    cost_krw = round(price_foreign * rate, 2)
+
+    total_pct = 1 - (card_fee_pct/100) - (market_fee_pct/100) - (margin_pct/100)
+    total_pct = max(total_pct, 0.01)
+    sell_price = round((cost_krw + shipping_krw) / total_pct, 2)
+    profit = round(sell_price - cost_krw - shipping_krw - (sell_price*card_fee_pct/100) - (sell_price*market_fee_pct/100), 2)
+    return sell_price, profit
+
+def calc_margin_by_add(price_foreign: float, base_currency: str,
+                       card_fee_pct: float, market_fee_pct: float,
+                       shipping_krw: float, add_margin_krw: float) -> Tuple[float, float]:
+    """판매가/순이익: 더하기 마진(원)"""
+    rate = fetch_fx_rate(base_currency, "KRW")
+    cost_krw = round(price_foreign * rate, 2)
+    sell_price = round((cost_krw + shipping_krw + add_margin_krw) / (1 - (card_fee_pct/100) - (market_fee_pct/100)), 2)
+    profit = round(sell_price - cost_krw - shipping_krw - (sell_price*card_fee_pct/100) - (sell_price*market_fee_pct/100), 2)
+    return sell_price, profit
+
+# ---------------------------
+# DataLab 요청(프록시 경유) — form-urlencoded 방식
+# ---------------------------
+# 카테고리 10개(샘플 CID) — 필요 시 CID만 바꿔주면 됨
 DATALAB_CATEGORIES = {
     "패션잡화": "50000000",
-    "패션의류": "50000167",
-    "화장품/미용": "50000202",
-    "디지털/가전": "50000003",
-    "식품": "50000247",
-    "생활/건강": "50000002",
-    "출산/육아": "50000005",
-    "스포츠/레저": "50000006",
-    "도서": "50005542",
-    "취미/반려": "50007216",
+    "식품": "50000170",
+    "생활/건강": "50000213",
+    "출산/육아": "50000006",
+    "가구/인테리어": "50000190",
+    "디지털/가전": "50000002",
+    "스포츠/레저": "50000008",
+    "화장품/미용": "50000167",
+    "자동차/공구": "50000151",
+    "도서/취미": "50005542",
 }
-# ===== v27.13 • ENVY Full – Part 2 / 4 =====
-st.sidebar.toggle("다크 모드", value=True, help="UI만 전환(테마 적용 X)")
 
-# 환율/마진 계산기는 단순 입력 + 결과 블록
-st.sidebar.markdown("## ① 환율 계산기")
-base_currency = st.sidebar.selectbox("기준 통화", ["USD", "EUR", "JPY", "CNY"], index=0)
-sell_price_foreign = st.sidebar.number_input("판매금액", min_value=0.0, value=1.00, step=0.01, format="%.2f")
-
-# 환율은 임시 고정(실시간 API 도입 시 이 값 갱신)
-FX = {"USD": 1400.00, "EUR": 1500.00, "JPY": 9.50, "CNY": 190.00}
-fx = FX.get(base_currency, 1400.00)
-converted = sell_price_foreign * fx
-st.sidebar.markdown(f"<div style='background:#E7F7E7;padding:10px;border-radius:8px'>"
-                    f"<b>환산 금액:</b> {converted:,.2f} 원</div>", unsafe_allow_html=True)
-
-st.sidebar.markdown("## ② 마진 계산기 (v23)")
-m_currency = st.sidebar.selectbox("기준 통화(판매금액)", ["USD", "EUR", "JPY", "CNY"], index=0, key="mcur")
-m_sell_foreign = st.sidebar.number_input("판매금액(외화)", min_value=0.0, value=1.00, step=0.01, format="%.2f", key="mprice")
-m_fx = FX.get(m_currency, 1400.00)
-m_sell_krw = m_sell_foreign * m_fx
-st.sidebar.markdown(f"<div style='background:#E7F7E7;padding:10px;border-radius:8px'>"
-                    f"<b>판매금액(환산):</b> {m_sell_krw:,.2f} 원</div>", unsafe_allow_html=True)
-
-card_fee = st.sidebar.number_input("카드수수료(%)", min_value=0.0, value=4.00, step=0.10, format="%.2f")
-market_fee = st.sidebar.number_input("마켓수수료(%)", min_value=0.0, value=14.00, step=0.10, format="%.2f")
-shipping = st.sidebar.number_input("배송비(원)", min_value=0.0, value=0.00, step=100.0, format="%.2f")
-margin_mode = st.sidebar.radio("마진 방식", ["퍼센트 마진(%)", "더하기 마진(원)"], index=0)
-margin_input = st.sidebar.number_input("마진율(%) / 마진(원)", min_value=0.0, value=10.00, step=0.10, format="%.2f")
-
-# v23 식
-if margin_mode.startswith("퍼센트"):
-    margin_won = m_sell_krw * (margin_input / 100.0)
-else:
-    margin_won = margin_input
-
-final_price = m_sell_krw + (m_sell_krw * (card_fee/100.0)) + (m_sell_krw * (market_fee/100.0)) + shipping + margin_won
-profit = margin_won
-
-st.sidebar.markdown(f"<div style='background:#E3F2FD;padding:10px;border-radius:8px;margin-top:6px'>"
-                    f"<b>예상 판매가:</b> {final_price:,.2f} 원</div>", unsafe_allow_html=True)
-st.sidebar.markdown(f"<div style='background:#FFF9C4;padding:10px;border-radius:8px'>"
-                    f"<b>순이익(마진):</b> {profit:,.2f} 원</div>", unsafe_allow_html=True)
-
-st.sidebar.markdown("---")
-proxy_url = st.sidebar.text_input("프록시(데이터랩)", value=DEFAULT_PROXY, help="Cloudflare Worker 주소")
-rakuten_app_id = st.sidebar.text_input("Rakuten App ID(글로벌)", value=DEFAULT_RAKUTEN_APP_ID)
-# ===== v27.13 • ENVY Full – Part 3 / 4 =====
-
-# 1) 네이버 데이터랩 Top20
-@st.cache_data(ttl=1800, show_spinner=False)
-def fetch_datalab_top20(category_name: str, start_date: str, end_date: str, proxy: str) -> pd.DataFrame:
+def request_datalab_via_proxy(proxy_url: str, cid: str,
+                              start_date: str, end_date: str) -> List[Dict]:
     """
-    Cloudflare Worker(프록시)가 '한 요청 내에서' 쿠키예열 + API POST 처리하도록 구성된 전제.
-    여기서는 POST만 정확히 날리면 된다.
+    프록시(Cloudflare Worker) → Naver DataLab POST
+    application/x-www-form-urlencoded 로 전송
     """
-    cid = DATALAB_CATEGORIES.get(category_name)
-    if not cid:
-        return pd.DataFrame({"rank": [], "keyword": [], "search": []})
+    base = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordRank.naver"
+    target = f"{proxy_url.rstrip('/')}/?target={base}"
 
-    # 데이터랩 API
-    api = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordRank.naver"
-
-    # 공식 페이지에서 쓰는 포맷(중요)
-    payload = {
+    headers = {"content-type": "application/x-www-form-urlencoded; charset=UTF-8"}
+    payload = urlencode({
         "cid": cid,
         "timeUnit": "date",
-        "startDate": start_date,
-        "endDate": end_date,
-        "device": "pc",
-        "gender": "",
-        "ages": "",
-    }
-
-    headers = {
-        **COMMON_HEADERS,
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "X-Requested-With": "XMLHttpRequest",
-        "Referer": "https://datalab.naver.com/shoppingInsight/sCategory.naver",
-    }
-
-    last_err = None
-    for _ in range(4):
-        try:
-            resp = requests.post(
-                proxied_url(proxy, api),
-                headers=headers,
-                data=payload, timeout=15,
-            )
-            if resp.status_code == 200 and resp.text.strip():
-                js = resp.json()
-                items = js.get("keywordList", [])
-                if items:
-                    rows = []
-                    for i, it in enumerate(items[:20]):
-                        rows.append({
-                            "rank": it.get("rank", i+1),
-                            "keyword": it.get("keyword", ""),
-                            "search": it.get("ratio", 0),
-                        })
-                    return pd.DataFrame(rows)
-                last_err = "empty-list"
-            else:
-                last_err = f"http-{resp.status_code}"
-        except Exception as e:
-            last_err = str(e)
-        _t.sleep(0.6)
-
-    df = pd.DataFrame({
-        "rank": [1,2,3,4,5],
-        "keyword": ["키워드A","키워드B","키워드C","키워드D","키워드E"],
-        "search": [100,92,88,77,70]
+        "startDate": start_date,   # YYYY-MM-DD
+        "endDate": end_date,       # YYYY-MM-DD
+        "categoryDepth": "1",
     })
-    df.attrs["warning"] = f"DataLab 호출 실패: {last_err} (프록시/기간/CID 확인)"
-    return df
-
-# 2) 라쿠텐 글로벌 키워드 (App ID 기본값 심음)
-@st.cache_data(ttl=1800, show_spinner=False)
-def fetch_rakuten_global(app_id: str | None, region: str = "JP") -> pd.DataFrame:
-    app_id = (app_id or DEFAULT_RAKUTEN_APP_ID).strip()
-    url = "https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628"
-    params = {"applicationId": app_id, "format": "json", "genreId": 0}
 
     try:
-        r = requests.get(url, params=params, headers=COMMON_HEADERS, timeout=12)
+        r = requests.post(target, headers=headers, data=payload, timeout=10)
         r.raise_for_status()
-        js = r.json()
-        rows = []
-        for it in js.get("Items", []):
-            item = it.get("Item", {})
-            rows.append({
-                "rank": item.get("rank"),
-                "keyword": item.get("itemName"),
-                "source": f"Rakuten {region}",
-            })
-        return pd.DataFrame(rows[:20])
+        data = r.json()
+        result = data.get("result", []) or data.get("keywordList", [])
+        return result
     except Exception as e:
-        return pd.DataFrame([{
-            "rank": 0, "keyword": f"Rakuten 오류: {e}", "source": f"Rakuten {region}"
-        }])
+        return []
 
-# 3) 11번가 – 모바일 뷰 임베드(간단 iframe/HTML)
-def render_11st_mobile(url: str):
-    if not url.startswith("http"):
-        warn("11번가 URL을 입력하세요")
-        return
+# ---------------------------
+# 11번가 모바일 임베드(간단 iframe)
+# ---------------------------
+def embed_11st(url: str, height: int = 420):
     html = f"""
-    <iframe src="{url}" width="100%" height="400" style="border:1px solid #eee;border-radius:6px"></iframe>
+    <iframe src="{url}" style="width:100%; height:{height}px; border:1px solid #eee; border-radius:8px;"
+            sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
     """
-    st.components.v1.html(html, height=420, scrolling=True)
+    components.html(html, height=height+6, scrolling=True)
 
-# 4) 상품명 생성기(규칙 + KoGPT2는 Placebo, 키 없음 모드)
-def generate_titles(brand, base_kw, rel_kw, banned, limit_chars=80):
-    rel = [k.strip() for k in rel_kw.split(",") if k.strip()]
-    base = base_kw.strip()
-    banned_set = set([b.strip().lower() for b in banned.split(",") if b.strip()])
+# ---------------------------
+# 간단 타이틀 생성(규칙 기반)
+# ---------------------------
+def generate_titles_rule(brand: str, base_kw: str, rel_kw: str, banned: str, limit: int = 80) -> List[str]:
+    ban_words = [b.strip() for b in banned.split(",") if b.strip()]
+    combos = [
+        f"{brand} {base_kw} {rel_kw}".strip(),
+        f"{base_kw} | {brand} {rel_kw}".strip(),
+        f"{brand} {base_kw}".strip(),
+        f"{base_kw} {rel_kw}".strip(),
+        f"{rel_kw} {brand} {base_kw}".strip(),
+    ]
     out = []
-    # 5개 생성 – 단순 규칙 조합
-    for i in range(5):
-        chunk = " ".join(rel[:max(1, min(len(rel), i+1))])
-        title = f"{brand} {base} {chunk}".strip()
-        # 금칙어 제거
-        filtered = " ".join([w for w in title.split() if w.lower() not in banned_set])
-        out.append(filtered[:limit_chars])
-    return out
-# ===== v27.13 • ENVY Full – Part 4 / 4 =====
+    for s in combos:
+        t = " ".join([w for w in s.split() if w.lower() not in [bw.lower() for bw in ban_words]])
+        out.append(t[:limit])
+    return out[:5]
+# ====== ENVY v27.13 Full — Part 2/4 ======
 
-st.markdown("## 🚀 ENVY v27.13 Full")
+st.sidebar.toggle("다크 모드", value=False, key="dark_tgl")  # 토글만 둠(테마는 앱 설정에 따름)
+st.sidebar.markdown("### ① 환율 계산기")
 
-# ====== Row 1: 데이터랩 / 아이템스카우트 / 셀러라이프 ======
-c1, c2, c3 = st.columns([1.1, 1, 1])
+base1 = st.sidebar.selectbox("기준 통화", options=["USD", "EUR", "JPY", "CNY"], index=0, key="fx_base1")
+amt1  = st.sidebar.number_input("판매금액 (기준통화)", min_value=0.0, step=0.01, value=1.00, format="%.2f", key="fx_amt1")
 
-with c1:
-    h3("데이터랩")
-    cat = st.selectbox("카테고리(10개)", list(DATALAB_CATEGORIES.keys()))
-    st.text_input("프록시(데이터랩)", value=proxy_url, key="proxy_in_datalab")
-    if st.button("데이터랩 재시도", use_container_width=False):
-        st.session_state["_fetch_datalab"] = True
+krw_conv = convert_price(amt1, base1)
+st.sidebar.markdown(
+    f'<div class="eny-badge eny-green">환산 금액: {fmt_money(krw_conv, "KRW")}</div>',
+    unsafe_allow_html=True
+)
 
-    # 기간: 최근 30일 (end = 어제)
-    end_date = yday_str(today_str())
-    start_date = (date.today() - timedelta(days=30)).strftime("%Y-%m-%d")
+st.sidebar.markdown("---")
+st.sidebar.markdown("### ② 마진 계산기 (v23)")
 
-    df_dl = pd.DataFrame()
-    if st.session_state.get("_fetch_datalab", False):
-        with st.spinner("DataLab 수집 중..."):
-            df_dl = fetch_datalab_top20(cat, start_date, end_date, st.session_state.get("proxy_in_datalab", proxy_url))
-        st.session_state["_fetch_datalab"] = False
+base2 = st.sidebar.selectbox("기준 통화(판매금액)", options=["USD", "EUR", "JPY", "CNY"], index=0, key="fx_base2")
+amt2  = st.sidebar.number_input("판매금액 (기준통화)", min_value=0.0, step=0.01, value=1.00, format="%.2f", key="mg_amt2")
+# 읽기전용 환산
+krw_conv2 = convert_price(amt2, base2)
+st.sidebar.markdown(
+    f'<div class="eny-badge eny-blue">판매금액(환산): {fmt_money(krw_conv2, "KRW")}</div>',
+    unsafe_allow_html=True
+)
 
-    if not df_dl.empty:
-        if "warning" in df_dl.attrs:
-            warn(df_dl.attrs["warning"])
-        st.dataframe(df_dl, use_container_width=True, height=260)
+card_fee   = st.sidebar.number_input("카드수수료 (%)", min_value=0.0, step=0.25, value=4.00, format="%.2f", key="mg_card")
+market_fee = st.sidebar.number_input("마켓수수료 (%)", min_value=0.0, step=0.25, value=14.00, format="%.2f", key="mg_market")
+shipping   = st.sidebar.number_input("배송비 (₩)",     min_value=0.0, step=100.0, value=0.0, format="%.2f", key="mg_ship")
+
+mode_pct = st.sidebar.radio("마진 방식", options=["퍼센트 마진(%)", "더하기 마진(₩)"], index=0, key="mg_mode")
+if mode_pct == "퍼센트 마진(%)":
+    margin_pct = st.sidebar.number_input("마진율 (%)", min_value=0.0, step=0.5, value=10.0, format="%.2f", key="mg_pct")
+    sell_price, profit = calc_margin_by_percent(amt2, base2, card_fee, market_fee, shipping, margin_pct)
+else:
+    add_margin = st.sidebar.number_input("더하기 마진 (₩)", min_value=0.0, step=100.0, value=0.0, format="%.2f", key="mg_add")
+    sell_price, profit = calc_margin_by_add(amt2, base2, card_fee, market_fee, shipping, add_margin)
+
+st.sidebar.markdown(
+    f'<div class="eny-badge eny-blue">예상 판매가: {fmt_money(sell_price, "KRW")}</div>',
+    unsafe_allow_html=True
+)
+st.sidebar.markdown(
+    f'<div class="eny-badge eny-yellow">순이익(마진): {fmt_money(profit, "KRW")}</div>',
+    unsafe_allow_html=True
+)
+# ====== ENVY v27.13 Full — Part 3/4 ======
+
+st.markdown("## ENVY v27.13 Full")
+
+top1, top2, top3 = st.columns([1.1, 1, 1])
+
+# ------------------ 데이터랩 ------------------
+with top1:
+    st.subheader("데이터랩")
+    cat = st.selectbox("카테고리(10개)", list(DATALAB_CATEGORIES.keys()), index=0, key="dl_cat")
+    proxy_url = st.text_input("프록시(데이터랩)", value="https://envy-proxy.taesig0302.workers.dev", key="dl_proxy")
+    if st.button("데이터랩 재시도", key="btn_dl_reload"):
+        st.session_state["__dl_trigger__"] = time.time()
+
+    # 기간: 최근 7일
+    end_date = dt.date.today()
+    start_date = end_date - dt.timedelta(days=7)
+    cid = DATALAB_CATEGORIES.get(cat)
+
+    # DataLab 호출
+    result = request_datalab_via_proxy(proxy_url, cid, start_date.isoformat(), end_date.isoformat())
+
+    if not result:
+        st.warning("DataLab 호출 실패: empty-list / http 오류 / 프록시·기간·CID 확인")
+        # 샘플 표시
+        df = pd.DataFrame({
+            "rank":[1,2,3,4,5],
+            "keyword":["키워드A","키워드B","키워드C","키워드D","키워드E"],
+            "search":[100,92,88,77,70]
+        })
     else:
-        note("데이터랩 결과가 없으면 프록시/기간/CID를 확인하세요.")
+        # 결과 형식에 맞게 DataFrame 구성
+        # 예상키: [{"rank":1,"keyword":"...","ratio":...}, ...] 혹은 다른 구조
+        rows=[]
+        for i, row in enumerate(result, start=1):
+            kw = row.get("keyword") or row.get("keywordName") or f"키워드{i}"
+            sc = row.get("ratio") or row.get("search") or 0
+            rows.append({"rank":i, "keyword":kw, "search":sc})
+        df = pd.DataFrame(rows)[:20]
 
-with c2:
-    h3("아이템스카우트")
-    st.button("연동 대기(별도 API/프록시)", disabled=True, use_container_width=True, key="btn_itemscout")
+    st.dataframe(df, use_container_width=True, height=280)
 
-with c3:
-    h3("셀러라이프")
-    st.button("연동 대기(별도 API/프록시)", disabled=True, use_container_width=True, key="btn_sellerlife")
+# ------------------ 아이템스카우트 ------------------
+with top2:
+    st.subheader("아이템스카우트")
+    st.text_input("연동 대기 (별도 API/프록시)", value="", key="is_placeholder")
+    st.info("향후 API/프록시 연결 예정. 현재는 레이아웃 고정용 자리표시자입니다.", icon="🧩")
 
-st.markdown("---")
+# ------------------ 셀러라이프 ------------------
+with top3:
+    st.subheader("셀러라이프")
+    st.text_input("연동 대기 (별도 API/프록시)", value="", key="sl_placeholder")
+    st.info("향후 API/프록시 연결 예정. 현재는 레이아웃 고정용 자리표시자입니다.", icon="🧩")
+# ====== ENVY v27.13 Full — Part 4/4 ======
 
-# ====== Row 2: AI 키워드 레이더 / 11번가 / 상품명 생성기 ======
-d1, d2, d3 = st.columns([1.1, 1, 1])
+bot1, bot2, bot3 = st.columns([1.1, 1, 1])
 
-with d1:
-    h3("AI 키워드 레이더 (국내/글로벌)")
-    mode = st.radio("모드", ["국내", "글로벌"], horizontal=True)
+# ------------------ AI 키워드 레이더 ------------------
+with bot1:
+    st.subheader("AI 키워드 레이더 (국내/글로벌)")
+    mode = st.radio("모드", ["국내", "글로벌"], horizontal=True, key="radar_mode")
+
     if mode == "국내":
-        # 데이터랩 최신 결과를 그대로 보여줌
-        if not df_dl.empty:
-            st.dataframe(df_dl[["rank", "keyword", "search"]], use_container_width=True, height=300)
-        else:
-            warn("먼저 상단 데이터랩을 수집하세요.")
+        st.caption("※ 국내: 데이터랩 결과를 그대로 사용합니다.")
+        try:
+            st.dataframe(df, use_container_width=True, height=280)
+        except Exception:
+            st.info("데이터랩 결과가 아직 없어요. 상단 '데이터랩'에서 먼저 요청하세요.")
     else:
-        region = st.selectbox("Amazon 지역(라쿠텐은 JP 중심)", ["JP", "US"], index=0)
-        with st.spinner("Rakuten 키워드 수집..."):
-            df_rk = fetch_rakuten_global(rakuten_app_id, region=region)
-        st.dataframe(df_rk, use_container_width=True, height=300)
+        app_id = st.text_input("Rakuten App ID (글로벌)", value=st.session_state.get("rakuten_appid",""), key="rk_appid")
+        colx, coly = st.columns([1,1])
+        with colx:
+            region = st.selectbox("Amazon 지역(샘플)", options=["US","JP"], index=1, key="rk_region")
+        with coly:
+            st.caption("※ 무료 Demo: Rakuten Ranking API로 키워드 대용 표시")
 
-with d2:
-    h3("11번가 (모바일)")
-    url11 = st.text_input("11번가 URL", value="https://www.11st.co.kr/")
-    render_11st_mobile(url11)
-    st.caption("• 임베드 실패 대비 요약표 보기 버튼은 차후 추가")
-
-with d3:
-    h3("상품명 생성기 (규칙 + HuggingFace KoGPT2)")
-    brand = st.text_input("브랜드", value="envy")
-    base_kw = st.text_input("베이스 키워드", value="K-coffee mix")
-    rel_kw = st.text_input("연관키워드(쉼표로)", value="Maxim, Kanu, Korea")
-    banned = st.text_input("금칙어", value="copy, fake, replica")
-    limit = st.slider("글자수 제한", min_value=30, max_value=120, value=80, step=1)
-    gen_mode = st.radio("모드", ["규칙 기반", "HuggingFace AI"], horizontal=True, index=0)
-
-    if st.button("생성", use_container_width=False):
-        titles = generate_titles(brand, base_kw, rel_kw, banned, limit_chars=limit)
-        # 출력 블록: 추천 5가지
-        st.markdown("**추천 제목 (5)**")
-        st.write(pd.DataFrame({"#": range(1, len(titles)+1), "title": titles}))
-        # 연관키워드(검색량수) – 데이터랩 결과 활용
-        if not df_dl.empty:
-            st.markdown("**연관 키워드(검색량)**")
-            st.dataframe(df_dl[["keyword","search"]], use_container_width=True, height=220)
+        if app_id:
+            try:
+                # 간단 대용: 라쿠텐 랭킹 API → itemName 추출
+                url = "https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628"
+                params = {"applicationId": app_id, "genreId": "100283"}  # 임의 장르
+                r = requests.get(url, params=params, timeout=8)
+                items = r.json().get("Items", [])
+                rows = []
+                for i, it in enumerate(items[:20], start=1):
+                    nm = it["Item"]["itemName"]
+                    rows.append({"rank": i, "keyword": nm[:30], "score": 200-i})
+                df_rk = pd.DataFrame(rows)
+                st.dataframe(df_rk, use_container_width=True, height=280)
+            except Exception as e:
+                st.warning("Rakuten 수집 실패: App ID/호출 제한/네트워크 확인")
         else:
-            st.caption("연관 키워드(검색량)는 데이터랩 수집 후 노출됩니다.")
+            st.info("Rakuten App ID가 필요합니다. (나중에 정식 Amazon/Global API로 교체)")
+
+# ------------------ 11번가 (모바일) ------------------
+with bot2:
+    st.subheader("11번가 (모바일)")
+    url11 = st.text_input("11번가 URL", value="https://www.11st.co.kr/", key="url_11st")
+    embed_11st(url11, height=380)
+    st.button("업데이트 실패 대비 요약표 보기", key="btn_11st_summary")
+    st.caption("※ 모바일 완전 임베드는 정책상 제약이 있을 수 있음(요약표/프록시 우회 준비).")
+
+# ------------------ 상품명 생성기 ------------------
+with bot3:
+    st.subheader("상품명 생성기 (규칙 + HuggingFace KoGPT2)")
+    brand  = st.text_input("브랜드", value="envy", key="g_brand")
+    base_kw = st.text_input("베이스 키워드", value="K-coffee mix", key="g_base")
+    rel_kw  = st.text_input("연관키워드", value="Maxim, Kanu, Korea", key="g_rel")
+    banned  = st.text_input("금칙어", value="copy, fake, replica", key="g_banned")
+    limit   = st.slider("글자수 제한", min_value=40, max_value=120, value=80, key="g_limit")
+    mode_t  = st.radio("모드", ["규칙 기반", "HuggingFace AI"], horizontal=True, key="g_mode")
+
+    if st.button("생성", key="btn_gen_title"):
+        titles = generate_titles_rule(brand, base_kw, rel_kw, banned, limit)
+        st.success("규칙 기반 5안 생성 완료")
+        for i, t in enumerate(titles, start=1):
+            c1, c2 = st.columns([0.9, 0.1])
+            c1.write(f"{i}. {t}")
+            c2.button("복사", key=f"copy_{i}", on_click=st.session_state.setdefault, args=(f"copied_{i}", t))
+        st.caption("※ HuggingFace 모드는 추후 KoGPT2 Inference 연결(토큰 필요).")
+
+    st.divider()
+    st.caption("추천용 연관키워드(검색량): 데이터랩 표/글로벌 표를 활용해 선택하세요.")
+
