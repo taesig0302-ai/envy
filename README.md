@@ -1,18 +1,15 @@
-# ENVY v9.5 — Full Pack
+# ENVY v9.7 — Full Pack + Google Translate (iFrame)
 
-## 포함 기능
-- **DataLab Rank** (대분류 12종) + **Trend** (기간 프리셋/단위/기기별, GET→POST 폴백, 강한 폴백 시계열)
-- Sidebar: 환율/마진 계산기, 테마 토글, Referer/Cookie 입력
-- 11번가 프록시 임베드 (Cloudflare Worker 등) — `PROXY_URL` 설정 시 작동
-- Rakuten 랭킹 뷰 + 상품명 생성기
+## 포함
+- DataLab Rank/Trend, Rakuten, 11번가(프록시), ItemScout/SellerLife 카드, 상품명 생성기
+- **Google Translate 사이트 임베드** (iFrame) — 프록시 경유
 
-## 설치/실행
+## 실행
 ```bash
 python -m venv .venv && source .venv/bin/activate   # (Windows: .venv\Scripts\activate)
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## 팁
-- DataLab은 Referer/Cookie를 붙이면 성공률이 높습니다. (사이드바 > 고급 설정)
-- 11번가는 원사이트가 X-Frame-Options로 막으므로 **프록시 URL**을 넣어야 iframe 통과가 안정적입니다.
+## 주의
+- iFrame 차단 사이트는 Cloudflare Worker 프록시가 필요합니다. 이 패키지는 PROXY_URL이 이미 설정되어 있습니다.
