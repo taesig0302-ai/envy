@@ -45,56 +45,82 @@ def inject_css():
     else:
         bg, fg = "#ffffff", "#111111"
 
-    st.markdown(f"""
-    <style>
-      html, body, [data-testid="stAppViewContainer"] {{
-        background-color:{bg} !important; color:{fg} !important;
-      }}
+    st.markdown(
+        f"""
+<style>
+  html, body, [data-testid="stAppViewContainer"] {{
+    background-color: {bg} !important;
+    color: {fg} !important;
+  }}
 
-      /* 본문 섹션카드: 더 아래로 내리기 */
-      .block-container {{
-        padding-top: 2.2rem !important;   /* 기존 0.7rem → 2.2rem */
-        padding-bottom: .5rem !important;
-      }}
+  /* 본문 섹션카드 여백 */
+  .block-container {{
+    padding-top: 0.7rem !important;
+    padding-bottom: 0.35rem !important;
+  }}
 
-    /* ===== Sidebar 압축 ===== */
-[data-testid="stSidebar"] section {
-  padding-top: .1rem !important;
-  padding-bottom: .1rem !important;
-  height: 100vh; overflow: hidden;   /* 스크롤 락 */
-  font-size: .92rem;
-}
-[data-testid="stSidebar"] .stSelectbox,
-[data-testid="stSidebar"] .stNumberInput,
-[data-testid="stSidebar"] .stRadio,
-[data-testid="stSidebar"] .stMarkdown,
-[data-testid="stSidebar"] .stTextInput,
-[data-testid="stSidebar"] .stButton {
-  margin-top: .1rem !important;
-  margin-bottom: .1rem !important;
-}
+  /* ===== Sidebar 압축 ===== */
+  [data-testid="stSidebar"] section {{
+    padding-top: 0.20rem !important;
+    padding-bottom: 0.20rem !important;
+    height: 100vh;
+    overflow: hidden;               /* 스크롤 락 */
+    font-size: 0.94rem;
+  }}
+  [data-testid="stSidebar"] ::-webkit-scrollbar {{ display: none; }}
 
-      /* 컴포넌트 간 간격 최소화 */
-      [data-testid="stSidebar"] .stSelectbox,
-      [data-testid="stSidebar"] .stNumberInput,
-      [data-testid="stSidebar"] .stRadio,
-      [data-testid="stSidebar"] .stMarkdown,
-      [data-testid="stSidebar"] .stTextInput,
-      [data-testid="stSidebar"] .stButton {{
-        margin-top: .1rem !important;
-        margin-bottom: .1rem !important;
-      }}
+  /* 컴포넌트 간 간격 */
+  [data-testid="stSidebar"] .stSelectbox,
+  [data-testid="stSidebar"] .stNumberInput,
+  [data-testid="stSidebar"] .stRadio,
+  [data-testid="stSidebar"] .stMarkdown,
+  [data-testid="stSidebar"] .stTextInput,
+  [data-testid="stSidebar"] .stButton {{
+    margin-top: 0.14rem !important;
+    margin-bottom: 0.14rem !important;
+  }}
 
-      /* 로고 크기 유지 */
-      .logo-circle {{
-        width: 95px; height: 95px; border-radius: 50%;
-        overflow: hidden; margin: .15rem auto .3rem auto;
-        box-shadow: 0 2px 8px rgba(0,0,0,.12);
-        border: 1px solid rgba(0,0,0,.06);
-      }}
-      .logo-circle img {{ width:100%; height:100%; object-fit:cover; }}
-    </style>
-    """, unsafe_allow_html=True)
+  /* 라벨/제목 줄간격 */
+  [data-testid="stSidebar"] label p,
+  [data-testid="stSidebar"] h3 {{
+    margin: 0 0 0.15rem 0 !important;
+    line-height: 1.15rem !important;
+  }}
+
+  /* 입력/셀렉트 높이 */
+  [data-baseweb="input"] input,
+  .stNumberInput input,
+  [data-baseweb="select"] div[role="combobox"] {{
+    height: 1.55rem !important;
+    padding-top: 0.12rem !important;
+    padding-bottom: 0.12rem !important;
+    font-size: 0.92rem !important;
+  }}
+  button[kind="secondary"], button[kind="primary"] {{
+    padding: 0.18rem 0.5rem !important;
+    font-size: 0.92rem !important;
+  }}
+
+  /* 로고(축소) */
+  .logo-circle {{
+    width: 95px; height: 95px; border-radius: 50%;
+    overflow: hidden; margin: 0.15rem auto 0.35rem auto;
+    box-shadow: 0 2px 8px rgba(0,0,0,.12);
+    border: 1px solid rgba(0,0,0,.06);
+  }}
+  .logo-circle img {{ width: 100%; height: 100%; object-fit: cover; }}
+
+  /* 배지 */
+  .badge-green  {{ background: #e6ffcc; border: 1px solid #b6f3a4;
+    padding: 6px 10px; border-radius: 6px; color: #0b2e13; font-size: .86rem; }}
+  .badge-blue   {{ background: #eef4ff; border: 1px solid #bcd0ff;
+    padding: 6px 10px; border-radius: 6px; color: #0a235a; font-size: .86rem; }}
+  .badge-yellow {{ background: #fff7d6; border: 1px solid #f1d27a;
+    padding: 6px 10px; border-radius: 6px; color: #4a3b07; font-size: .86rem; }}
+</style>
+        """,
+        unsafe_allow_html=True,
+    )
 # ============================================
 # Part 1 — 사이드바
 # ============================================
