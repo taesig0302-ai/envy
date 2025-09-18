@@ -50,10 +50,10 @@ def inject_css():
         background-color:{bg} !important; color:{fg} !important;
       }}
 
-      /* 본문 카드 상하 여백만 축소 */
+      /* 본문 카드 상하 여백만 조정 */
       .block-container {{
-        padding-top: 1.6rem !important;
-        padding-bottom: .6rem !important;
+        padding-top: 2.0rem !important;
+        padding-bottom: .8rem !important;
       }}
 
       /* ================= Sidebar ================= */
@@ -154,70 +154,59 @@ def render_sidebar():
         st.caption(f"기준 환율: {FX_DEFAULT.get(base,0):,.2f} ₩ / {base}")
 
         # ================== ② 마진 계산기 ==================
+              # --- 마진 계산기 ---
         st.markdown("### ② 마진 계산기")
-        # 매입 통화/금액 (2열로 세로 공간 절약)
-        c3, c4 = st.columns(2)
-        with c3:
-            m_base = st.selectbox("매입 통화", list(CURRENCY_SYMBOL.keys()), index=0, key="mbase")
-        with c4:
-            m_sym  = CURRENCY_SYMBOL.get(m_base, "")
-            purchase_foreign = st.number_input(f"매입금액 ({m_sym})", value=0.00, step=0.01, format="%.2f", key="m_buy")
+        m_base = st.selectbox("매입 통화", list(CURRENCY_SYMBOL.keys()), index=0, key="mbase")
+        m_sym  = CURRENCY_SYMBOL.get(m_base, "")
+        purchase_foreign = st.number_input(f"매입금액 (외화 {m_sym})", value=0.00, step=0.01, format="%.2f")
+        base_cost_won = FX_DEFAULT[m_base] * purchase_foreign if purchase_foreign>0 else won
+        st.markdown(f'<div class="badge-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
 
-        base_cost_won = FX_DEFAULT.get(m_base, 1400.0) * purchase_foreign if purchase_foreign>0 else won
-        st.markdown(f'<div class="badge-green">원가(₩): <b>{base_cost_won:,.2f}</b></div>', unsafe_allow_html=True)
+        m_rate = st.number_input("카드수수료 (%)", value=4.00, step=0.01, format="%.2f")
+        m_fee  = st.number_input("마켓수수료 (%)", value=14.00, step=0.01, format="%.2f")
+        ship   = st.number_input("배송비 (₩)", value=0.0, step=100.0, format="%.0f")
 
-        # 수수료/비용 (2열로 압축)
-        c5, c6 = st.columns(2)
-        with c5:
-            m_rate = st.number_input("카드수수료(%)", value=4.00, step=0.01, format="%.2f", key="m_card")
-        with c6:
-            m_fee  = st.number_input("마켓수수료(%)", value=14.00, step=0.01, format="%.2f", key="m_market")
+        # 여기부터 변경: 모드별 입력칸 분리
+        mode = st.radio("마진 방식", ["퍼센트 마진(%)", "더하기 마진(₩)"], horizontal=True, key="margin_mode")
 
-        c7, c8 = st.columns(2)
-        with c7:
-            ship   = st.number_input("배송비(₩)", value=0.0, step=100.0, format="%.0f", key="m_ship")
-        with c8:
-            mode   = st.radio("마진 방식", ["퍼센트(%)","더하기(₩)"], horizontal=True, key="m_mode")
-
-        margin = st.number_input("마진율/마진액", value=10.00, step=0.01, format="%.2f", key="m_margin")
-
-        # 계산
-        fee_mult  = (1 + m_rate/100) * (1 + m_fee/100)
-        if mode == "퍼센트(%)":
-            target_price = base_cost_won * fee_mult * (1 + margin/100) + ship
+        if mode == "퍼센트 마진(%)":
+            margin_pct = st.number_input("마진율 (%)", value=10.00, step=0.01, format="%.2f", key="margin_pct")
+            target_price = base_cost_won * (1 + m_rate/100) * (1 + m_fee/100) * (1 + margin_pct/100) + ship
         else:
-            target_price = base_cost_won * fee_mult + margin + ship
-        profit = target_price - base_cost_won
+            margin_won = st.number_input("마진액 (₩)", value=10000.0, step=100.0, format="%.0f", key="margin_won")
+            target_price = base_cost_won * (1 + m_rate/100) * (1 + m_fee/100) + margin_won + ship
 
-        # 결과 (2열 배지로 컴팩트하게)
-        r1, r2 = st.columns(2)
-        with r1:
-            st.markdown(f'<div class="badge-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
-        with r2:
-            st.markdown(f'<div class="badge-green">순이익: <b>{profit:,.2f} 원</b></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="badge-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
+        st.warning(f"순이익(마진): {(target_price - base_cost_won):,.2f} 원")
 # ============================================
-# Part 2 — 데이터랩 (프록시 iFrame 고정)
+# Part 2 — 데이터랩 (프록시 iFrame 고정, 캐시버스터)
 # ============================================
+import time
+
 DATALAB_URL = "https://datalab.naver.com/shoppingInsight/sCategory.naver"
 
 def render_datalab_block():
     st.subheader("데이터랩")
-    # UI 보존용 카테고리(표시만, 실제 데이터는 페이지 내 컨트롤)
-    cats = ["식품","디지털/가전","생활/건강","가구/인테리어","스포츠/레저","뷰티","출산/육아","반려동물","패션잡화","도서/취미"]
+
+    # 표시용(실제 데이터는 페이지 내부에서 조작)
+    cats = ["디지털/가전","식품","생활/건강","가구/인테리어","스포츠/레저","뷰티","출산/육아","반려동물","패션잡화","도서/취미"]
     st.selectbox("카테고리(표시용)", cats, index=0, key="datalab_cat_display")
 
-    # 새로고침(캐시 키 변경) 버튼
     colr1, colr2 = st.columns([1,3])
     with colr1:
-        refresh = st.button("새로고침", key=f"datalab_reload")
+        refresh = st.button("새로고침", key="datalab_reload")
 
-    url = DATALAB_URL
+    # 캐시 버스터
+    ts = str(int(time.time())) if refresh else str(int(time.time()))
+    joiner = "&" if "?" in DATALAB_URL else "?"
+    src_url = f"{DATALAB_URL}{joiner}_={ts}"
+
     if has_proxy():
-        st.caption("프록시 iFrame 모드 (권장)")
-        st.components.v1.iframe(iframe_url(url), height=760, scrolling=True, key=f"datalab_iframe_proxy_{refresh}")
+        st.caption("프록시 iFrame (권장)")
+        st.components.v1.iframe(iframe_url(src_url), height=760, scrolling=True)
     else:
         st.warning("PROXY_URL이 비어 있어 직접 iFrame으로 시도합니다. 사이트 정책에 따라 실패할 수 있습니다.")
-        st.components.v1.iframe(url, height=760, scrolling=True, key=f"datalab_iframe_direct_{refresh}")
+        st.components.v1.iframe(src_url, height=760, scrolling=True)
 # ============================================
 # Part 3 — 아이템스카우트 블록 (플레이스홀더)
 # ============================================
