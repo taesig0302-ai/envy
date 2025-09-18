@@ -1,1 +1,5 @@
-ENVY v10.5 — translator labels in Korean, stronger 11st cleanup, layout +3% up
+# ENVY v10.7 Full Pack
+- 로고 + 환율/마진 계산기 복구
+- 데이터랩/아이템스카우트/셀러라이프/상품명 생성기 포함
+- 구글 번역기 (언어 한국어 표기, (한국어 확인용) 캡션 추가)
+- 11번가 배너 제거 강화
