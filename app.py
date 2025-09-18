@@ -52,8 +52,8 @@ def inject_css():
 
       /* 본문 카드 상하 여백만 축소 */
       .block-container {{
-        padding-top: 1.0rem !important;
-        padding-bottom: .4rem !important;
+        padding-top: 1.6rem !important;
+        padding-bottom: .6rem !important;
       }}
 
       /* ================= Sidebar ================= */
@@ -196,100 +196,28 @@ def render_sidebar():
         with r2:
             st.markdown(f'<div class="badge-green">순이익: <b>{profit:,.2f} 원</b></div>', unsafe_allow_html=True)
 # ============================================
-# Part 2 — 데이터랩  (REPLACE)
+# Part 2 — 데이터랩 (프록시 iFrame 고정)
 # ============================================
-def fetch_datalab_keywords(max_rows: int = 20) -> pd.DataFrame:
-    url = "https://datalab.naver.com/shoppingInsight/sCategory.naver"
-    try:
-        r = requests.get(url, headers={**MOBILE_HEADERS, "referer": "https://datalab.naver.com/"}, timeout=10)
-        r.raise_for_status()
-    except Exception:
-        demo = ["맥심 커피믹스","카누 미니","원두커피 1kg","드립백 커피","스타벅스 다크","커피머신","핸드드립세트","모카포트","프렌치프레스","스틱커피"]
-        return pd.DataFrame([{"rank":i+1,"keyword":k} for i,k in enumerate(demo[:max_rows])])
-
-    soup = BeautifulSoup(r.text, "html.parser")
-    # 1) 스크립트 JSON 시도
-    rows=[]
-    for s in soup.find_all("script"):
-        text = s.string or s.text or ""
-        m = (re.search(r"__NEXT_DATA__\s*=\s*({[\s\S]*?})\s*;?", text) or
-             re.search(r"__INITIAL_STATE__\s*=\s*({[\s\S]*?})\s*;?", text) or
-             re.search(r"window\.__DATA__\s*=\s*({[\s\S]*?})\s*;?", text))
-        if not m: 
-            continue
-        try:
-            data = json.loads(m.group(1))
-        except Exception:
-            continue
-
-        def walk(o):
-            if isinstance(o, dict):
-                for v in o.values():
-                    r = walk(v)
-                    if r: return r
-            elif isinstance(o, list):
-                if o and isinstance(o[0], dict) and any(("keyword" in o[0]) or ("name" in o[0]) for _ in [0]):
-                    return o
-                for v in o:
-                    r = walk(v)
-                    if r: return r
-            return None
-
-        items = walk(data) or []
-        for i, it in enumerate(items[:max_rows], start=1):
-            kw = (it.get("keyword") or it.get("name") or it.get("title") or "").strip()
-            if kw:
-                rows.append({"rank": i, "keyword": kw})
-        if rows:
-            break
-
-    # 2) 휴리스틱 백업
-    if not rows:
-        uniq=[]
-        for el in soup.select("a, li, span"):
-            t = (el.get_text(" ", strip=True) or "").strip()
-            if 2 <= len(t) <= 40 and any(ch.isalnum() for ch in t):
-                t = re.sub(r"\s+", " ", t)
-                if t not in uniq: 
-                    uniq.append(t)
-            if len(uniq) >= max_rows: break
-        rows = [{"rank":i+1,"keyword":kw} for i, kw in enumerate(uniq)]
-
-    return pd.DataFrame(rows)
+DATALAB_URL = "https://datalab.naver.com/shoppingInsight/sCategory.naver"
 
 def render_datalab_block():
     st.subheader("데이터랩")
-    # 카테고리 프리셋(표시용): 실제 크롤링은 동일 페이지 기준
-    cats = ["도서/취미","디지털/가전","식품","생활/건강","가구/인테리어","스포츠/레저","뷰티","출산/육아","반려동물","패션잡화"]
-    cat = st.selectbox("카테고리(표시용)", cats, index=2, key="datalab_cat")
+    # UI 보존용 카테고리(표시만, 실제 데이터는 페이지 내 컨트롤)
+    cats = ["식품","디지털/가전","생활/건강","가구/인테리어","스포츠/레저","뷰티","출산/육아","반려동물","패션잡화","도서/취미"]
+    st.selectbox("카테고리(표시용)", cats, index=0, key="datalab_cat_display")
 
-    df = fetch_datalab_keywords()
-    if df.empty:
-        st.warning("키워드 수집 실패. 잠시 후 다시 시도하세요.")
-        return
+    # 새로고침(캐시 키 변경) 버튼
+    colr1, colr2 = st.columns([1,3])
+    with colr1:
+        refresh = st.button("새로고침", key=f"datalab_reload")
 
-    # 의사 점수 생성 (그래프용) — 실제 수치 생기면 이 부분만 바꿔 끼우면 됨
-    n = len(df)
-    df["score"] = [max(1, int(100 - (i*(100/max(1,n-1))))) for i in range(n)]
-
-    st.dataframe(df[["rank","keyword"]], use_container_width=True, hide_index=True)
-
-    # 라인 그래프
-    chart_df = df[["rank","score"]].set_index("rank")
-    st.line_chart(chart_df, height=200)
-
-    # 임베드(테스트/프록시)
-    colA, colB = st.columns(2)
-    with colA:
-        st.caption("직접 iFrame은 사이트 정책에 따라 실패할 수 있습니다.")
-        if st.button("직접 iFrame (실패 가능)", key="dl_iframe_direct"):
-            st.components.v1.iframe("https://datalab.naver.com/shoppingInsight/sCategory.naver", height=560)
-    with colB:
-        if has_proxy():
-            if st.button("프록시 iFrame (권장)", key="dl_iframe_proxy"):
-                st.components.v1.iframe(iframe_url("https://datalab.naver.com/shoppingInsight/sCategory.naver"), height=560)
-        else:
-            st.caption("임베드가 필요하면 Part 0의 PROXY_URL을 설정하세요.")
+    url = DATALAB_URL
+    if has_proxy():
+        st.caption("프록시 iFrame 모드 (권장)")
+        st.components.v1.iframe(iframe_url(url), height=760, scrolling=True, key=f"datalab_iframe_proxy_{refresh}")
+    else:
+        st.warning("PROXY_URL이 비어 있어 직접 iFrame으로 시도합니다. 사이트 정책에 따라 실패할 수 있습니다.")
+        st.components.v1.iframe(url, height=760, scrolling=True, key=f"datalab_iframe_direct_{refresh}")
 # ============================================
 # Part 3 — 아이템스카우트 블록 (플레이스홀더)
 # ============================================
@@ -303,56 +231,42 @@ def render_sellerlife_block():
     st.subheader("셀러라이프")
     st.info("연동 대기 (API 키 확보 후 교체)")
 # ============================================
-# Part 5 — 11번가 (REPLACE)
+# Part 5 — 11번가 (모바일 화면 iFrame 고정 + 스냅샷 폴백)
 # ============================================
-def fetch_11st_best(max_rows: int = 50) -> pd.DataFrame:
-    url = "https://m.11st.co.kr/browsing/bestSellers.mall"
-    try:
-        r = requests.get(url, headers={**MOBILE_HEADERS, "referer": "https://m.11st.co.kr/"}, timeout=10)
-        r.raise_for_status()
-    except Exception:
-        return pd.DataFrame([{"rank":1,"title":"요청 실패","price":""}])
-
-    soup = BeautifulSoup(r.text, "html.parser")
-    rows=[]; i=0
-
-    selectors = [
-        "li.c_prd_item", "div.c_prd", "div.c_card",
-        "li[class*=prd]", "li[class*=product]", "li[class*=item]"
-    ]
-    for sel in selectors:
-        for li in soup.select(sel):
-            a = li.select_one("a[href]")
-            title_el = li.select_one(".name, .title, .prd_name, .c_prd_name, [class*=name], [class*=title]") or a
-            price_el = li.select_one(".price, .value, .num, .c_prd_price, [class*=price], [class*=value]")
-            title = (title_el.get_text(" ", strip=True) if title_el else "").strip()
-            price = (price_el.get_text(" ", strip=True) if price_el else "").strip()
-            if not title: 
-                continue
-            i += 1
-            rows.append({"rank": i, "title": title, "price": price})
-            if i >= max_rows: break
-        if rows: break
-
-    if rows: 
-        return pd.DataFrame(rows)
-    return pd.DataFrame([{"rank":1,"title":"empty","price":""}])
+ELEVENST_DEFAULT = "https://m.11st.co.kr/browsing/bestSellers.mall"
 
 def render_elevenst_block():
     st.subheader("11번가 (모바일)")
-    df = fetch_11st_best()
-    st.dataframe(df, use_container_width=True, hide_index=True)
 
-    colA, colB = st.columns(2)
-    with colA:
-        if st.button("직접 iFrame (실패 가능)", key="e11_iframe_direct"):
-            st.components.v1.iframe("https://m.11st.co.kr/browsing/bestSellers.mall", height=560)
-    with colB:
-        if has_proxy():
-            if st.button("프록시 iFrame (권장)", key="e11_iframe_proxy"):
-                st.components.v1.iframe(iframe_url("https://m.11st.co.kr/browsing/bestSellers.mall"), height=560)
-        else:
-            st.caption("임베드가 필요하면 Part 0의 PROXY_URL을 설정하세요.")
+    ucol1, ucol2 = st.columns([3,1])
+    with ucol1:
+        url = st.text_input("모바일 URL", value=ELEVENST_DEFAULT, key="e11_url")
+    with ucol2:
+        refresh = st.button("새로고침", key="e11_reload")
+
+    showed = False
+    # 1) 프록시 iFrame (가장 안정적)
+    if has_proxy():
+        try:
+            st.caption("프록시 iFrame (권장)")
+            st.components.v1.iframe(iframe_url(url), height=760, scrolling=True, key=f"e11_iframe_proxy_{refresh}")
+            showed = True
+        except Exception:
+            showed = False
+
+        # 2) 프록시 스냅샷(스크립트 제거본) 폴백
+        if not showed:
+            try:
+                st.caption("프록시 Snapshot 폴백")
+                st.components.v1.iframe(snapshot_url(url), height=760, scrolling=True, key=f"e11_iframe_snap_{refresh}")
+                showed = True
+            except Exception:
+                showed = False
+
+    # 3) 직접 iFrame (PROXY_URL 미설정 또는 모두 실패)
+    if not showed:
+        st.warning("PROXY_URL 미설정이거나 정책에 막혔습니다. 직접 iFrame으로 시도합니다(실패 가능).")
+        st.components.v1.iframe(url, height=760, scrolling=True, key=f"e11_iframe_direct_{refresh}")
 # ============================================
 # Part 6 — AI 키워드 레이더 (Rakuten)  [REPLACE]
 # ============================================
