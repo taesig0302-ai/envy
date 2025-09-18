@@ -39,7 +39,7 @@ def toggle_theme():
     st.session_state["theme"] = "dark" if st.session_state["theme"] == "light" else "light"
 
 def inject_css():
-    if st.session_state["theme"] == "dark":
+    if st.session_state.get("theme", "light") == "dark":
         bg, fg = "#0e1117", "#e6edf3"
     else:
         bg, fg = "#ffffff", "#111111"
@@ -50,21 +50,22 @@ def inject_css():
         background-color:{bg} !important; color:{fg} !important;
       }}
 
-      /* 본문 카드 상·하 여백만 소폭 축소 (콘텐츠는 그대로) */
+      /* 본문 카드 상하 여백만 축소 */
       .block-container {{
-        padding-top: 1.3rem !important;
-        padding-bottom: .5rem !important;
+        padding-top: 1.0rem !important;
+        padding-bottom: .4rem !important;
       }}
 
-      /* ===== Sidebar: 요소는 유지, 세로 여백만 압축 ===== */
+      /* ================= Sidebar ================= */
       [data-testid="stSidebar"] section {{
-        padding-top: .18rem !important;
-        padding-bottom: .18rem !important;
-        height: 100vh; overflow: hidden;   /* 스크롤락 */
-        font-size: .95rem;                 /* 기존 가독성 유지 */
+        padding-top: .12rem !important;   /* 더 줄임 */
+        padding-bottom: .12rem !important;
+        height: 100vh; overflow: hidden;  /* 스크롤락 */
+        font-size: .95rem;                /* 가독성 유지 */
       }}
+      [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none;}}
 
-      /* 사이드바 내부 컴포넌트 간 세로 간격만 줄이기 */
+      /* 컴포넌트 사이 세로 간격 최소화(요소 유지) */
       [data-testid="stSidebar"] .stSelectbox,
       [data-testid="stSidebar"] .stNumberInput,
       [data-testid="stSidebar"] .stRadio,
@@ -72,31 +73,47 @@ def inject_css():
       [data-testid="stSidebar"] .stSlider,
       [data-testid="stSidebar"] .stButton,
       [data-testid="stSidebar"] .stMarkdown {{
-        margin-top: .18rem !important;
-        margin-bottom: .18rem !important;
+        margin-top: .14rem !important;
+        margin-bottom: .14rem !important;
       }}
 
-      /* 제목 줄 간격만 타이트하게 */
+      /* 제목 줄간격만 타이트 */
       [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {{
-        margin-top: .20rem !important;
-        margin-bottom: .20rem !important;
-        line-height: 1.1rem !important;
+        margin-top: .12rem !important;
+        margin-bottom: .14rem !important;
+        line-height: 1.05rem !important;
       }}
 
-      /* 로고는 기존 사이즈(120px) 유지 */
+      /* 입력/셀렉트 높이 살짝 더 낮춤 */
+      [data-baseweb="input"] input,
+      .stNumberInput input,
+      [data-baseweb="select"] div[role="combobox"] {{
+        height: 1.6rem !important;
+        padding-top: .14rem !important;
+        padding-bottom: .14rem !important;
+        font-size: .93rem !important;
+      }}
+
+      /* 버튼 높이/패딩 소폭 축소 */
+      button[kind="secondary"], button[kind="primary"] {{
+        padding: .18rem .5rem !important;
+        font-size: .92rem !important;
+      }}
+
+      /* 로고는 기존 120px 유지 */
       .logo-circle {{
         width: 120px; height: 120px; border-radius: 50%;
-        overflow: hidden; margin: .25rem auto .4rem auto;
+        overflow: hidden; margin: .22rem auto .35rem auto;
         box-shadow: 0 2px 8px rgba(0,0,0,.12);
         border: 1px solid rgba(0,0,0,.06);
       }}
-      .logo-circle img {{ width:100%; height:100%; object-fit:cover; }}
+      .logo-circle img {{width:100%; height:100%; object-fit:cover;}}
 
-      /* 컬러 박스(배지) – 크기만 살짝 축소, 스타일은 그대로 */
+      /* 컬러 박스(배지) — 사이즈만 소폭 축소, 색상/스타일은 유지 */
       .badge-green {{background:#e6ffcc; border:1px solid #b6f3a4;
-        padding:5px 9px; border-radius:6px; color:#0b2e13; font-size:.88rem;}}
+        padding:5px 8px; border-radius:6px; color:#0b2e13; font-size:.86rem;}}
       .badge-blue  {{background:#e6f0ff; border:1px solid #b7ccff;
-        padding:5px 9px; border-radius:6px; color:#0b1e4a; font-size:.88rem;}}
+        padding:5px 8px; border-radius:6px; color:#0b1e4a; font-size:.86rem;}}
       .note-small  {{color:#8aa0b5; font-size:11px;}}
     </style>
     """, unsafe_allow_html=True)
@@ -312,9 +329,11 @@ def render_elevenst_block():
 # ============================================
 # 🔑 라쿠텐 App ID (네가 준 값으로 직접 심어둠)
 # ---- Rakuten: App ID 복원(네가 준 값) + 안전 장르 셋 ----
-RAKUTEN_APP_ID = "1043271015809337425"  # ← 고정
+# App ID 고정 (네가 준 값)
+RAKUTEN_APP_ID = "1043271015809337425"
+
 SAFE_GENRES = {
-    "전체(추천 샘플)": "100283",      # 샘플로 검증된 상위 카테고리
+    "전체(샘플)": "100283",
     "여성패션": "100371",
     "남성패션": "551169",
     "뷰티/코스메틱": "100939",
@@ -326,55 +345,72 @@ SAFE_GENRES = {
     "스포츠/레저": "101070",
     "자동차/바이크": "558929",
     "베이비/키즈": "100533",
-    "반려동물": "101213"
+    "반려동물": "101213",
 }
-DEFAULT_GENRE = SAFE_GENRES["전체(추천 샘플)"]
+DEFAULT_GENRE = SAFE_GENRES["전체(샘플)"]
 
 def _rk_url(params: dict) -> str:
-    base = "https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628"
+    endpoint = "https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628"
     qs = urllib.parse.urlencode(params, safe="")
-    url = f"{base}?{qs}"
+    url = f"{endpoint}?{qs}"
     return f"{PROXY_URL}/fetch?target={urllib.parse.quote(url, safe='')}" if has_proxy() else url
 
 @st.cache_data(ttl=600)
 def rakuten_fetch_ranking(genre_id: str, rows: int = 50) -> pd.DataFrame:
-    """Ranking API 호출(400/빈값 시 안전 폴백)"""
+    """
+    formatVersion 1: Items -> Item -> itemName
+    formatVersion 2: Items -> itemName
+    둘 다 안전하게 파싱
+    """
     params = {
         "applicationId": RAKUTEN_APP_ID,
         "format": "json",
-        "formatVersion": 2,      # 일부 환경에서 2가 더 안정적
+        "formatVersion": 2,
         "genreId": genre_id
     }
     try:
-        r = requests.get(_rk_url(params), headers=MOBILE_HEADERS, timeout=12)
-        if r.status_code == 400:
-            raise ValueError("400 Bad Request (genreId 또는 AppID 문제)")
-        r.raise_for_status()
-        data = r.json()
+        resp = requests.get(_rk_url(params), headers=MOBILE_HEADERS, timeout=12)
+        status = resp.status_code
+        if status == 400:
+            raise ValueError("400 Bad Request (장르 코드/매개변수 문제)")
+        resp.raise_for_status()
+        data = resp.json()
         items = data.get("Items", [])[:rows]
-        if not items:
-            raise ValueError("빈 응답")
+
         out = []
         for i, it in enumerate(items, start=1):
-            name = (it.get("Item") or {}).get("itemName", "")
-            out.append({"rank": i, "keyword": name, "source": "Rakuten JP"})
+            # v2: 바로 itemName, v1: Item 내부에 itemName
+            if isinstance(it, dict) and "itemName" in it:
+                name = it.get("itemName") or ""
+            else:
+                name = (it.get("Item") or {}).get("itemName", "")
+            if name:
+                out.append({"rank": i, "keyword": name, "source": "Rakuten JP"})
+
+        if not out:
+            raise ValueError("응답 파싱 결과가 비어 있음")
+
         return pd.DataFrame(out)
+
     except Exception as e:
-        # 폴백: 다른 장르(안전 샘플)로 한 번 더 시도
+        # 안전 폴백 1회
         if genre_id != DEFAULT_GENRE:
             try:
-                fb = rakuten_fetch_ranking.__wrapped__(DEFAULT_GENRE, rows)  # 캐시 무시 재호출
+                fb = rakuten_fetch_ranking.__wrapped__(DEFAULT_GENRE, rows)
                 fb["note"] = "fallback: genreId 자동 대체"
                 return fb
             except Exception:
                 pass
-        # 최종 데모
-        demo = [{"rank": 1, "keyword": f"API 실패: {e}", "source": "Rakuten JP (DEMO)"}]
-        return pd.DataFrame(demo)
+        # 최종 데모(오류 메시지 표시)
+        return pd.DataFrame([{
+            "rank": 1,
+            "keyword": f"(Rakuten) {type(e).__name__}: {e}",
+            "source": "DEMO"
+        }])
 
 def render_rakuten_block():
     st.subheader("AI 키워드 레이더 (국내/글로벌)")
-    _mode = st.radio("모드", ["국내","글로벌"], horizontal=True, label_visibility="collapsed")
+    _mode = st.radio("모드", ["국내", "글로벌"], horizontal=True, label_visibility="collapsed")
 
     c1, c2, c3 = st.columns([1.2, .9, .9])
     with c1:
@@ -383,12 +419,12 @@ def render_rakuten_block():
         preset_id = SAFE_GENRES[cat]
         genre_id = st.text_input("genreId (직접 입력)", value=preset_id)
     with c3:
-        st.caption(f"App ID 사용: **{RAKUTEN_APP_ID}**")
-        st.caption("요청이 400이면 자동으로 '전체(추천 샘플)'로 폴백합니다.")
+        st.caption(f"App ID: **{RAKUTEN_APP_ID}**")
+        st.caption("400/파싱 실패 → '전체(샘플)'로 자동 폴백")
 
     df = rakuten_fetch_ranking(genre_id=genre_id, rows=50)
     st.dataframe(df, use_container_width=True, hide_index=True)
-    st.caption("※ Rakuten Ranking API는 '상품 랭킹'을 반환합니다. 상품명을 키워드처럼 표시합니다.")
+    st.caption("※ Ranking API는 '상품 랭킹'을 반환합니다. 상품명을 키워드처럼 표시합니다.")
 # ============================================
 # Part 7 — 상품명 생성기 블록
 # ============================================
