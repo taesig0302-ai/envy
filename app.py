@@ -1,13 +1,13 @@
 
 # =========================
-# ENVY v10.2 — 사이드바 복구 / 상품명 생성기 복귀 / 자잘 버그
+# ENVY v10.3 — UI lift, hidden API keys, text translator, worker tweaks
 # =========================
 import streamlit as st
 import requests, pandas as pd, json, urllib.parse, time, base64, re, hashlib
 from bs4 import BeautifulSoup
 from pathlib import Path
 
-st.set_page_config(page_title="ENVY v10.2", page_icon="✨", layout="wide")
+st.set_page_config(page_title="ENVY v10.3", page_icon="✨", layout="wide")
 
 # -------------------------
 # Common / Proxy / Headers
@@ -19,6 +19,7 @@ def has_proxy() -> bool:
 
 def iframe_url(target: str) -> str:
     base = PROXY_URL.rstrip("/")
+    # prefer /iframe, also /?target works on worker.js
     return f"{base}/iframe?target={urllib.parse.quote(target, safe='')}"
 
 MOBILE_HEADERS = {
@@ -37,6 +38,7 @@ def init_theme_state():
         st.session_state["theme"] = "light"
     st.session_state.setdefault("recent_cids", [])
     st.session_state.setdefault("last_rank_keywords", [])
+    # hidden keys
     st.session_state.setdefault("itemscout_api_key", "")
     st.session_state.setdefault("sellerlife_api_key", "")
 
@@ -66,13 +68,9 @@ def inject_css():
       .badge-yellow {{ background:#fff7d6; border:1px solid #f1d27a; padding:6px 10px; border-radius:6px; color:#4a3b07; font-size:.86rem; }}
       .logo-circle {{ width: 95px; height: 95px; border-radius: 50%; overflow: hidden; margin: .15rem auto .35rem auto;
                      box-shadow: 0 2px 8px rgba(0,0,0,.12); border: 1px solid rgba(0,0,0,.06); }}
-
-      /* 제목/카드 잘림 방지 */
       [data-testid="stMarkdownContainer"] h3 {{ display:block !important; line-height:1.3 !important; margin:.25rem 0 .5rem 0 !important; }}
       [data-testid="stVerticalBlock"] {{ overflow: visible !important; }}
-
-      /* 최상단 섹션 20% 아래로 스페이서 */
-      .top-spacer {{ height: 20vh; }}
+      .top-spacer {{ height: 10vh; }} /* 10% 위로 끌어올림(기존 20vh) */
     </style>
     ''', unsafe_allow_html=True)
 
@@ -121,6 +119,19 @@ def render_sidebar():
             st.text_input("Referer (선택)", value="https://datalab.naver.com/shoppingInsight/sCategory.naver", key="hdr_referer")
             st.text_input("Cookie (선택, 브라우저에서 복사)", value="", key="hdr_cookie", type="password")
 
+        # ⬇️ 하단 숨김: 외부 서비스 API 키
+        with st.expander("비공개 키 보관 (아이템스카우트/셀러라이프)", expanded=False):
+            st.text_input("ItemScout API Key", type="password",
+                          value=st.session_state.get("itemscout_api_key",""),
+                          key="itemscout_api_key_hidden")
+            st.text_input("SellerLife API Key", type="password",
+                          value=st.session_state.get("sellerlife_api_key",""),
+                          key="sellerlife_api_key_hidden")
+            st.caption("※ 입력 시 세션에만 저장됩니다(서버/로그에 기록하지 않음).")
+
+        # 숨김 버전 메타
+        st.markdown('<span id="envy-build" data-version="10.3" data-channel="stable" style="display:none"></span>', unsafe_allow_html=True)
+
 # -------------------------
 # DataLab — Rank/Trend
 # -------------------------
@@ -137,23 +148,19 @@ def datalab_rank_fetch(cid: str, start_date: str, end_date: str, count: int = 50
     headers = dict(MOBILE_HEADERS)
     if referer: headers["referer"] = referer
     if cookie:  headers["cookie"]  = cookie
-    # 시도 1: GET
     try:
         r = requests.get(DATALAB_RANK_API, params=params, headers=headers, timeout=12); r.raise_for_status(); text = r.text
     except Exception:
         r = None
-    # 시도 2: POST
     if r is None or r.status_code >= 400:
         try:
             r = requests.post(DATALAB_RANK_API, data=params, headers=headers, timeout=12); r.raise_for_status(); text = r.text
         except Exception:
             return pd.DataFrame([{"rank":1,"keyword":"데이터 없음","score":0}])
     rows = []
-    # JSON 파싱
     try:
         data = r.json(); rows = data.get("ranks") or data.get("data") or data.get("result") or []
     except Exception:
-        # HTML 휴리스틱
         soup = BeautifulSoup(text, "html.parser")
         words = [el.get_text(" ", strip=True) for el in soup.select("a, span, li") if 1 < len(el.get_text("",strip=True)) <= 20]
         words = [w for w in words if re.search(r"[가-힣A-Za-z0-9]", w)]
@@ -197,7 +204,7 @@ def render_datalab_rank_block():
     st.session_state["last_rank_keywords"] = [k for k in df["keyword"].head(5).tolist() if k != "데이터 없음"]
     st.caption(f"선택 카테고리: **{cat}** (cid={cid})")
 
-# Trend (동일)
+# Trend
 DATALAB_TREND_API = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordTrend.naver"
 def _range_from_preset(preset: str):
     today = pd.Timestamp.today().normalize()
@@ -252,7 +259,7 @@ def render_datalab_trend_block():
     kw_text = st.text_input("키워드(최대 5개, 콤마로 구분)", value=default_kws, key="trend_kw_input")
     keywords = [k.strip() for k in kw_text.split(",") if k.strip()][:5]
     c1, c2, c3, c4 = st.columns([1,1,1,1.2])
-    with c1: preset = st.selectbox("기간 프리셋", ["1주","1개월","3개월","1년"], index=2)
+    with c1: preset = st.selectbox("기간 프리셋", ["1주","1개월","3개월","1년"], index=3)
     with c2: device_opt = st.selectbox("기기별", ["전체","PC","모바일"], index=0)
     with c3: 
         cid_cat = st.selectbox("카테고리(대분류)", list(TOP_CID.keys()), index=3); cid = TOP_CID[cid_cat]
@@ -329,13 +336,10 @@ def render_rakuten_block():
 
 def render_itemscout_block():
     st.markdown("### 아이템스카우트")
-    api = st.text_input("API Key (보관됨)", type="password",
-                        value=st.session_state.get("itemscout_api_key",""), key="itemscout_api_key_input")
-    st.session_state["itemscout_api_key"] = api
     col1, col2 = st.columns([1,1])
     with col1: kw = st.text_input("키워드", value="가습기", key="itemscout_kw")
     with col2: market = st.selectbox("마켓", ["쿠팡","스마트스토어","11번가","G마켓"], index=1, key="itemscout_market")
-    st.caption("※ 현재는 데모 카드입니다. API 키 확보 시 실제 호출로 교체합니다.")
+    st.caption("※ 현재는 데모 카드입니다. API 키 보관은 사이드바 ▸ 비공개 키 보관.")
     demo = pd.DataFrame([
         {"rank":1,"keyword":kw,"search":48210,"compete":0.61,"market":market},
         {"rank":2,"keyword":f"{kw} 필터","search":12034,"compete":0.48,"market":market},
@@ -344,31 +348,46 @@ def render_itemscout_block():
 
 def render_sellerlife_block():
     st.markdown("### 셀러라이프")
-    api = st.text_input("API Key (보관됨)", type="password",
-                        value=st.session_state.get("sellerlife_api_key",""), key="sellerlife_api_key_input")
-    st.session_state["sellerlife_api_key"] = api
     col1, col2 = st.columns([1,1])
     with col1: sid = st.text_input("셀러 ID", value="demo_seller", key="sellerlife_sid")
     with col2: view = st.selectbox("뷰", ["매출개요","카테고리분석","상품리포트"], index=0, key="sellerlife_view")
-    st.caption("※ 현재는 데모 카드입니다. API 키 확보 시 실제 호출로 교체합니다.")
+    st.caption("※ 현재는 데모 카드입니다. API 키 보관은 사이드바 ▸ 비공개 키 보관.")
     demo = pd.DataFrame([
         {"date":"주간","매출":12543000,"주문수":832,"객단가":15080},
         {"date":"전주","매출":11092000,"주문수":790,"객단가":14040},
     ]); st.bar_chart(demo.set_index("date"))
 
+# --- Translator (Text I/O + fallback iframe)
 def render_google_translate_block():
-    st.markdown("### 구글 번역 (사이트 임베드)")
-    col1, col2, col3 = st.columns([1,1,2])
-    with col1: sl = st.selectbox("원문", ["auto","ko","en","ja","zh-CN","zh-TW","vi","th","id","de","fr","es"], index=0, key="gt_sl")
-    with col2: tl = st.selectbox("번역", ["en","ko","ja","zh-CN","zh-TW","vi","th","id","de","fr","es"], index=0, key="gt_tl")
-    with col3: seed = st.text_input("미리 채울 문장(선택)", value="", key="gt_seed")
+    st.markdown("### 구글 번역 (텍스트 입력/출력 + 사이트 임베드 폴백)")
+    col1, col2 = st.columns([1,1])
+    with col1:
+        sl = st.selectbox("원문 언어", ["auto","ko","en","ja","zh-cn","zh-tw","vi","th","id","de","fr","es"], index=0, key="gt_sl2")
+    with col2:
+        tl = st.selectbox("번역 언어", ["en","ko","ja","zh-cn","zh-tw","vi","th","id","de","fr","es"], index=1, key="gt_tl2")
+    src_text = st.text_area("원문 입력", height=140, key="gt_src")
+    do = st.button("번역 실행", type="primary", key="gt_do")
+    result = ""
+    error_msg = ""
+    if do and src_text.strip():
+        try:
+            from googletrans import Translator
+            translator = Translator()
+            res = translator.translate(src_text, src=sl, dest=tl)
+            result = res.text
+        except Exception as e:
+            error_msg = f"googletrans 번역 실패: {type(e).__name__}: {e}"
+    st.text_area("번역 결과", value=result, height=140, key="gt_dst")
+    if error_msg: st.warning(error_msg)
+    st.caption("※ 실패 시 아래 임베드 폴백을 사용하세요.")
+    # Embed fallback
     base = "https://translate.google.com/"
     params = { "sl": sl, "tl": tl, "op": "translate" }
-    if seed.strip(): params["text"] = seed.strip()
+    if src_text.strip(): params["text"] = src_text.strip()
     url = base + "?" + urllib.parse.urlencode(params, safe="")
-    h = st.slider("번역 뷰 높이", 240, 720, 320, key="gt_h")
+    h = st.slider("임베드 뷰 높이", 240, 720, 320, key="gt_h2")
     if has_proxy(): st.components.v1.iframe(iframe_url(url), height=h, scrolling=True)
-    else: st.warning("PROXY_URL 설정 필요 (Cloudflare Worker). 현재 직접 iFrame은 차단될 수 있습니다.")
+    else: st.components.v1.iframe(url, height=h, scrolling=True)
 
 def render_namegen_block():
     st.markdown("### 상품명 생성기 (규칙 기반)")
@@ -385,8 +404,7 @@ def render_namegen_block():
 # Layout
 # -------------------------
 def main():
-    init_theme_state(); inject_css(); render_sidebar()   # ← 사이드바 복구
-
+    init_theme_state(); inject_css(); render_sidebar()
     st.markdown('<div class="top-spacer"></div>', unsafe_allow_html=True)
 
     top1, top2 = st.columns([1,1])
@@ -405,7 +423,7 @@ def main():
     render_google_translate_block()
 
     st.divider()
-    render_namegen_block()  # ← 상품명 생성기 복귀
+    render_namegen_block()
 
 if __name__ == "__main__":
     main()

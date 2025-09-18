@@ -1,4 +1,4 @@
-// ENVY v10.2 — Worker: 더 강력한 11번가/프레임 차단 제거 + HTML 주입
+// ENVY v10.3 — Worker tweaks: stronger banner hiding for 11st, generic frame-ancestors removal
 async function handle(request) {
   const url = new URL(request.url);
   const target = url.searchParams.get("target");
@@ -23,24 +23,27 @@ async function handle(request) {
   ["x-frame-options","content-security-policy","frame-ancestors"].forEach(h => newHeaders.delete(h));
   newHeaders.set("x-content-type-options", "nosniff");
 
-  // HTML인 경우 배너/앱유도 요소를 강제 숨기는 스타일/스크립트 삽입
   const ct = newHeaders.get("content-type") || "";
   if (ct.includes("text/html")) {
     const inject = `
       <style>
-        /* 11번가 앱유도 바/플로팅 버튼 가려보기 */
-        [class*="app"], [id*="app"], .floating, .banner, .download, .openApp, .appOpen { display: none !important; }
+        /* try hard to remove/disable app-open banners and sticky bars */
+        .app, .open-app, .app-open, .appOpen, .download, .floating, .banner, .sticky, .header, .gnb, .top-notice,
+        [class*="app"], [id*="app"], [class*="banner"], [id*="banner"], [class*="floating"] { display: none !important; height: 0 !important; visibility: hidden !important; }
+        body { margin-top: 0 !important; padding-top: 0 !important; }
       </style>
       <script>
         try {
-          const killTexts = ["앱에서", "앱 열기", "앱 혜택"];
+          const killTexts = ["앱에서", "앱 열기", "앱 혜택", "download", "open app"];
           function hideByText() {
             document.querySelectorAll("*").forEach(el => {
-              const t = (el.textContent||"").trim();
-              if (t && killTexts.some(k => t.indexOf(k) >= 0)) { el.style.display = "none"; }
+              const t = (el.textContent||"").trim().toLowerCase();
+              if (t && killTexts.some(k => t.includes(k))) { el.style.display = "none"; el.style.height="0"; }
             });
           }
-          hideByText(); setInterval(hideByText, 1000);
+          const obs = new MutationObserver(hideByText);
+          obs.observe(document.documentElement, {childList: true, subtree: true});
+          hideByText();
         } catch(e) {}
       </script>`;
     body = body.replace(/<\/body>/i, inject + "</body>");
