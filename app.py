@@ -51,67 +51,40 @@ def inject_css():
         background-color:{bg} !important; color:{fg} !important;
       }}
 
-      /* 본문 섹션카드: 위/아래 여백 더 줄임 */
+      /* 본문 섹션카드: 더 아래로 내리기 */
       .block-container {{
-        padding-top: .7rem !important;
-        padding-bottom: .35rem !important;
+        padding-top: 2.2rem !important;   /* 기존 0.7rem → 2.2rem */
+        padding-bottom: .5rem !important;
       }}
 
-      /* ===== Sidebar 압축 ===== */
+      /* ===== Sidebar 압축 (상하 여백 줄이기) ===== */
       [data-testid="stSidebar"] section {{
-        padding-top: .2rem !important;
-        padding-bottom: .2rem !important;
-        height: 100vh; overflow: hidden;      /* 스크롤락 */
-        font-size: .94rem;
+        padding-top: .05rem !important;   /* 기존 0.2rem → 0.05rem */
+        padding-bottom: .05rem !important;
+        height: 100vh; overflow: hidden;
+        font-size: .92rem;
       }}
       [data-testid="stSidebar"] ::-webkit-scrollbar {{ display: none; }}
 
-      /* 컴포넌트 간 간격 타이트 */
+      /* 컴포넌트 간 간격 최소화 */
       [data-testid="stSidebar"] .stSelectbox,
       [data-testid="stSidebar"] .stNumberInput,
       [data-testid="stSidebar"] .stRadio,
       [data-testid="stSidebar"] .stMarkdown,
       [data-testid="stSidebar"] .stTextInput,
       [data-testid="stSidebar"] .stButton {{
-        margin-top: .14rem !important;
-        margin-bottom: .14rem !important;
+        margin-top: .1rem !important;
+        margin-bottom: .1rem !important;
       }}
 
-      /* 라벨/제목 줄간격 타이트 */
-      [data-testid="stSidebar"] label p, 
-      [data-testid="stSidebar"] h3 {{
-        margin: 0 0 .15rem 0 !important;
-        line-height: 1.15rem !important;
-      }}
-
-      /* 입력 높이/폰트 살짝 축소 */
-      [data-baseweb="input"] input,
-      .stNumberInput input,
-      [data-baseweb="select"] div[role="combobox"] {{
-        height: 1.55rem !important;
-        padding-top: .12rem !important; padding-bottom: .12rem !important;
-        font-size: .92rem !important;
-      }}
-      button[kind="secondary"], button[kind="primary"] {{
-        padding: .18rem .5rem !important; font-size: .92rem !important;
-      }}
-
-      /* 로고(축소) */
+      /* 로고 크기 유지 */
       .logo-circle {{
         width: 95px; height: 95px; border-radius: 50%;
-        overflow: hidden; margin: .15rem auto .35rem auto;
+        overflow: hidden; margin: .15rem auto .3rem auto;
         box-shadow: 0 2px 8px rgba(0,0,0,.12);
         border: 1px solid rgba(0,0,0,.06);
       }}
       .logo-circle img {{ width:100%; height:100%; object-fit:cover; }}
-
-      /* 배지 */
-      .badge-green  {{ background:#e6ffcc; border:1px solid #b6f3a4;
-        padding:6px 10px; border-radius:6px; color:#0b2e13; font-size:.86rem; }}
-      .badge-blue   {{ background:#eef4ff; border:1px solid #bcd0ff;
-        padding:6px 10px; border-radius:6px; color:#0a235a; font-size:.86rem; }}
-      .badge-yellow {{ background:#fff7d6; border:1px solid #f1d27a;
-        padding:6px 10px; border-radius:6px; color:#4a3b07; font-size:.86rem; }}
     </style>
     """, unsafe_allow_html=True)
 # ============================================
@@ -182,73 +155,209 @@ def render_sidebar():
             unsafe_allow_html=True
         )
 # ============================================
-# Part 2 — 데이터랩 (REPLACE)
+# Part 2 — 데이터랩  (실제 API 파라미터 반영 버전)
 # ============================================
-import re, json
-import pandas as pd
+import datetime as _dt
+import pandas as _pd
+import requests as _req
 import streamlit as st
-import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup as _BS
 
-# 네트워크 탭에서 확인한 실제 엔드포인트를 여기에 넣으세요
+# ✅ 네가 네트워크 탭에서 확인한 “getCategoryKeywordRank.naver” 엔드포인트
 REAL_API_BASE = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordRank.naver"
 
+# 카테고리 프리셋 (표시용) → 실제로는 cid만 쓰임
+_CATS = {
+    "패션잡화": "50000000-FA",
+    "디지털/가전": "50000000-DG",
+    "식품": "50000000-FD",
+    "생활/건강": "50000000-LH",
+    "가구/인테리어": "50000000-FN",
+    "도서/취미": "50000000-BC",
+    "스포츠/레저": "50000000-SP",
+    "뷰티": "50000000-BT",
+    "출산/육아": "50000000-BB",
+    "반려동물": "50000000-PS",
+    "여성패션": "50000003",    # 예시: 실제 cid를 넣어두면 편함
+    "남성패션": "50000002",
+}
+
+def _to_date_str(d: _dt.date) -> str:
+    return d.strftime("%Y-%m-%d")
+
 @st.cache_data(ttl=300)
-def fetch_datalab_category_top20(category_id: str, period="7d") -> pd.DataFrame:
+def fetch_datalab_category_top20(
+    cid: str,
+    timeUnit: str,
+    startDate: str,
+    endDate: str,
+    age: str,
+    gender: str,
+    device: str,
+    page: int,
+    count: int,
+) -> _pd.DataFrame:
     """
-    네이버 Datalab 쇼핑인사이트 Top20 키워드 크롤링.
-    category_id는 네이버 내부 카테고리 코드.
+    네이버 Datalab 쇼핑인사이트 Top 키워드 크롤링.
+    - params는 네트워크 탭에서 확인한 값 그대로 사용.
+    - 응답 구조가 달라도 되도록 최대한 유연하게 파싱.
     """
     params = {
-        "cid": category_id,
-        "period": period,
+        "cid": cid,
+        "timeUnit": timeUnit,   # "date" | "week" | "month"
+        "startDate": startDate, # "YYYY-MM-DD"
+        "endDate": endDate,     # "YYYY-MM-DD"
+        "age": age,             # "", "10,20,30" 등
+        "gender": gender,       # "", "m", "f"
+        "device": device,       # "", "pc", "mo"
+        "page": page,           # 1
+        "count": count,         # 20
     }
+
+    # 네이버는 종종 referer/UA 체크가 있을 수 있어 header도 추가
+    headers = {
+        "referer": "https://datalab.naver.com/shoppingInsight/sCategory.naver",
+        "user-agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/125.0 Safari/537.36"),
+    }
+
+    r = _req.get(REAL_API_BASE, params=params, headers=headers, timeout=12)
+    r.raise_for_status()
+
+    # 보통 json()이지만, 혹시 text로 내려오면 대비
     try:
-        r = requests.get(REAL_API_BASE, params=params, timeout=10)
-        r.raise_for_status()
         data = r.json()
-        rows = data.get("ranks", [])
-        if not rows:
-            raise ValueError("응답에 ranks 없음")
-        return pd.DataFrame(rows)
-    except Exception as e:
-        # fallback: HTML 파싱 시도
-        url = "https://datalab.naver.com/shoppingInsight/sCategory.naver"
-        try:
-            r = requests.get(url, timeout=10)
-            soup = BeautifulSoup(r.text, "html.parser")
-            rows=[]
-            for i, el in enumerate(soup.select("a, li, span")[:20], start=1):
-                kw = (el.get_text(" ", strip=True) or "").strip()
-                if kw:
-                    rows.append({"rank": i, "keyword": kw})
-            return pd.DataFrame(rows)
-        except Exception:
-            demo = ["맥심 커피믹스","카누 미니","원두커피 1kg","드립백 커피","스타벅스 다크","커피머신"]
-            return pd.DataFrame([{"rank":i+1,"keyword":k} for i,k in enumerate(demo)])
+    except Exception:
+        # text라면 안쪽 JSON을 추출 (가끔 XSSI 방지문자/스크립트로 감싸질 수도 있음)
+        text = r.text
+        soup = _BS(text, "html.parser")
+        # 최후의 수단: 화면 문자열에서 키워드 후보 긁기 (임시)
+        rows = []
+        for i, el in enumerate(soup.select("a, span, li")[:20], start=1):
+            t = (el.get_text(" ", strip=True) or "").strip()
+            if t:
+                rows.append({"rank": i, "keyword": t})
+        return _pd.DataFrame(rows)
+
+    # 응답 스키마가 서비스 개편에 따라 달라질 수 있음
+    # 가장 흔한 케이스: {"ranks":[{"rank":1,"keyword":"...","ratio":...}, ...]}
+    rows = (
+        data.get("ranks")
+        or data.get("result")
+        or data.get("data")
+        or data.get("list")
+        or []
+    )
+
+    # dict 리스트가 아닐 수 있어 대비
+    if not isinstance(rows, list):
+        return _pd.DataFrame([])
+
+    # 표준 컬럼으로 정규화
+    out = []
+    for it in rows:
+        if not isinstance(it, dict):
+            continue
+        rank = it.get("rank") or it.get("no") or it.get("index") or len(out) + 1
+        keyword = (
+            it.get("keyword")
+            or it.get("name")
+            or it.get("title")
+            or it.get("query")
+            or ""
+        )
+
+        # 그래프용 점수 후보 (ratio/value/count/search 등)
+        score = (
+            it.get("ratio")
+            or it.get("value")
+            or it.get("count")
+            or it.get("search")
+            or it.get("score")
+            or None
+        )
+        out.append({"rank": rank, "keyword": keyword, "score": score})
+
+    df = _pd.DataFrame(out).sort_values("rank")
+    return df.reset_index(drop=True)
 
 def render_datalab_block():
     st.subheader("데이터랩")
 
-    cats = {
-        "패션잡화":"50000000-FA","디지털/가전":"50000000-DG","식품":"50000000-FD",
-        "생활/건강":"50000000-LH","가구/인테리어":"50000000-FN","도서/취미":"50000000-BC",
-        "스포츠/레저":"50000000-SP","뷰티":"50000000-BT","출산/육아":"50000000-BB",
-        "반려동물":"50000000-PS",
-    }
-    category = st.selectbox("카테고리", list(cats.keys()), index=2)
-    cid = cats[category]
+    col_top = st.columns([1.1, 1.2, 1.2, .9, .9, .9])
+    # ---- UI: 카테고리/기간/세부필터 ----
+    with col_top[0]:
+        cat = st.selectbox("카테고리", list(_CATS.keys()), index=1)
+        cid = _CATS[cat]
 
+    # 기본: 최근 31일
+    today = _dt.date.today()
+    default_start = today - _dt.timedelta(days=31)
+    with col_top[1]:
+        start = st.date_input("시작일", value=default_start, format="YYYY-MM-DD")
+    with col_top[2]:
+        end = st.date_input("종료일", value=today, format="YYYY-MM-DD")
+
+    with col_top[3]:
+        timeUnit = st.selectbox("단위", ["date", "week", "month"], index=0)
+    with col_top[4]:
+        gender = st.selectbox("성별", ["", "m", "f"], index=0)
+    with col_top[5]:
+        device = st.selectbox("디바이스", ["", "pc", "mo"], index=0)
+
+    # 추가 필터 (접기)
+    with st.expander("추가 옵션", expanded=False):
+        col_opt = st.columns([1, 1, 1])
+        with col_opt[0]:
+            age = st.text_input("연령대(쉼표)", value="")  # 예: "10,20,30"
+        with col_opt[1]:
+            page = st.number_input("page", value=1, step=1, min_value=1)
+        with col_opt[2]:
+            count = st.number_input("count", value=20, step=1, min_value=1, max_value=100)
+
+    # ---- 호출
     try:
-        df = fetch_datalab_category_top20(cid)
-        if df.empty:
-            st.warning("데이터 없음. 엔드포인트/카테고리 코드를 확인하세요.")
-            return
-        st.dataframe(df, use_container_width=True, hide_index=True)
-        if "search" in df.columns:
-            st.line_chart(df.set_index("rank")["search"], height=180)
+        df = fetch_datalab_category_top20(
+            cid=cid,
+            timeUnit=timeUnit,
+            startDate=_to_date_str(start),
+            endDate=_to_date_str(end),
+            age=age,
+            gender=gender,
+            device=device,
+            page=page,
+            count=count,
+        )
     except Exception as e:
-        st.error(f"DataLab 호출 실패: {e}")
+        st.error(f"DataLab 호출 실패: {type(e).__name__}: {e}")
+        return
+
+    if df.empty:
+        st.warning("데이터가 비었습니다. 네트워크 탭의 파라미터를 재확인하세요.")
+        return
+
+    # 표 출력
+    st.dataframe(
+        df[["rank", "keyword"] + (["score"] if "score" in df.columns else [])],
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    # 그래프: score가 있을 때만
+    if "score" in df.columns and df["score"].notna().any():
+        try:
+            # 숫자형 변환 후 그래프
+            dfg = df.copy()
+            dfg["score"] = _pd.to_numeric(dfg["score"], errors="coerce").fillna(0)
+            st.line_chart(dfg.set_index("rank")["score"], height=200)
+        except Exception:
+            pass
+
+    st.caption(
+        "※ 네트워크 탭에서 확인한 **cid/timeUnit/startDate/endDate/age/gender/device/page/count** 값을 그대로 사용합니다. "
+        "필요하면 상단에서 조정하세요."
+    )
 # ============================================
 # Part 3 — 아이템스카우트 (placeholder)
 # ============================================
