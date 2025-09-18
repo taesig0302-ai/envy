@@ -40,86 +40,94 @@ def toggle_theme():
 
 def inject_css():
     theme = st.session_state.get("theme", "light")
-    bg, fg = ("#0e1117", "#e6edf3") if theme == "dark" else ("#ffffff", "#111111")
+    if theme == "dark":
+        bg, fg = "#0e1117", "#e6edf3"
+    else:
+        bg, fg = "#ffffff", "#111111"
 
-    st.markdown(
-        f"""
-<style id="envy-sticky-css">
-  /* ====== 앱 전역 ====== */
-  html, body, [data-testid="stAppViewContainer"] {{
-    background-color: {bg} !important;
-    color: {fg} !important;
-  }}
+    st.markdown(f"""
+    <style>
+      html, body, [data-testid="stAppViewContainer"] {{
+        background-color:{bg} !important; color:{fg} !important;
+      }}
 
-  /* ====== 본문 섹션카드: 위/아래 여백 “고정” ====== */
-  .block-container {{
-    padding-top: 0.90rem !important;   /* 더 내려달라 요청 반영 */
-    padding-bottom: 0.40rem !important;
-  }}
+      /* 본문 섹션카드: 위/아래 여백 더 줄임 (고정) */
+      .block-container {{
+        padding-top: .70rem !important;
+        padding-bottom: .35rem !important;
+      }}
 
-  /* ====== 사이드바 압축 (항상 유지) ====== */
-  [data-testid="stSidebar"] > div:first-child section {{
-    padding-top: 0.18rem !important;
-    padding-bottom: 0.18rem !important;
-    height: 100vh !important;
-    overflow: hidden !important;         /* 스크롤 락 */
-    font-size: 0.94rem !important;
-  }}
-  [data-testid="stSidebar"] ::-webkit-scrollbar {{ display: none !important; }}
+      /* ===== Sidebar 압축 (고정) ===== */
+      [data-testid="stSidebar"] section {{
+        padding-top: .20rem !important;
+        padding-bottom: .20rem !important;
+        height: 100vh; overflow: hidden;      /* 스크롤락 */
+        font-size: .94rem;
+      }}
+      [data-testid="stSidebar"] ::-webkit-scrollbar {{ display: none; }}
 
-  /* 사이드바 컴포넌트 간격 최소화 */
-  [data-testid="stSidebar"] .stSelectbox,
-  [data-testid="stSidebar"] .stNumberInput,
-  [data-testid="stSidebar"] .stRadio,
-  [data-testid="stSidebar"] .stMarkdown,
-  [data-testid="stSidebar"] .stTextInput,
-  [data-testid="stSidebar"] .stButton {{
-    margin-top: 0.12rem !important;
-    margin-bottom: 0.12rem !important;
-  }}
+      /* 사이드바 컴포넌트 간격 */
+      [data-testid="stSidebar"] .stSelectbox,
+      [data-testid="stSidebar"] .stNumberInput,
+      [data-testid="stSidebar"] .stRadio,
+      [data-testid="stSidebar"] .stMarkdown,
+      [data-testid="stSidebar"] .stTextInput,
+      [data-testid="stSidebar"] .stButton {{
+        margin-top: .14rem !important;
+        margin-bottom: .14rem !important;
+      }}
 
-  /* 라벨/제목 줄간격 타이트 */
-  [data-testid="stSidebar"] label p,
-  [data-testid="stSidebar"] h3 {{
-    margin: 0 0 0.12rem 0 !important;
-    line-height: 1.12rem !important;
-  }}
+      /* 사이드바 라벨/제목 줄간격 */
+      [data-testid="stSidebar"] label p, 
+      [data-testid="stSidebar"] h3 {{
+        margin: 0 0 .15rem 0 !important;
+        line-height: 1.15rem !important;
+      }}
 
-  /* 입력/셀렉트 높이/폰트 */
-  [data-testid="stSidebar"] [data-baseweb="input"] input,
-  [data-testid="stSidebar"] .stNumberInput input,
-  [data-testid="stSidebar"] [data-baseweb="select"] div[role="combobox"] {{
-    height: 1.55rem !important;
-    padding-top: 0.10rem !important;
-    padding-bottom: 0.10rem !important;
-    font-size: 0.92rem !important;
-  }}
-  [data-testid="stSidebar"] button[kind="secondary"],
-  [data-testid="stSidebar"] button[kind="primary"] {{
-    padding: 0.16rem 0.48rem !important;
-    font-size: 0.92rem !important;
-  }}
+      /* 사이드바 입력 높이/폰트 살짝 축소 */
+      [data-baseweb="input"] input,
+      .stNumberInput input,
+      [data-baseweb="select"] div[role="combobox"] {{
+        height: 1.55rem !important;
+        padding-top: .12rem !important; padding-bottom: .12rem !important;
+        font-size: .92rem !important;
+      }}
+      button[kind="secondary"], button[kind="primary"] {{
+        padding: .18rem .5rem !important; font-size: .92rem !important;
+      }}
 
-  /* 로고(축소) */
-  .logo-circle {{
-    width: 95px; height: 95px; border-radius: 50%;
-    overflow: hidden; margin: 0.10rem auto 0.30rem auto;
-    box-shadow: 0 2px 8px rgba(0,0,0,.12);
-    border: 1px solid rgba(0,0,0,.06);
-  }}
-  .logo-circle img {{ width: 100%; height: 100%; object-fit: cover; }}
+      /* 사이드바 로고(축소) */
+      .logo-circle {{
+        width: 95px; height: 95px; border-radius: 50%;
+        overflow: hidden; margin: .15rem auto .35rem auto;
+        box-shadow: 0 2px 8px rgba(0,0,0,.12);
+        border: 1px solid rgba(0,0,0,.06);
+      }}
+      .logo-circle img {{ width:100%; height:100%; object-fit:cover; }}
 
-  /* 배지 색상(재등록되어도 유지) */
-  .badge-green  {{ background: #e6ffcc; border: 1px solid #b6f3a4;
-    padding: 6px 10px; border-radius: 6px; color: #0b2e13; font-size: .86rem; }}
-  .badge-blue   {{ background: #eef4ff; border: 1px solid #bcd0ff;
-    padding: 6px 10px; border-radius: 6px; color: #0a235a; font-size: .86rem; }}
-  .badge-yellow {{ background: #fff7d6; border: 1px solid #f1d27a;
-    padding: 6px 10px; border-radius: 6px; color: #4a3b07; font-size: .86rem; }}
-</style>
-""",
-        unsafe_allow_html=True,
-    )
+      /* 배지 */
+      .badge-green  {{ background:#e6ffcc; border:1px solid #b6f3a4;
+        padding:6px 10px; border-radius:6px; color:#0b2e13; font-size:.86rem; }}
+      .badge-blue   {{ background:#eef4ff; border:1px solid #bcd0ff;
+        padding:6px 10px; border-radius:6px; color:#0a235a; font-size:.86rem; }}
+      .badge-yellow {{ background:#fff7d6; border:1px solid #f1d27a;
+        padding:6px 10px; border-radius:6px; color:#4a3b07; font-size:.86rem; }}
+
+      /* === 본문(메인 UI) 컨트롤 크기 키우기 === */
+      [data-baseweb="select"] div[role="combobox"] {{
+        min-width: 140px !important;
+        height: 2.20rem !important;
+        font-size: 0.95rem !important;
+      }}
+      .stNumberInput input {{
+        height: 2.00rem !important;
+        font-size: 0.95rem !important;
+      }}
+      label p {{
+        font-size: 0.96rem !important;
+      }}
+    </style>
+    """, unsafe_allow_html=True)
 # ============================================
 # Part 1 — 사이드바
 # ============================================
@@ -188,139 +196,169 @@ def render_sidebar():
             unsafe_allow_html=True
         )
 # ============================================
-# Part 2 — 데이터랩 (v8.2: POST 방식 + 프록시/폴백)
+# Part 2 — 데이터랩 (실제 API + 상대점수 그래프 보정)
 # ============================================
+import streamlit as st
+import pandas as pd
+import requests
+from bs4 import BeautifulSoup
 from datetime import date
 
-DATALAB_BASE = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordRank.naver"
+# 실제 API 엔드포인트 (네가 DevTools에서 확인한 URL로 교체 가능)
+REAL_API_BASE = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordRank.naver"
 
-def _proxy_or_direct(url: str) -> str:
-    if has_proxy():
-        return f"{PROXY_URL}/fetch?target={urllib.parse.quote(url, safe='')}"
-    return url
+def _today_ymd() -> str:
+    return date.today().strftime("%Y-%m-%d")
 
 @st.cache_data(ttl=300)
-def datalab_fetch_keywords(payload: dict) -> pd.DataFrame:
+def fetch_datalab_category_topN(
+    cid: str,
+    time_unit: str = "date",
+    start_date: str = None,
+    end_date: str = None,
+    gender: str = "",
+    age: str = "",
+    device: str = "",
+    page: int = 1,
+    count: int = 50,
+) -> pd.DataFrame:
     """
-    네이버 DataLab 카테고리 키워드 순위 (POST).
-    payload 예:
-      { 'cid': '50000003', 'timeUnit': 'date',
-        'startDate': '2025-08-17', 'endDate': '2025-09-17',
-        'gender': '', 'age': '', 'device': '', 'page': '1', 'count': '20' }
+    네이버 데이터랩 카테고리 키워드 Top N
+    응답에 score/ratio/value가 없으면 rank/keyword만 내려옴.
     """
-    url = _proxy_or_direct(DATALAB_BASE)
-    headers = {
-        "user-agent": MOBILE_HEADERS["user-agent"],
-        "accept": "application/json, text/javascript, */*; q=0.01",
-        "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "origin": "https://datalab.naver.com",
-        "referer": "https://datalab.naver.com/shoppingInsight/sCategory.naver",
-        "x-requested-with": "XMLHttpRequest",
+    if not start_date:
+        start_date = _today_ymd()
+    if not end_date:
+        end_date = _today_ymd()
+
+    params = {
+        "cid": cid,
+        "timeUnit": time_unit,    # "date" / "week" / "month" (페이지가 허용하는 값)
+        "startDate": start_date,
+        "endDate": end_date,
+        "age": age,               # "10","20","30","40","50","60" 콤마결합 or 빈 문자열
+        "gender": gender,         # "m","f" 또는 빈 문자열
+        "device": device,         # "pc","mo" 또는 빈 문자열
+        "page": page,
+        "count": count,
     }
+    r = requests.get(REAL_API_BASE, params=params, timeout=12)
+    r.raise_for_status()
+
+    # 일부 응답은 JSON, 일부는 HTML 문자열을 돌려줄 수 있어 예외 처리
     try:
-        resp = requests.post(url, data=payload, headers=headers, timeout=12)
-        resp.raise_for_status()
-        # 가끔 JSON 대신 HTML이 오면 JSONDecodeError → 처리
-        data = resp.json()
-    except Exception as e:
-        raise RuntimeError(f"DataLab 호출 실패: {type(e).__name__}: {e}")
-
-    # 예상 구조: {'ranks': [{'rank':1,'keyword':'...','ratio':...}, ...]}
-    rows = data.get("ranks") or data.get("result") or []
-    if not isinstance(rows, list) or not rows:
-        raise RuntimeError("DataLab 응답에 ranks/result 없음")
-
-    out = []
-    for it in rows:
-        rank = it.get("rank") or it.get("rnk") or it.get("order")
-        kw   = it.get("keyword") or it.get("name") or it.get("title")
-        score = (it.get("ratio") or it.get("value") or it.get("score"))
-        if rank and kw:
-            out.append({"rank": int(rank), "keyword": str(kw), "score": score})
-    return pd.DataFrame(out).sort_values("rank")
+        data = r.json()
+        rows = data.get("ranks", [])
+        df = pd.DataFrame(rows)
+        if "rank" not in df.columns:
+            # 혹시나 필드명이 다르면 정리
+            if "ranking" in df.columns:
+                df.rename(columns={"ranking": "rank"}, inplace=True)
+        if "keyword" not in df.columns and "name" in df.columns:
+            df.rename(columns={"name": "keyword"}, inplace=True)
+        # 표시 컬럼만 우선 정렬
+        cols = [c for c in ["rank", "keyword", "score", "ratio", "value"] if c in df.columns]
+        if cols:
+            df = df[cols]
+        return df
+    except ValueError:
+        # HTML로 온 경우: 아주 제한적으로 파싱 (폴백)
+        soup = BeautifulSoup(r.text, "html.parser")
+        kws = []
+        for i, el in enumerate(soup.select("a, li, span")[:count], start=1):
+            t = (el.get_text(" ", strip=True) or "").strip()
+            if 1 <= len(t) <= 40:
+                kws.append({"rank": i, "keyword": t})
+        return pd.DataFrame(kws)
 
 def render_datalab_block():
     st.subheader("데이터랩")
 
-    # UI: 카테고리/기간/성별/연령/디바이스/개수
+    # 카테고리 UI (표시용 이름 -> 실제 cid)
     cats = {
-        "패션잡화":"50000000-FA", "디지털/가전":"50000000-DG", "식품":"50000000-FD",
+        "패션잡화":"50000000-FA","디지털/가전":"50000000-DG","식품":"50000000-FD",
         "생활/건강":"50000000-LH","가구/인테리어":"50000000-FN","도서/취미":"50000000-BC",
         "스포츠/레저":"50000000-SP","뷰티":"50000000-BT","출산/육아":"50000000-BB",
         "반려동물":"50000000-PS",
     }
-    # 최상위 cid(50000000) + 서브 코드 형태를 실제 API가 받는 단일 cid로 정리 필요
-    # 네트워크탭에서 본 'cid=50000003'처럼 **실제 동작 cid**를 직접 넣을 수 있도록 별도 입력 추가
-    c1, c2, c3, c4, c5, c6 = st.columns([1,1,1,1,1,1])
+    c1, c2 = st.columns([1.2, 1])
     with c1:
-        view_cat = st.selectbox("카테고리(표시)", list(cats.keys()), index=2)
+        cat_name = st.selectbox("카테고리(표시)", list(cats.keys()), index=1)
     with c2:
-        real_cid = st.text_input("실제 cid", value="50000003", help="DevTools Payload에서 본 정수 cid")
+        cid_raw = st.text_input("실제 cid", value=cats[cat_name])  # 네트워크에서 실제 cid 확인 시 직접 변경 가능
+
+    # 파라미터
+    c3, c4, c5, c6 = st.columns([1, 1, 1, 1])
     with c3:
         time_unit = st.selectbox("단위", ["date","week","month"], index=0)
     with c4:
-        start_y = st.selectbox("시작연", [2024,2025], index=1)
+        start_date = st.text_input("시작일", value=_today_ymd())
     with c5:
-        start_m = st.selectbox("시작월", list(range(1,13)), index=min(date.today().month-1,11))
+        end_date = st.text_input("종료일", value=_today_ymd())
     with c6:
-        count = st.number_input("개수", min_value=10, max_value=50, value=20, step=10)
+        count = st.number_input("개수", value=50, min_value=10, max_value=100, step=10)
 
-    # 종료일 자동(오늘)
-    today = date.today()
-    startDate = f"{start_y}-{start_m:02d}-01"
-    endDate   = today.strftime("%Y-%m-%d")
-
-    c7, c8, c9 = st.columns([1,1,1])
-    with c7:
+    r1, r2, r3 = st.columns([1,1,1])
+    with r1:
         gender = st.selectbox("성별", ["","m","f"], index=0)
-    with c8:
+    with r2:
         age = st.selectbox("연령", ["","10","20","30","40","50","60"], index=0)
-    with c9:
+    with r3:
         device = st.selectbox("디바이스", ["","pc","mo"], index=0)
 
-    # 요청 버튼
-    do = st.button("추가 갱신")
-
-    # payload 구성 (DevTools Payload 그대로 반영)
-    payload = {
-        "cid": real_cid,
-        "timeUnit": time_unit,
-        "startDate": startDate,
-        "endDate": endDate,
-        "gender": gender,
-        "age": age,
-        "device": device,
-        "page": "1",
-        "count": str(int(count)),
-    }
+    if st.button("추가 갱신", type="secondary"):
+        st.cache_data.clear()
 
     try:
-        df = datalab_fetch_keywords(payload)
+        df = fetch_datalab_category_topN(
+            cid=cid_raw,
+            time_unit=time_unit,
+            start_date=start_date,
+            end_date=end_date,
+            gender=gender,
+            age=age,
+            device=device,
+            page=1,
+            count=int(count),
+        )
         if df.empty:
-            st.warning("데이터 없음. cid/기간/필터를 바꿔 보세요.")
+            st.warning("데이터가 비어 있습니다. 파라미터/기간을 바꿔 다시 시도하세요.")
             return
 
-        st.dataframe(df[["rank","keyword"]], use_container_width=True, hide_index=True)
+        # 표 출력
+        show_cols = [c for c in ["rank","keyword","score","ratio","value"] if c in df.columns]
+        if not show_cols:
+            show_cols = [c for c in ["rank","keyword"] if c in df.columns]
+        st.dataframe(df[show_cols], use_container_width=True, hide_index=True)
 
-        # 점수 컬럼이 있으면 그래프 표시
+        # ---- 그래프 표시 로직 ----
         if "score" in df.columns and df["score"].notna().any():
             g = df[["rank","score"]].set_index("rank")
-            st.line_chart(g, height=200)
+            st.line_chart(g, height=220)
+        elif "ratio" in df.columns and df["ratio"].notna().any():
+            g = df[["rank","ratio"]].set_index("rank")
+            st.line_chart(g, height=220)
+        elif "value" in df.columns and df["value"].notna().any():
+            g = df[["rank","value"]].set_index("rank")
+            st.line_chart(g, height=220)
         else:
-            st.caption("응답에 ratio/value/score 없음 → 그래프 생략")
-
-    except Exception as e:
-        st.error(str(e))
-        with st.expander("대체 방법(HTML 스냅/휴리스틱)"):
-            st.caption("프록시를 설정하면 임베드·호출 성공률이 크게 올라갑니다.")
-            try:
-                # 스냅 임베드(정책에 따라 실패 가능)
-                st.components.v1.iframe(
-                    iframe_url("https://datalab.naver.com/shoppingInsight/sCategory.naver"),
-                    height=560, scrolling=True
+            # 점수가 없으면 '순위 기반 상대 점수' 시각화
+            with st.expander("그래프 옵션", expanded=True):
+                mode = st.radio(
+                    "응답에 score/ratio/value 없음 → 아래 옵션으로 시각화",
+                    ["상대점수(순위 반전) 막대 그래프", "그래프 생략"],
+                    horizontal=True,
                 )
-            except Exception:
-                pass
+            if mode.startswith("상대점수"):
+                df2 = df.copy()
+                n = len(df2)
+                df2["score"] = list(range(n, 0, -1))  # 1등 n점 ~ n등 1점
+                st.bar_chart(df2.set_index("rank")["score"], height=220)
+            else:
+                st.caption("그래프 생략됨 (응답에 정량 지표 없음)")
+    except Exception as e:
+        st.error(f"DataLab 호출 실패: {type(e).__name__}: {e}")
+        st.caption("DevTools > Network에서 실제 요청 URL/파라미터를 한 번만 확인해 REAL_API_BASE/params를 맞추면 정확도가 올라갑니다.")
 # ============================================
 # Part 3 — 아이템스카우트 (placeholder)
 # ============================================
