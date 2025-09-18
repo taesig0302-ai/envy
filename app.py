@@ -1,18 +1,18 @@
 
 # =========================
-# ENVY v9.7 — Streamlit single-file (Full Pack + Google Translate iFrame)
+# ENVY v9.8 — 안정 패치
 # =========================
 import streamlit as st
 import requests, pandas as pd, json, urllib.parse, time, base64, re, hashlib
 from bs4 import BeautifulSoup
 from pathlib import Path
 
-st.set_page_config(page_title="ENVY v9.7", page_icon="✨", layout="wide")
+st.set_page_config(page_title="ENVY v9.8", page_icon="✨", layout="wide")
 
 # -------------------------
 # Common / Proxy / Headers
 # -------------------------
-PROXY_URL = "https://envy-proxy.taesig0302.workers.dev"  # Cloudflare Worker URL (from user)
+PROXY_URL = "https://envy-proxy.taesig0302.workers.dev"  # Cloudflare Worker URL
 
 def has_proxy() -> bool:
     return isinstance(PROXY_URL, str) and PROXY_URL.strip() != ""
@@ -124,7 +124,7 @@ def render_sidebar():
             st.text_input("Cookie (선택, 브라우저에서 복사)", value="", key="hdr_cookie", type="password")
 
 # -------------------------
-# DataLab Rank / Trend (copied from v9.6)
+# DataLab — Rank/Trend
 # -------------------------
 DATALAB_RANK_API = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordRank.naver"
 TOP_CID = {
@@ -175,7 +175,7 @@ def datalab_rank_fetch(cid: str, start_date: str, end_date: str, count: int = 50
     return df
 
 def render_datalab_rank_block():
-    st.subheader("데이터랩 (대분류 12종 전용)")
+    st.markdown("### 데이터랩 (대분류 12종 전용)")
     cat = st.selectbox("카테고리", list(TOP_CID.keys()), index=3); cid = TOP_CID[cat]
     today = pd.Timestamp.today().normalize()
     c1, c2, c3 = st.columns([1,1,1])
@@ -190,6 +190,7 @@ def render_datalab_rank_block():
     st.session_state["last_rank_keywords"] = df["keyword"].head(5).tolist()
     st.caption(f"선택 카테고리: **{cat}** (cid={cid})")
 
+# Trend
 DATALAB_TREND_API = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordTrend.naver"
 def _range_from_preset(preset: str):
     today = pd.Timestamp.today().normalize()
@@ -237,9 +238,9 @@ def datalab_trend_fetch(cid: str, keywords: list, time_unit: str, start_date: st
     return pd.DataFrame(rows)
 
 def render_datalab_trend_block():
-    st.subheader("키워드 트렌드 (기간 프리셋 + 기기별)")
+    st.markdown("### 키워드 트렌드 (기간 프리셋 + 기기별)")
     default_kws = ", ".join(st.session_state.get("last_rank_keywords", [])[:3]) or "가습기, 복합기, 무선청소기"
-    kw_text = st.text_input("키워드(최대 5개, 콤마로 구분)", value=default_kws)
+    kw_text = st.text_input("키워드(최대 5개, 콤마로 구분)", value=default_kws, key="trend_kw_input")
     keywords = [k.strip() for k in kw_text.split(",") if k.strip()][:5]
     c1, c2, c3, c4 = st.columns([1,1,1,1.2])
     with c1: preset = st.selectbox("기간 프리셋", ["1주","1개월","3개월","1년","직접입력"], index=2)
@@ -267,12 +268,12 @@ def render_datalab_trend_block():
     st.line_chart(chart_df, height=280); st.dataframe(df_sorted.head(120), use_container_width=True, hide_index=True)
 
 # -------------------------
-# 11번가 / Rakuten / ItemScout / SellerLife
+# 11번가 / Rakuten / ItemScout / SellerLife / Translate
 # -------------------------
 ELEVEN_URL = "https://m.11st.co.kr/browsing/bestSellers.mall"
 def render_elevenst_block():
-    st.subheader("11번가 (모바일)")
-    url = st.text_input("모바일 URL", value=ELEVEN_URL, label_visibility="collapsed")
+    st.markdown("### 11번가 (모바일)")
+    url = st.text_input("모바일 URL", value=ELEVEN_URL, label_visibility="collapsed", key="eleven_url")
     try:
         if has_proxy():
             st.caption("프록시 iFrame (권장)"); st.components.v1.iframe(iframe_url(url), height=720, scrolling=True)
@@ -290,9 +291,9 @@ SAFE_GENRES = {
 DEFAULT_GENRE = SAFE_GENRES["전체(샘플)"]
 
 def _rk_url(params: dict) -> str:
+    # 403 회피: 프록시 미사용 (직접 호출)
     endpoint = "https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628"
-    qs = urllib.parse.urlencode(params, safe=""); url = f"{endpoint}?{qs}"
-    return f"{PROXY_URL}/fetch?target={urllib.parse.quote(url, safe='')}" if has_proxy() else url
+    return f"{endpoint}?{urllib.parse.urlencode(params, safe='')}"
 
 @st.cache_data(ttl=600, show_spinner=False)
 def rakuten_fetch_ranking(genre_id: str, rows: int = 50) -> pd.DataFrame:
@@ -315,21 +316,22 @@ def rakuten_fetch_ranking(genre_id: str, rows: int = 50) -> pd.DataFrame:
         return pd.DataFrame([{"rank":1, "keyword":f"(Rakuten) {type(e).__name__}: {e}", "source":"DEMO"}])
 
 def render_rakuten_block():
-    st.subheader("AI 키워드 레이더 (Rakuten)")
+    st.markdown("### AI 키워드 레이더 (Rakuten)")
     c1, c2, c3 = st.columns([1.2,.9,1.2])
-    with c1: cat = st.selectbox("라쿠텐 카테고리", list(SAFE_GENRES.keys()), index=0)
-    with c2: preset_id = SAFE_GENRES[cat]; genre_id = st.text_input("genreId (직접 입력)", value=preset_id)
+    with c1: cat = st.selectbox("라쿠텐 카테고리", list(SAFE_GENRES.keys()), index=0, key="rk_cat")
+    with c2: preset_id = SAFE_GENRES[cat]; genre_id = st.text_input("genreId (직접 입력)", value=preset_id, key="rk_genre")
     with c3: st.caption(f"App ID: **{RAKUTEN_APP_ID}**"); st.caption("400/파싱 실패 → '전체(샘플)' 자동 폴백")
     df = rakuten_fetch_ranking(genre_id=genre_id, rows=50); st.dataframe(df, use_container_width=True, hide_index=True)
     st.caption("※ Rakuten Ranking API는 '상품 랭킹'을 반환합니다. 상품명을 키워드처럼 표기.")
 
 def render_itemscout_block():
-    st.subheader("아이템스카우트")
-    api = st.text_input("API Key (보관됨)", type="password", value=st.session_state.get("itemscout_api_key",""))
+    st.markdown("### 아이템스카우트")
+    api = st.text_input("API Key (보관됨)", type="password",
+                        value=st.session_state.get("itemscout_api_key",""), key="itemscout_api_key_input")
     st.session_state["itemscout_api_key"] = api
     col1, col2 = st.columns([1,1])
-    with col1: kw = st.text_input("키워드", value="가습기")
-    with col2: market = st.selectbox("마켓", ["쿠팡","스마트스토어","11번가","G마켓"], index=1)
+    with col1: kw = st.text_input("키워드", value="가습기", key="itemscout_kw")
+    with col2: market = st.selectbox("마켓", ["쿠팡","스마트스토어","11번가","G마켓"], index=1, key="itemscout_market")
     st.caption("※ 현재는 데모 카드입니다. API 키 확보 시 실제 호출로 교체합니다.")
     demo = pd.DataFrame([
         {"rank":1,"keyword":kw,"search":48210,"compete":0.61,"market":market},
@@ -338,39 +340,45 @@ def render_itemscout_block():
     ]); st.dataframe(demo, use_container_width=True, hide_index=True)
 
 def render_sellerlife_block():
-    st.subheader("셀러라이프")
-    api = st.text_input("API Key (보관됨)", type="password", value=st.session_state.get("sellerlife_api_key",""))
+    st.markdown("### 셀러라이프")
+    api = st.text_input("API Key (보관됨)", type="password",
+                        value=st.session_state.get("sellerlife_api_key",""), key="sellerlife_api_key_input")
     st.session_state["sellerlife_api_key"] = api
     col1, col2 = st.columns([1,1])
-    with col1: sid = st.text_input("셀러 ID", value="demo_seller")
-    with col2: view = st.selectbox("뷰", ["매출개요","카테고리분석","상품리포트"], index=0)
+    with col1: sid = st.text_input("셀러 ID", value="demo_seller", key="sellerlife_sid")
+    with col2: view = st.selectbox("뷰", ["매출개요","카테고리분석","상품리포트"], index=0, key="sellerlife_view")
     st.caption("※ 현재는 데모 카드입니다. API 키 확보 시 실제 호출로 교체합니다.")
     demo = pd.DataFrame([
         {"date":"주간","매출":12543000,"주문수":832,"객단가":15080},
         {"date":"전주","매출":11092000,"주문수":790,"객단가":14040},
     ]); st.bar_chart(demo.set_index("date"))
 
-# -------------------------
-# Google Translate (site iFrame via proxy)
-# -------------------------
 def render_google_translate_block():
-    st.subheader("구글 번역 (사이트 임베드)")
+    st.markdown("### 구글 번역 (사이트 임베드)")
     col1, col2, col3 = st.columns([1,1,2])
-    with col1:
-        sl = st.selectbox("원문", ["auto","ko","en","ja","zh-CN","zh-TW","vi","th","id","de","fr","es"], index=0)
-    with col2:
-        tl = st.selectbox("번역", ["en","ko","ja","zh-CN","zh-TW","vi","th","id","de","fr","es"], index=0)
-    with col3:
-        seed = st.text_input("미리 채울 문장(선택)", value="")
+    with col1: sl = st.selectbox("원문", ["auto","ko","en","ja","zh-CN","zh-TW","vi","th","id","de","fr","es"], index=0, key="gt_sl")
+    with col2: tl = st.selectbox("번역", ["en","ko","ja","zh-CN","zh-TW","vi","th","id","de","fr","es"], index=0, key="gt_tl")
+    with col3: seed = st.text_input("미리 채울 문장(선택)", value="", key="gt_seed")
     base = "https://translate.google.com/"
     params = { "sl": sl, "tl": tl, "op": "translate" }
-    if seed.strip():
-        params["text"] = seed.strip()
+    if seed.strip(): params["text"] = seed.strip()
     url = base + "?" + urllib.parse.urlencode(params, safe="")
-    if has_proxy():
-        st.components.v1.iframe(iframe_url(url), height=600, scrolling=True)
-    else:
-        st.warning("PROXY_URL 설정 필요 (Cloudflare Worker). 현재 직접 iFrame은 차단될 수 있습니다.")
+    if has_proxy(): st.components.v1.iframe(iframe_url(url), height=600, scrolling=True)
+    else: st.warning("PROXY_URL 설정 필요 (Cloudflare Worker). 현재 직접 iFrame은 차단될 수 있습니다.")
+
+# -------------------------
+# Name generator
+# -------------------------
+def render_namegen_block():
+    st.markdown("### 상품명 생성기 (규칙 기반)")
+    brand = st.text_input("브랜드", value="envy", key="namegen_brand")
+    base_kw = st.text_input("베이스 키워드", value="K-coffee mix", key="namegen_base")
+    rel_kw = st.text_input("연관키워드(콤마)", value="Maxim, Kanu, Korea", key="namegen_rel")
+    limit = st.slider("글자수 제한", 20, 80, 80, key="namegen_limit")
+    if st.button("제목 5개 생성", key="namegen_go"):
+        kws = [k.strip() for k in rel_kw.split(",") if k.strip()]
+        outs = [f"{brand} {base_kw} {k}"[:limit] for k in kws[:5]]
+        st.text_area("생성 결과", "\n".join(outs), height=200)
 
 # -------------------------
 # Layout
@@ -392,6 +400,9 @@ def main():
 
     st.divider()
     render_google_translate_block()
+
+    st.divider()
+    render_namegen_block()
 
 if __name__ == "__main__":
     main()
