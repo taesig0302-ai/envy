@@ -354,14 +354,17 @@ def render_elevenst_block():
         else:
             st.caption("임베드가 필요하면 Part 0의 PROXY_URL을 설정하세요.")
 # ============================================
-# Part 6 — AI 키워드 레이더 (PATCH E)
+# Part 6 — AI 키워드 레이더 (Rakuten)  [REPLACE]
 # ============================================
-# 🔑 라쿠텐 App ID (네가 준 값으로 직접 심어둠)
-# ---- Rakuten: App ID 복원(네가 준 값) + 안전 장르 셋 ----
-# App ID 고정 (네가 준 값)
-# ==== Rakuten (AI 키워드 레이더) ====
+import urllib.parse
+import pandas as pd
+import requests
+import streamlit as st
+
+# 네가 준 App ID 그대로 심음
 RAKUTEN_APP_ID = "1043271015809337425"
 
+# 안전한 장르 프리셋 (실패 시 400이 적은 범위)
 SAFE_GENRES = {
     "전체(샘플)": "100283",
     "여성패션": "100371",
@@ -380,47 +383,51 @@ SAFE_GENRES = {
 DEFAULT_GENRE = SAFE_GENRES["전체(샘플)"]
 
 def _rk_url(params: dict) -> str:
+    """프록시 사용 여부에 따라 요청 URL 구성"""
     endpoint = "https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628"
     qs = urllib.parse.urlencode(params, safe="")
     url = f"{endpoint}?{qs}"
+    # Part 0에서 정의한 has_proxy()/PROXY_URL/MOBILE_HEADERS 를 그대로 사용
     return f"{PROXY_URL}/fetch?target={urllib.parse.quote(url, safe='')}" if has_proxy() else url
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=600, show_spinner=False)
 def rakuten_fetch_ranking(genre_id: str, rows: int = 50) -> pd.DataFrame:
     """
-    formatVersion 1: Items -> Item -> itemName
-    formatVersion 2: Items -> itemName
-    둘 다 파싱
+    Rakuten IchibaItem Ranking API
+    - formatVersion=2 우선, v1도 파싱 가능
+    - 실패/400이면 DEFAULT_GENRE로 폴백, 그래도 실패면 데모 1행
     """
     params = {
         "applicationId": RAKUTEN_APP_ID,
         "format": "json",
         "formatVersion": 2,
-        "genreId": genre_id
+        "genreId": genre_id,
     }
     try:
         resp = requests.get(_rk_url(params), headers=MOBILE_HEADERS, timeout=12)
         if resp.status_code == 400:
-            raise ValueError("400 Bad Request (장르 코드/매개변수)")
+            raise ValueError("400 Bad Request (장르 코드/매개변수 오류)")
         resp.raise_for_status()
         data = resp.json()
         items = data.get("Items", [])[:rows]
 
         out = []
         for i, it in enumerate(items, start=1):
-            # v2 직계, v1 Item 내부 모두 처리
+            # v2: itemName 바로 존재 / v1: Item 하위
             if isinstance(it, dict) and "itemName" in it:
                 name = it.get("itemName") or ""
             else:
                 name = (it.get("Item") or {}).get("itemName", "")
             if name:
                 out.append({"rank": i, "keyword": name, "source": "Rakuten JP"})
+
         if not out:
+            # 일부 응답(빈 배열) 케이스도 폴백 처리
             raise ValueError("응답 파싱 결과 비어 있음")
         return pd.DataFrame(out)
 
-    except Exception as e):
-        # 1차 폴백
+    except Exception as e:
+        # 1차: 기본 장르로 폴백
         if genre_id != DEFAULT_GENRE:
             try:
                 fb = rakuten_fetch_ranking.__wrapped__(DEFAULT_GENRE, rows)
@@ -428,10 +435,10 @@ def rakuten_fetch_ranking(genre_id: str, rows: int = 50) -> pd.DataFrame:
                 return fb
             except Exception:
                 pass
-        # 최종 데모
+        # 최종: 데모 한 줄
         return pd.DataFrame([{
             "rank": 1,
-            "keyword": f"(Rakuten) {type(e).__name__}: {e}",
+            "keyword": f"(Rakuten DEMO) {type(e).__name__}: {e}",
             "source": "DEMO"
         }])
 
@@ -441,17 +448,17 @@ def render_rakuten_block():
 
     c1, c2, c3 = st.columns([1.2, .9, .9])
     with c1:
-        cat = st.selectbox("라쿠텐 카테고리", list(SAFE_GENRES.keys()), index=0)
+        cat = st.selectbox("라쿠텐 카테고리", list(SAFE_GENRES.keys()), index=0, key="rk_cat")
     with c2:
         preset_id = SAFE_GENRES[cat]
-        genre_id = st.text_input("genreId (직접 입력)", value=preset_id)
+        genre_id = st.text_input("genreId (직접 입력 가능)", value=preset_id, key="rk_genre")
     with c3:
         st.caption(f"App ID: **{RAKUTEN_APP_ID}**")
         st.caption("400/파싱 실패 → '전체(샘플)'로 자동 폴백")
 
     df = rakuten_fetch_ranking(genre_id=genre_id, rows=50)
     st.dataframe(df, use_container_width=True, hide_index=True)
-    st.caption("※ Ranking API는 '상품 랭킹'을 반환합니다. 상품명을 키워드처럼 표시합니다.")
+    st.caption("※ Ranking API는 '상품 랭킹'을 반환합니다. 상품명을 키워드처럼 표기합니다.")
 # ============================================
 # Part 7 — 상품명 생성기 블록
 # ============================================
