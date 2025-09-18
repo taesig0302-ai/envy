@@ -195,36 +195,12 @@ def render_sidebar():
             f'<div class="badge-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {margin_desc}</div>',
             unsafe_allow_html=True
         )
-# ============================================
-# Part 2 — 데이터랩 (MIN PATCH)  ← 전체 교체
-# ============================================
-import datetime as dt
-import pandas as pd, requests, json, re
-from bs4 import BeautifulSoup
-import streamlit as st
-
-DATALAB_API = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordRank.naver"
-
-# 화면용 카테고리 → 추정 cid 매핑 (필요하면 직접 바꿔도 됨)
-CID_MAP = {
-    "디지털/가전":   "50000000",
-    "패션잡화":     "50000001",
-    "식품":         "50000002",
-    "생활/건강":     "50000003",
-    "가구/인테리어": "50000004",
-    "도서/취미":     "50000005",
-    "스포츠/레저":   "50000006",
-    "뷰티":         "50000007",
-    "출산/육아":     "50000008",
-    "반려동물":     "50000009",
-}
-
-def _date_str(d: dt.date) -> str:
-    return d.strftime("%Y-%m-%d")
-
 @st.cache_data(ttl=300)
 def datalab_fetch(cid: str, start_date: str, end_date: str, count: int = 50) -> pd.DataFrame:
-    """네이버 DataLab 쇼핑인사이트 카테고리 키워드 상위 N개."""
+    """
+    네이버 DataLab 쇼핑인사이트 카테고리 키워드 상위 N개.
+    최소 파라미터만 사용. JSON 실패 시 HTML 폴백 + score 생성.
+    """
     params = {
         "cid": cid,
         "timeUnit": "date",
@@ -236,97 +212,44 @@ def datalab_fetch(cid: str, start_date: str, end_date: str, count: int = 50) -> 
     r = requests.get(DATALAB_API, params=params, timeout=10)
     r.raise_for_status()
 
-    # JSON 파싱
+    # 1) JSON 파싱 시도
     try:
         data = r.json()
+        rows = data.get("ranks") or data.get("data") or data.get("result") or []
+        if isinstance(rows, dict):
+            rows = rows.get("ranks", [])
+
+        out = []
+        for i, it in enumerate(rows, start=1):
+            kw = (it.get("keyword") or it.get("name") or "").strip()
+            score = it.get("ratio") or it.get("value") or it.get("score")
+            out.append({"rank": i, "keyword": kw, "score": score})
+
+        df = pd.DataFrame(out)
+
+    # 2) JSON 실패 → HTML 폴백 (여기서도 score 반드시 생성)
     except json.JSONDecodeError:
-        # 일부 케이스에서 HTML이 섞이면 최소 fallback
-        # (실서비스에선 네트워크 탭으로 실제 엔드포인트/파라미터 재확인 권장)
         soup = BeautifulSoup(r.text, "html.parser")
         words = []
-        for el in soup.select("a, span, li")[:count]:
+        for el in soup.select("a, span, li"):
             t = (el.get_text(" ", strip=True) or "").strip()
             if 1 < len(t) <= 40:
                 words.append(t)
+            if len(words) >= count:
+                break
         if not words:
             words = ["맥심 커피믹스","카누 미니","원두 1kg","드립백","스타벅스 다크"][:count]
+
         df = pd.DataFrame([{"rank": i+1, "keyword": w} for i, w in enumerate(words)])
-        return df
 
-    rows = data.get("ranks") or data.get("data") or data.get("result") or []
-    if isinstance(rows, dict):
-        # {"ranks":[...]} 형태 안전화
-        rows = rows.get("ranks", [])
-
-    out = []
-    for i, it in enumerate(rows, start=1):
-        kw = (it.get("keyword") or it.get("name") or "").strip()
-        # 점수열이 있으면 같이
-        score = it.get("ratio") or it.get("value") or it.get("score")
-        out.append({"rank": i, "keyword": kw, "score": score})
-
-    df = pd.DataFrame(out)
+    # 3) 그래프용 score 보정(없으면 의사 점수 생성)
     if df.empty:
         return df
-
-    # 점수 없으면 그래프용 의사 점수 생성(내림차순)
     if "score" not in df.columns or df["score"].isna().all():
         n = len(df)
         df["score"] = [max(1, int(100 - i*(100/max(1, n-1)))) for i in range(n)]
 
     return df
-
-def render_datalab_block():
-    st.subheader("데이터랩")
-
-    # ── 최소 입력만 남김: 카테고리/기간/개수 ──
-    colA, colB = st.columns([1.2, 1])
-    with colA:
-        disp_cat = st.selectbox("카테고리(표시)", list(CID_MAP.keys()), index=0)
-    with colB:
-        # 자동 매핑된 cid, 필요시 수동 수정 가능
-        real_cid = st.text_input("실제 cid", value=CID_MAP[disp_cat])
-
-    today = dt.date.today()
-    default_start = today - dt.timedelta(days=31)
-
-    c1, c2, c3 = st.columns([1, 1, 0.8])
-    with c1:
-        time_unit = st.selectbox("단위", ["date"], index=0, help="최소 파라미터: date 고정")
-    with c2:
-        start_str = st.date_input("시작일 (YYYY-MM-DD)", value=default_start, format="YYYY-MM-DD")
-    with c3:
-        end_str = st.date_input("종료일 (YYYY-MM-DD)", value=today, format="YYYY-MM-DD")
-
-    cnt = st.number_input("개수", value=50, min_value=1, max_value=100, step=1)
-
-    # 버튼 없이 즉시 조회(가볍게 동작), 버튼 원하면 주석 해제
-    # if st.button("추가 갱신"):
-    #     st.session_state["_dl_refresh"] = True
-
-    try:
-        df = datalab_fetch(
-            cid=str(real_cid).strip(),
-            start_date=_date_str(start_str),
-            end_date=_date_str(end_str),
-            count=int(cnt),
-        )
-        if df.empty:
-            st.warning("데이터가 비어 있습니다. 기간/단위/카테고리를 바꿔보세요.")
-            return
-
-        # 표
-        st.dataframe(df[["rank", "keyword"]], use_container_width=True, hide_index=True)
-
-        # ── 실선 그래프: rank 오름차순으로 score 표시 ──
-        chart_df = df[["rank", "score"]].sort_values("rank").set_index("rank")
-        st.markdown("#### 그래프")
-        st.line_chart(chart_df, height=220)
-
-    except Exception as e:
-        st.error(f"DataLab 호출 실패: {type(e).__name__}: {e}")
-        with st.expander("대체 방법(HTML 스냅/휴리스틱)"):
-            st.caption("엔드포인트나 파라미터가 달라졌을 수 있습니다. 네트워크 탭에서 최신 URL/cid를 확인하세요.")
 # ============================================
 # Part 3 — 아이템스카우트 (placeholder)
 # ============================================
