@@ -39,131 +39,146 @@ def toggle_theme():
     st.session_state["theme"] = "dark" if st.session_state["theme"]=="light" else "light"
 
 def inject_css():
-    # 라이트/다크 배경
-    if st.session_state.get("theme","light")=="dark":
+    # 테마 색
+    if st.session_state.get("theme", "light") == "dark":
         bg, fg = "#0e1117", "#e6edf3"
+        card = "#141821"
     else:
         bg, fg = "#ffffff", "#111111"
+        card = "#f6f8fb"
 
     st.markdown(f"""
     <style>
+      /* 앱 배경 */
       html, body, [data-testid="stAppViewContainer"] {{
         background-color:{bg} !important; color:{fg} !important;
       }}
 
-      /* 섹션카드 약간 더 아래로 */
-      .block-container {{
-        padding-top: 1.6rem !important;
-        padding-bottom: .5rem !important;
+      /* 본문 카드 살짝 아래 */
+      .block-container{{padding-top:1.3rem !important; padding-bottom:.5rem !important;}}
+
+      /* ===== Sidebar: 진짜 스크롤락 + 초압축 ===== */
+      [data-testid="stSidebar"] > div:first-child {{
+        height: 100vh !important;
+      }}
+      [data-testid="stSidebar"] section{{
+        padding: .28rem .55rem !important;
+        height: 100vh !important;          /* 뷰포트 꽉 채움 */
+        overflow: hidden !important;        /* 스크롤 금지 */
+      }}
+      [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none !important;}}
+
+      /* 컴포넌트 간격 최소화 */
+      [data-testid="stSidebar"] .stMarkdown, 
+      [data-testid="stSidebar"] .stSelectbox, 
+      [data-testid="stSidebar"] .stNumberInput, 
+      [data-testid="stSidebar"] .stRadio, 
+      [data-testid="stSidebar"] .stSlider, 
+      [data-testid="stSidebar"] .stButton {{
+        margin-top: .18rem !important;
+        margin-bottom: .18rem !important;
       }}
 
-      /* ===== Sidebar 고정 & 컴팩트 ===== */
-      [data-testid="stSidebar"] section {{
-        padding-top:.08rem !important;
-        padding-bottom:.08rem !important;
-        height:100vh; overflow:hidden;     /* 스크롤락 */
-        font-size:.92rem;
+      /* 제목/문자 크기 소폭 다운 */
+      [data-testid="stSidebar"] h3, 
+      [data-testid="stSidebar"] h4 {{ 
+        margin: .2rem 0 .3rem 0 !important; 
+        line-height: 1.1rem !important; 
+        font-size: 0.98rem !important;
       }}
-      [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none;}}
-
-      /* 요소 간격 압축 */
-      [data-testid="stSidebar"] .stSelectbox,
-      [data-testid="stSidebar"] .stNumberInput,
-      [data-testid="stSidebar"] .stRadio,
-      [data-testid="stSidebar"] .stTextInput,
-      [data-testid="stSidebar"] .stSlider,
-      [data-testid="stSidebar"] .stButton,
-      [data-testid="stSidebar"] .stMarkdown {{
-        margin-top:.14rem !important;
-        margin-bottom:.14rem !important;
+      [data-testid="stSidebar"] label, 
+      [data-testid="stSidebar"] p {{ 
+        font-size: .92rem !important; 
       }}
 
-      /* 라디오(퍼센트/더하기) 폰트/간격 타이트 */
-      [data-testid="stSidebar"] .stRadio label p {{
-        font-size:.90rem !important;
-        margin:0 .35rem 0 0 !important;
-        line-height:1.15rem !important;
-      }}
-      [data-testid="stSidebar"] .stRadio {{ gap:.25rem !important; }}
-
-      /* 입력/셀렉트 높이 축소 */
+      /* 입력 높이와 폰트 축소 */
       [data-baseweb="input"] input,
       .stNumberInput input,
       [data-baseweb="select"] div[role="combobox"] {{
-        height:1.45rem !important;
-        padding:.10rem .45rem !important;
-        font-size:.90rem !important;
+        height: 1.45rem !important;
+        padding: .16rem .45rem !important;
+        font-size: .90rem !important;
+      }}
+      button[kind="primary"], button[kind="secondary"] {{
+        padding: .22rem .6rem !important;
+        font-size: .90rem !important;
       }}
 
-      /* 버튼 패딩 축소 */
-      button[kind="secondary"], button[kind="primary"] {{
-        padding:.18rem .5rem !important;
-        font-size:.90rem !important;
+      /* 칩/배지 더 컴팩트 */
+      .badge-green, .badge-blue {{
+        display:block; border-radius:6px; padding:6px 10px; 
+        font-size:.9rem; border:1px solid rgba(0,0,0,.08);
       }}
+      .badge-green {{background:#eaffd6; color:#133a00}}
+      .badge-blue  {{background:{card}; color:{fg}}}
 
-      /* 배지 */
-      .badge-green {{background:#e6ffcc; border:1px solid #b6f3a4;
-        padding:3px 7px; border-radius:6px; color:#0b2e13; font-size:.84rem;}}
-      .badge-blue  {{background:#e6f0ff; border:1px solid #b7ccff;
-        padding:3px 7px; border-radius:6px; color:#0b1e4a; font-size:.84rem;}}
-
-      /* 원형 로고 */
+      /* 로고 조금만 줄임 */
       .logo-circle {{
-        width: 120px; height: 120px; border-radius: 50%;
-        overflow: hidden; margin:.25rem auto .4rem auto;
-        box-shadow:0 2px 8px rgba(0,0,0,.12); border:1px solid rgba(0,0,0,.06);
+        width: 108px; height: 108px; border-radius:50%;
+        overflow:hidden; margin:.2rem auto .45rem auto;
+        box-shadow:0 2px 8px rgba(0,0,0,.08);
       }}
-      .logo-circle img {{width:100%; height:100%; object-fit:cover;}}
+      .logo-circle img{{width:100%; height:100%; object-fit:cover;}}
+      
+      /* 사이드바 마지막 줄 여백 제거 (미세 조정) */
+      [data-testid="stSidebar"] .block-container {{ padding-bottom: .2rem !important; }}
     </style>
     """, unsafe_allow_html=True)
 # ============================================
 # Part 1 — 사이드바
 # ============================================
+import base64
+
 def render_sidebar():
     with st.sidebar:
-        # 로고 (logo.png가 같은 폴더에 있을 때 표시)
+        # 로고 (크기 줄임: 95px)
         lp = Path(__file__).parent / "logo.png"
         if lp.exists():
             b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
-            st.markdown(f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="logo-circle" style="width:95px;height:95px;">'
+                f'<img src="data:image/png;base64,{b64}"></div>',
+                unsafe_allow_html=True
+            )
         else:
-            st.caption("logo.png 파일을 앱 폴더에 두면 원형 로고가 표시됩니다.")
+            st.caption("logo.png 를 같은 폴더에 두면 로고가 표시됩니다.")
 
-        # 다크모드 토글
+        # 다크모드
         st.toggle("🌓 다크 모드", value=(st.session_state["theme"]=="dark"), on_change=toggle_theme)
 
-        # 환율 계산기
+        # ===== ① 환율 계산기 =====
         st.markdown("### ① 환율 계산기")
         base = st.selectbox("기준 통화", list(CURRENCY_SYMBOL.keys()), index=0)
-        sym = CURRENCY_SYMBOL.get(base, "")
-        sale_foreign = st.number_input(f"판매금액 ({sym})", value=1.00, step=0.01, format="%.2f")
+        sale_foreign = st.number_input("판매금액", value=1.00, step=0.01, format="%.2f")
         won = FX_DEFAULT[base] * sale_foreign
         st.markdown(f'<div class="badge-green">환산 금액: <b>{won:,.2f} 원</b></div>', unsafe_allow_html=True)
-        st.caption(f"환율 기준: {FX_DEFAULT[base]:,.2f} ₩/{base}")
 
-        # 마진 계산기
+        # ===== ② 마진 계산기 =====
         st.markdown("### ② 마진 계산기")
         m_base = st.selectbox("매입 통화", list(CURRENCY_SYMBOL.keys()), index=0, key="mbase")
-        m_sym  = CURRENCY_SYMBOL.get(m_base, "")
-        purchase_foreign = st.number_input(f"매입금액 ({m_sym})", value=0.00, step=0.01, format="%.2f")
-        base_cost_won = FX_DEFAULT[m_base] * purchase_foreign if purchase_foreign>0 else won
+        purchase_foreign = st.number_input("매입금액", value=0.00, step=0.01, format="%.2f")
+        base_cost_won = FX_DEFAULT[m_base]*purchase_foreign if purchase_foreign>0 else won
         st.markdown(f'<div class="badge-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
 
-        m_rate = st.number_input("카드수수료 %", value=4.00, step=0.01, format="%.2f")
-        m_fee  = st.number_input("마켓수수료 %", value=14.00, step=0.01, format="%.2f")
-        ship   = st.number_input("배송비 (₩)", value=0.0, step=100.0, format="%.0f")
+        m_rate = st.number_input("카드수수료(%)", value=4.00, step=0.01, format="%.2f")
+        m_fee  = st.number_input("마켓수수료(%)", value=14.00, step=0.01, format="%.2f")
+        ship   = st.number_input("배송비(₩)", value=0.0, step=100.0, format="%.0f")
 
-        mode = st.radio("마진 방식", ["퍼센트 마진", "더하기 마진"], horizontal=True, key="margin_mode")
+        # --- 마진 방식 선택 ---
+        mode = st.radio("마진 방식", ["% 마진", "+ 마진"], horizontal=True)
 
-        if mode == "퍼센트 마진":
-            margin_pct = st.number_input("마진율 (%)", value=10.00, step=0.01, format="%.2f", key="margin_pct")
-            target_price = base_cost_won * (1 + m_rate/100) * (1 + m_fee/100) * (1 + margin_pct/100) + ship
+        # --- 조건부 입력칸 ---
+        if mode == "% 마진":
+            margin_pct = st.number_input("마진율 (%)", value=10.00, step=0.01, format="%.2f")
+            target_price = base_cost_won * (1+m_rate/100) * (1+m_fee/100) * (1+margin_pct/100) + ship
+            margin_value = target_price - base_cost_won
         else:
-            margin_won = st.number_input("마진액 (₩)", value=10000.0, step=100.0, format="%.0f", key="margin_won")
-            target_price = base_cost_won * (1 + m_rate/100) * (1 + m_fee/100) + margin_won + ship
+            margin_won = st.number_input("마진액 (₩)", value=10000.0, step=100.0, format="%.0f")
+            target_price = base_cost_won * (1+m_rate/100) * (1+m_fee/100) + margin_won + ship
+            margin_value = margin_won
 
         st.markdown(f'<div class="badge-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
-        st.warning(f"순이익(마진): {(target_price - base_cost_won):,.2f} 원")
+        st.caption(f"순이익(마진): {margin_value:,.2f} 원")
 # ============================================
 # Part 2 — 데이터랩
 # ============================================
