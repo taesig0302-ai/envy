@@ -196,24 +196,43 @@ def render_sidebar():
             unsafe_allow_html=True
         )
 # ============================================
-# Part 2 — 데이터랩 (실제 API + 상대점수 그래프 보정)
+# Part 2 — 데이터랩 (실제 API + 라인차트 + cid/날짜 보정)
 # ============================================
 import streamlit as st
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-from datetime import date
+from datetime import date, datetime, timedelta
+import calendar
 
-# 실제 API 엔드포인트 (네가 DevTools에서 확인한 URL로 교체 가능)
 REAL_API_BASE = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordRank.naver"
 
+# --- 유틸 ---
 def _today_ymd() -> str:
     return date.today().strftime("%Y-%m-%d")
 
+def _first_day_of_month(d: date) -> date:
+    return d.replace(day=1)
+
+def _last_day_of_month(d: date) -> date:
+    last = calendar.monthrange(d.year, d.month)[1]
+    return d.replace(day=last)
+
+def _week_bounds(d: date):
+    # 월~일
+    monday = d - timedelta(days=d.weekday())
+    sunday = monday + timedelta(days=6)
+    return monday, sunday
+
+def _normalize_cid(cid_raw: str) -> str:
+    """'50000000-DG' 같은 표기 들어오면 숫자만 추출."""
+    return "".join([ch for ch in str(cid_raw) if ch.isdigit()])
+
+# --- 요청 함수 ---
 @st.cache_data(ttl=300)
 def fetch_datalab_category_topN(
     cid: str,
-    time_unit: str = "date",
+    time_unit: str = "date",   # date/week/month
     start_date: str = None,
     end_date: str = None,
     gender: str = "",
@@ -222,47 +241,69 @@ def fetch_datalab_category_topN(
     page: int = 1,
     count: int = 50,
 ) -> pd.DataFrame:
-    """
-    네이버 데이터랩 카테고리 키워드 Top N
-    응답에 score/ratio/value가 없으면 rank/keyword만 내려옴.
-    """
-    if not start_date:
-        start_date = _today_ymd()
-    if not end_date:
-        end_date = _today_ymd()
+
+    # 1) cid 보정 (숫자만)
+    cid = _normalize_cid(cid)
+
+    # 2) 날짜 정규화 (timeUnit에 맞는 형태/구간으로 보정)
+    today = date.today()
+    if time_unit == "month":
+        base = today
+        if start_date:
+            try: base = datetime.strptime(start_date, "%Y-%m-%d").date()
+            except: pass
+        s = _first_day_of_month(base).strftime("%Y-%m-%d")
+        e = _last_day_of_month(base).strftime("%Y-%m-%d")
+    elif time_unit == "week":
+        base = today
+        if start_date:
+            try: base = datetime.strptime(start_date, "%Y-%m-%d").date()
+            except: pass
+        sdt, edt = _week_bounds(base)
+        s = sdt.strftime("%Y-%m-%d")
+        e = edt.strftime("%Y-%m-%d")
+    else:  # date
+        s = start_date or _today_ymd()
+        e = end_date or _today_ymd()
 
     params = {
         "cid": cid,
-        "timeUnit": time_unit,    # "date" / "week" / "month" (페이지가 허용하는 값)
-        "startDate": start_date,
-        "endDate": end_date,
-        "age": age,               # "10","20","30","40","50","60" 콤마결합 or 빈 문자열
-        "gender": gender,         # "m","f" 또는 빈 문자열
-        "device": device,         # "pc","mo" 또는 빈 문자열
+        "timeUnit": time_unit,
+        "startDate": s,
+        "endDate": e,
+        "age": age,
+        "gender": gender,
+        "device": device,
         "page": page,
         "count": count,
     }
-    r = requests.get(REAL_API_BASE, params=params, timeout=12)
+
+    headers = {
+        "user-agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/125.0 Safari/537.36"),
+        # 중요: 리퍼러가 없으면 종종 HTML로 답함
+        "referer": "https://datalab.naver.com/shoppingInsight/sCategory.naver",
+        "accept": "application/json,text/*;q=0.9,*/*;q=0.8",
+    }
+
+    r = requests.get(REAL_API_BASE, params=params, headers=headers, timeout=12)
     r.raise_for_status()
 
-    # 일부 응답은 JSON, 일부는 HTML 문자열을 돌려줄 수 있어 예외 처리
+    # JSON 파싱 시도
     try:
         data = r.json()
         rows = data.get("ranks", [])
         df = pd.DataFrame(rows)
-        if "rank" not in df.columns:
-            # 혹시나 필드명이 다르면 정리
-            if "ranking" in df.columns:
-                df.rename(columns={"ranking": "rank"}, inplace=True)
-        if "keyword" not in df.columns and "name" in df.columns:
+        # 컬럼 정리
+        if "ranking" in df.columns and "rank" not in df.columns:
+            df.rename(columns={"ranking": "rank"}, inplace=True)
+        if "name" in df.columns and "keyword" not in df.columns:
             df.rename(columns={"name": "keyword"}, inplace=True)
-        # 표시 컬럼만 우선 정렬
-        cols = [c for c in ["rank", "keyword", "score", "ratio", "value"] if c in df.columns]
-        if cols:
-            df = df[cols]
-        return df
+        cols = [c for c in ["rank","keyword","score","ratio","value"] if c in df.columns]
+        return df[cols] if cols else df
     except ValueError:
-        # HTML로 온 경우: 아주 제한적으로 파싱 (폴백)
+        # HTML 폴백 (정상 API가 아닐 때)
         soup = BeautifulSoup(r.text, "html.parser")
         kws = []
         for i, el in enumerate(soup.select("a, li, span")[:count], start=1):
@@ -274,27 +315,27 @@ def fetch_datalab_category_topN(
 def render_datalab_block():
     st.subheader("데이터랩")
 
-    # 카테고리 UI (표시용 이름 -> 실제 cid)
+    # 표시용 카테고리 -> 참고용 (실제 cid는 숫자만 추출되어 들어감)
     cats = {
         "패션잡화":"50000000-FA","디지털/가전":"50000000-DG","식품":"50000000-FD",
         "생활/건강":"50000000-LH","가구/인테리어":"50000000-FN","도서/취미":"50000000-BC",
         "스포츠/레저":"50000000-SP","뷰티":"50000000-BT","출산/육아":"50000000-BB",
         "반려동물":"50000000-PS",
     }
+
     c1, c2 = st.columns([1.2, 1])
     with c1:
         cat_name = st.selectbox("카테고리(표시)", list(cats.keys()), index=1)
     with c2:
-        cid_raw = st.text_input("실제 cid", value=cats[cat_name])  # 네트워크에서 실제 cid 확인 시 직접 변경 가능
+        cid_raw = st.text_input("실제 cid", value=cats[cat_name])
 
-    # 파라미터
     c3, c4, c5, c6 = st.columns([1, 1, 1, 1])
     with c3:
-        time_unit = st.selectbox("단위", ["date","week","month"], index=0)
+        time_unit = st.selectbox("단위", ["date","week","month"], index=0)  # 실서버 기준 안정적: date/week
     with c4:
-        start_date = st.text_input("시작일", value=_today_ymd())
+        start_date = st.text_input("시작일 (YYYY-MM-DD)", value=_today_ymd())
     with c5:
-        end_date = st.text_input("종료일", value=_today_ymd())
+        end_date = st.text_input("종료일 (YYYY-MM-DD)", value=_today_ymd())
     with c6:
         count = st.number_input("개수", value=50, min_value=10, max_value=100, step=10)
 
@@ -311,54 +352,45 @@ def render_datalab_block():
 
     try:
         df = fetch_datalab_category_topN(
-            cid=cid_raw,
-            time_unit=time_unit,
-            start_date=start_date,
-            end_date=end_date,
-            gender=gender,
-            age=age,
-            device=device,
-            page=1,
-            count=int(count),
+            cid=cid_raw, time_unit=time_unit,
+            start_date=start_date, end_date=end_date,
+            gender=gender, age=age, device=device,
+            page=1, count=int(count),
         )
+
         if df.empty:
-            st.warning("데이터가 비어 있습니다. 파라미터/기간을 바꿔 다시 시도하세요.")
+            st.warning("데이터가 비어 있습니다. timeUnit/날짜/성별·연령·디바이스를 바꿔보세요.")
             return
 
-        # 표 출력
+        # 표
         show_cols = [c for c in ["rank","keyword","score","ratio","value"] if c in df.columns]
         if not show_cols:
             show_cols = [c for c in ["rank","keyword"] if c in df.columns]
         st.dataframe(df[show_cols], use_container_width=True, hide_index=True)
 
-        # ---- 그래프 표시 로직 ----
+        # 그래프 — 항상 '라인 그래프'
+        # 1) 서버 점수 우선 사용
         if "score" in df.columns and df["score"].notna().any():
-            g = df[["rank","score"]].set_index("rank")
+            g = df[["rank","score"]].set_index("rank").sort_index()
             st.line_chart(g, height=220)
         elif "ratio" in df.columns and df["ratio"].notna().any():
-            g = df[["rank","ratio"]].set_index("rank")
+            g = df[["rank","ratio"]].set_index("rank").sort_index()
             st.line_chart(g, height=220)
         elif "value" in df.columns and df["value"].notna().any():
-            g = df[["rank","value"]].set_index("rank")
+            g = df[["rank","value"]].set_index("rank").sort_index()
             st.line_chart(g, height=220)
         else:
-            # 점수가 없으면 '순위 기반 상대 점수' 시각화
-            with st.expander("그래프 옵션", expanded=True):
-                mode = st.radio(
-                    "응답에 score/ratio/value 없음 → 아래 옵션으로 시각화",
-                    ["상대점수(순위 반전) 막대 그래프", "그래프 생략"],
-                    horizontal=True,
-                )
-            if mode.startswith("상대점수"):
-                df2 = df.copy()
-                n = len(df2)
-                df2["score"] = list(range(n, 0, -1))  # 1등 n점 ~ n등 1점
-                st.bar_chart(df2.set_index("rank")["score"], height=220)
-            else:
-                st.caption("그래프 생략됨 (응답에 정량 지표 없음)")
+            # 2) 점수 없으면 '순위 기반 상대점수'를 라인으로
+            n = len(df)
+            rel = pd.DataFrame({
+                "rank": df["rank"].values if "rank" in df.columns else list(range(1, n+1)),
+                "score": list(range(n, 0, -1))  # 1등 n, n등 1
+            }).set_index("rank").sort_index()
+            st.line_chart(rel, height=220)
+
     except Exception as e:
         st.error(f"DataLab 호출 실패: {type(e).__name__}: {e}")
-        st.caption("DevTools > Network에서 실제 요청 URL/파라미터를 한 번만 확인해 REAL_API_BASE/params를 맞추면 정확도가 올라갑니다.")
+        st.caption("DevTools > Network에서 실제 요청 URL/파라미터를 한 번만 확인해 REAL_API_BASE·파라미터를 맞추면 정확도가 올라갑니다.")
 # ============================================
 # Part 3 — 아이템스카우트 (placeholder)
 # ============================================
