@@ -1,6 +1,4 @@
-// ENVY v10.1 — Cloudflare Worker Proxy (iframe endpoint + root 허용)
-// /iframe?target=... 또는 /?target=... 모두 지원
-
+// ENVY v10.2 — Worker: 더 강력한 11번가/프레임 차단 제거 + HTML 주입
 async function handle(request) {
   const url = new URL(request.url);
   const target = url.searchParams.get("target");
@@ -25,24 +23,31 @@ async function handle(request) {
   ["x-frame-options","content-security-policy","frame-ancestors"].forEach(h => newHeaders.delete(h));
   newHeaders.set("x-content-type-options", "nosniff");
 
-  body = body
-    .replace(/<script[^>]*>[^<]*openApp[^<]*<\/script>/gi, "")
-    .replace(/location\.href\s*=\s*['"][^'"]*app\.11st[^'"]*['"]/gi, "")
-    .replace(/<meta[^>]+http-equiv=['"]refresh['"][^>]*>/gi, "")
-    .replace(/<div[^>]*id=['"]?appBanner[^>]*>[\s\S]*?<\/div>/gi, "");
+  // HTML인 경우 배너/앱유도 요소를 강제 숨기는 스타일/스크립트 삽입
+  const ct = newHeaders.get("content-type") || "";
+  if (ct.includes("text/html")) {
+    const inject = `
+      <style>
+        /* 11번가 앱유도 바/플로팅 버튼 가려보기 */
+        [class*="app"], [id*="app"], .floating, .banner, .download, .openApp, .appOpen { display: none !important; }
+      </style>
+      <script>
+        try {
+          const killTexts = ["앱에서", "앱 열기", "앱 혜택"];
+          function hideByText() {
+            document.querySelectorAll("*").forEach(el => {
+              const t = (el.textContent||"").trim();
+              if (t && killTexts.some(k => t.indexOf(k) >= 0)) { el.style.display = "none"; }
+            });
+          }
+          hideByText(); setInterval(hideByText, 1000);
+        } catch(e) {}
+      </script>`;
+    body = body.replace(/<\/body>/i, inject + "</body>");
+  }
 
   return new Response(body, { status: resp.status, headers: newHeaders });
 }
 
-export default {
-  async fetch(request) {
-    return handle(request);
-  },
-};
-
-// optional explicit /iframe route for compatibility
-export const iframe = {
-  async fetch(request) {
-    return handle(request);
-  },
-};
+export default { fetch: handle };
+export const iframe = { fetch: handle };

@@ -1,13 +1,13 @@
 
 # =========================
-# ENVY v10.1 — UI 스페이싱 & 번역 높이
+# ENVY v10.2 — 사이드바 복구 / 상품명 생성기 복귀 / 자잘 버그
 # =========================
 import streamlit as st
 import requests, pandas as pd, json, urllib.parse, time, base64, re, hashlib
 from bs4 import BeautifulSoup
 from pathlib import Path
 
-st.set_page_config(page_title="ENVY v10.1", page_icon="✨", layout="wide")
+st.set_page_config(page_title="ENVY v10.2", page_icon="✨", layout="wide")
 
 # -------------------------
 # Common / Proxy / Headers
@@ -17,13 +17,9 @@ PROXY_URL = "https://envy-proxy.taesig0302.workers.dev"  # Cloudflare Worker URL
 def has_proxy() -> bool:
     return isinstance(PROXY_URL, str) and PROXY_URL.strip() != ""
 
-def proxyify(target: str, mode: str = "iframe") -> str:
-    # /iframe 또는 루트 모두 허용
-    base = PROXY_URL.rstrip("/")
-    return f"{base}/{mode}?target={urllib.parse.quote(target, safe='')}"
-
 def iframe_url(target: str) -> str:
-    return proxyify(target, "iframe")
+    base = PROXY_URL.rstrip("/")
+    return f"{base}/iframe?target={urllib.parse.quote(target, safe='')}"
 
 MOBILE_HEADERS = {
     "user-agent": ("Mozilla/5.0 (Linux; Android 13; Pixel 7) "
@@ -75,7 +71,7 @@ def inject_css():
       [data-testid="stMarkdownContainer"] h3 {{ display:block !important; line-height:1.3 !important; margin:.25rem 0 .5rem 0 !important; }}
       [data-testid="stVerticalBlock"] {{ overflow: visible !important; }}
 
-      /* 최상단 섹션 20% 아래로 밀기 */
+      /* 최상단 섹션 20% 아래로 스페이서 */
       .top-spacer {{ height: 20vh; }}
     </style>
     ''', unsafe_allow_html=True)
@@ -126,7 +122,7 @@ def render_sidebar():
             st.text_input("Cookie (선택, 브라우저에서 복사)", value="", key="hdr_cookie", type="password")
 
 # -------------------------
-# DataLab — Rank/Trend (동일)
+# DataLab — Rank/Trend
 # -------------------------
 DATALAB_RANK_API = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordRank.naver"
 TOP_CID = {
@@ -141,22 +137,31 @@ def datalab_rank_fetch(cid: str, start_date: str, end_date: str, count: int = 50
     headers = dict(MOBILE_HEADERS)
     if referer: headers["referer"] = referer
     if cookie:  headers["cookie"]  = cookie
+    # 시도 1: GET
     try:
         r = requests.get(DATALAB_RANK_API, params=params, headers=headers, timeout=12); r.raise_for_status(); text = r.text
     except Exception:
+        r = None
+    # 시도 2: POST
+    if r is None or r.status_code >= 400:
         try:
             r = requests.post(DATALAB_RANK_API, data=params, headers=headers, timeout=12); r.raise_for_status(); text = r.text
         except Exception:
             return pd.DataFrame([{"rank":1,"keyword":"데이터 없음","score":0}])
     rows = []
+    # JSON 파싱
     try:
         data = r.json(); rows = data.get("ranks") or data.get("data") or data.get("result") or []
     except Exception:
-        m = re.search(r'\{\s*"(?:ranks|data|result)"\s*:\s*\[.*?\]\s*\}', text, flags=re.S)
-        if m:
-            try:
-                data = json.loads(m.group(0)); rows = data.get("ranks") or data.get("data") or data.get("result") or []
-            except Exception: rows = []
+        # HTML 휴리스틱
+        soup = BeautifulSoup(text, "html.parser")
+        words = [el.get_text(" ", strip=True) for el in soup.select("a, span, li") if 1 < len(el.get_text("",strip=True)) <= 20]
+        words = [w for w in words if re.search(r"[가-힣A-Za-z0-9]", w)]
+        words = list(dict.fromkeys(words))[:count]
+        if words:
+            return pd.DataFrame([{"rank":i+1,"keyword":w,"score":max(1,100-i*3)} for i,w in enumerate(words)])
+        else:
+            return pd.DataFrame([{"rank":1,"keyword":"데이터 없음","score":0}])
     if not rows: return pd.DataFrame([{"rank":1,"keyword":"데이터 없음","score":0}])
     def pick_score(it):
         for k in ["ratio","value","score","ratioValue","weight","point","pct","percent"]:
@@ -178,21 +183,21 @@ def datalab_rank_fetch(cid: str, start_date: str, end_date: str, count: int = 50
 
 def render_datalab_rank_block():
     st.markdown("### 데이터랩 (대분류 12종 전용)")
-    cat = st.selectbox("카테고리", list(TOP_CID.keys()), index=3); cid = TOP_CID[cat]
+    cat = st.selectbox("카테고리", list(TOP_CID.keys()), index=3, key="rank_cat"); cid = TOP_CID[cat]
     today = pd.Timestamp.today().normalize()
     c1, c2, c3 = st.columns([1,1,1])
-    with c1: count = st.number_input("개수", min_value=10, max_value=100, value=20, step=1)
-    with c2: start = st.date_input("시작일", today - pd.Timedelta(days=365))
-    with c3: end   = st.date_input("종료일", today)
-    if st.button("갱신", type="primary"): st.cache_data.clear()
+    with c1: count = st.number_input("개수", min_value=10, max_value=100, value=20, step=1, key="rank_cnt")
+    with c2: start = st.date_input("시작일", today - pd.Timedelta(days=365), key="rank_start")
+    with c3: end   = st.date_input("종료일", today, key="rank_end")
+    if st.button("갱신", type="primary", key="rank_refresh"): st.cache_data.clear()
     ref = st.session_state.get("hdr_referer",""); cki = st.session_state.get("hdr_cookie","")
     df = datalab_rank_fetch(cid, str(start), str(end), int(count), referer=ref, cookie=cki)
     st.dataframe(df, use_container_width=True, hide_index=True)
     chart_df = df[["rank","score"]].set_index("rank").sort_index(); st.line_chart(chart_df, height=220)
-    st.session_state["last_rank_keywords"] = df["keyword"].head(5).tolist()
+    st.session_state["last_rank_keywords"] = [k for k in df["keyword"].head(5).tolist() if k != "데이터 없음"]
     st.caption(f"선택 카테고리: **{cat}** (cid={cid})")
 
-# Trend
+# Trend (동일)
 DATALAB_TREND_API = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordTrend.naver"
 def _range_from_preset(preset: str):
     today = pd.Timestamp.today().normalize()
@@ -205,9 +210,7 @@ def _range_from_preset(preset: str):
 @st.cache_data(ttl=300, show_spinner=False)
 def datalab_trend_fetch(cid: str, keywords: list, preset: str, device: str, referer: str = "", cookie: str = ""):
     start, end = _range_from_preset(preset)
-    if preset == "1년": time_unit = "week"
-    elif preset in ("1개월","3개월"): time_unit = "week"
-    else: time_unit = "date"
+    time_unit = "week" if preset in ("1년","1개월","3개월") else "date"
     params = {"cid": cid, "startDate": str(start.date()), "endDate": str(end.date()),
               "timeUnit": time_unit, "device": device, "keywords": ",".join(keywords[:5])}
     headers = dict(MOBILE_HEADERS)
@@ -266,13 +269,13 @@ def render_datalab_trend_block():
     st.line_chart(chart_df, height=260); st.dataframe(df_sorted.head(120), use_container_width=True, hide_index=True)
 
 # -------------------------
-# 11번가 / Rakuten / ItemScout / SellerLife / Translate
+# 11번가 / Rakuten / ItemScout / SellerLife / Translate / NameGen
 # -------------------------
 ELEVEN_URL = "https://m.11st.co.kr/browsing/bestSellers.mall"
 def render_elevenst_block():
     st.markdown("### 11번가 (모바일)")
     url = st.text_input("모바일 URL", value=ELEVEN_URL, label_visibility="collapsed", key="eleven_url")
-    h = st.slider("뷰 높이", 360, 900, 560, key="eleven_h")  # 기본값 더 낮춤
+    h = st.slider("뷰 높이", 360, 900, 560, key="eleven_h")
     try:
         if has_proxy():
             st.caption("프록시 iFrame (권장)")
@@ -363,36 +366,46 @@ def render_google_translate_block():
     params = { "sl": sl, "tl": tl, "op": "translate" }
     if seed.strip(): params["text"] = seed.strip()
     url = base + "?" + urllib.parse.urlencode(params, safe="")
-    h = st.slider("번역 뷰 높이", 240, 720, 320, key="gt_h")  # 절반으로 기본값 축소
+    h = st.slider("번역 뷰 높이", 240, 720, 320, key="gt_h")
     if has_proxy(): st.components.v1.iframe(iframe_url(url), height=h, scrolling=True)
     else: st.warning("PROXY_URL 설정 필요 (Cloudflare Worker). 현재 직접 iFrame은 차단될 수 있습니다.")
+
+def render_namegen_block():
+    st.markdown("### 상품명 생성기 (규칙 기반)")
+    brand = st.text_input("브랜드", value="envy", key="namegen_brand")
+    base_kw = st.text_input("베이스 키워드", value="K-coffee mix", key="namegen_base")
+    rel_kw = st.text_input("연관키워드(콤마)", value="Maxim, Kanu, Korea", key="namegen_rel")
+    limit = st.slider("글자수 제한", 20, 80, 80, key="namegen_limit")
+    if st.button("제목 5개 생성", key="namegen_go"):
+        kws = [k.strip() for k in rel_kw.split(",") if k.strip()]
+        outs = [f"{brand} {base_kw} {k}"[:limit] for k in kws[:5]]
+        st.text_area("생성 결과", "\n".join(outs), height=200)
 
 # -------------------------
 # Layout
 # -------------------------
 def main():
-    init_theme_state(); inject_css()
+    init_theme_state(); inject_css(); render_sidebar()   # ← 사이드바 복구
 
-    # 상단 20% 스페이서
     st.markdown('<div class="top-spacer"></div>', unsafe_allow_html=True)
 
-    # Top row
     top1, top2 = st.columns([1,1])
     with top1: render_datalab_rank_block()
     with top2: render_datalab_trend_block()
 
-    # Middle row
     mid1, mid2 = st.columns([1,1])
     with mid1: render_elevenst_block()
     with mid2: render_rakuten_block()
 
-    # Bottom row
     bot1, bot2 = st.columns([1,1])
     with bot1: render_itemscout_block()
     with bot2: render_sellerlife_block()
 
     st.divider()
     render_google_translate_block()
+
+    st.divider()
+    render_namegen_block()  # ← 상품명 생성기 복귀
 
 if __name__ == "__main__":
     main()
