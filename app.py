@@ -135,58 +135,57 @@ def render_sidebar():
             st.text_input("Cookie (선택, 브라우저에서 복사)", value="", key="hdr_cookie", type="password")
 
 # =========================
-# Part 2 — 데이터랩 (CID 매핑 강화 + 안정 패치)
+# Part 2 — 데이터랩 (대분류 12종 전용 + 점수 매핑 보강)
 # =========================
 DATALAB_API = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordRank.naver"
 
-CID_TABLE = [
-    ("디지털/가전 > 노트북", "50000151"),
-    ("디지털/가전 > 데스크탑", "50000152"),
-    ("디지털/가전 > 태블릿", "50000156"),
-    ("디지털/가전 > 모니터", "50000153"),
-    ("디지털/가전 > 키보드", "50000154"),
-    ("디지털/가전 > 마우스", "50000155"),
-    ("식품 > 커피", "50000247"),
-    ("식품 > 커피믹스", "50000249"),
-    ("식품 > 원두커피", "50000248"),
-    ("식품 > 차(Tea)", "50000251"),
-    ("식품 > 스낵/쿠키", "50000202"),
-    ("식품 > 초콜릿/캔디", "50000206"),
-    ("생활/건강 > 세탁세제", "50000331"),
-    ("생활/건강 > 바디케어", "50000306"),
-    ("생활/건강 > 헤어케어", "50000312"),
-    ("뷰티 > 스킨케어", "50000412"),
-    ("뷰티 > 메이크업", "50000408"),
-    ("반려동물 > 간식", "50000820"),
-    ("반려동물 > 배변/위생", "50000825"),
-    ("도서/취미 > 문학", "50000523"),
-    ("도서/취미 > 취미/게임", "50000531"),
-    ("기타(직접 입력)", ""),
-]
-
-def guess_cid_from_text(s: str) -> str:
-    if not s: return ""
-    m = re.search(r"[?&]cid=([0-9A-Za-z\-_%]+)", s)
-    if m: return urllib.parse.unquote(m.group(1))
-    m2 = re.search(r"(?:^|\s)([0-9]{5,}(?:-[A-Za-z0-9]+)?)", s)
-    return m2.group(1) if m2 else ""
+# 네이버 쇼핑인사이트 대분류 CID (12종)
+TOP_CID = {
+    "패션의류": "50000000",
+    "패션잡화": "50000001",
+    "화장품/미용": "50000002",
+    "디지털/가전": "50000003",
+    "가구/인테리어": "50000004",
+    "출산/육아": "50000005",
+    "식품": "50000006",
+    "스포츠/레저": "50000007",
+    "생활/건강": "50000008",
+    "여가/생활편의": "50000009",
+    "면세점": "50000010",
+    "도서": "50005542",  # 도서는 내부 코드가 다를 수 있어 필요시 네트워크 값으로 교체
+}
 
 @st.cache_data(ttl=300)
-def datalab_fetch(cid: str, start_date: str, end_date: str, count: int = 50, referer: str = "", cookie: str = "") -> pd.DataFrame:
-    params = {"cid": cid, "timeUnit": "date", "startDate": start_date, "endDate": end_date, "page": 1, "count": count}
+def datalab_fetch(cid: str, start_date: str, end_date: str, count: int = 50,
+                  referer: str = "", cookie: str = "") -> pd.DataFrame:
+    """
+    데이터랩 카테고리 키워드 랭킹 호출.
+    - JSON 응답 우선 / 스크립트 내 JSON 스니핑 보조 / HTML 휴리스틱 최후 폴백
+    - score 필드 매핑을 다각화(변경 대응)
+    """
+    params = {
+        "cid": cid,
+        "timeUnit": "date",
+        "startDate": start_date,
+        "endDate": end_date,
+        "page": 1,
+        "count": count,
+    }
     headers = dict(MOBILE_HEADERS)
     if referer: headers["referer"] = referer
     if cookie:  headers["cookie"]  = cookie
 
     r = requests.get(DATALAB_API, params=params, headers=headers, timeout=12)
     r.raise_for_status()
-
     text = r.text
+
+    # 1) JSON 바로 파싱
+    rows = []
     try:
         data = r.json()
         rows = data.get("ranks") or data.get("data") or data.get("result") or []
     except Exception:
-        rows = []
+        # 2) 스크립트 내 JSON 스니핑
         m = re.search(r'\{\s*"(?:ranks|data|result)"\s*:\s*\[.*?\]\s*\}', text, flags=re.S)
         if m:
             try:
@@ -194,77 +193,88 @@ def datalab_fetch(cid: str, start_date: str, end_date: str, count: int = 50, ref
                 rows = data.get("ranks") or data.get("data") or data.get("result") or []
             except Exception:
                 rows = []
-        if not rows:
-            soup = BeautifulSoup(text, "html.parser")
-            words = []
-            for el in soup.select("a, span, li"):
-                t = (el.get_text(" ", strip=True) or "").strip()
-                if 1 < len(t) <= 40:
-                    words.append(t)
-                if len(words) >= count:
-                    break
-            if not words:
-                words = ["맥심 커피믹스","카누 미니","원두 1kg","드립백","스타벅스 다크"][:count]
-            df = pd.DataFrame([{"rank": i+1, "keyword": w, "score": max(1, 100 - i*3)} for i, w in enumerate(words)])
-            return df
+
+    # 3) 최후: HTML 휴리스틱
+    if not rows:
+        soup = BeautifulSoup(text, "html.parser")
+        words = []
+        for el in soup.select("a, span, li"):
+            t = (el.get_text(" ", strip=True) or "").strip()
+            if 1 < len(t) <= 40:
+                words.append(t)
+            if len(words) >= count:
+                break
+        if not words:
+            words = ["인기검색어1","인기검색어2","인기검색어3","인기검색어4","인기검색어5"][:count]
+        df = pd.DataFrame([{"rank": i+1, "keyword": w, "score": max(1, 100 - i*3)} for i, w in enumerate(words)])
+        return df
+
+    # 4) 표 생성 + 점수 매핑(필드 변화 대응 강화)
+    def pick_score(it):
+        # 가능한 키 후보들을 넓게 탐색
+        candidates = [
+            "ratio", "value", "score", "ratioValue", "ratio_score", "ratio_value",
+            "weight", "point", "pct", "percent"
+        ]
+        for k in candidates:
+            if k in it and it[k] is not None:
+                return it[k]
+        # 숫자 형태 문자열이면 파싱
+        for k in candidates:
+            v = it.get(k)
+            if isinstance(v, str):
+                m = re.search(r"-?\d+(\.\d+)?", v)
+                if m: return float(m.group(0))
+        return None
 
     out = []
     for i, it in enumerate(rows, start=1):
         kw = (it.get("keyword") or it.get("name") or "").strip()
-        score = it.get("ratio") or it.get("value") or it.get("score")
-        out.append({"rank": i, "keyword": kw, "score": score if score is not None else 0})
+        sc = pick_score(it)
+        out.append({"rank": i, "keyword": kw, "score": sc})
     df = pd.DataFrame(out)
 
-    if df.empty or "score" not in df.columns or df["score"].isna().all():
-        n = max(1, len(df)) if not df.empty else 20
-        if df.empty:
-            df = pd.DataFrame([{"rank":i+1, "keyword":f"키워드 {i+1}"} for i in range(n)])
-        df["score"] = [max(1, int(100 - i*(100/max(1, n-1)))) for i in range(len(df))]
+    # 5) score 누락 시 의사 점수 부여(그래프 살리기)
+    if df.empty:
+        return df
+    if "score" not in df.columns or df["score"].isna().all():
+        n = len(df)
+        df["score"] = [max(1, int(100 - i*(100/max(1, n-1)))) for i in range(n)]
     return df
 
+
 def render_datalab_block():
-    st.subheader("데이터랩 (CID 매핑 강화)")
+    st.subheader("데이터랩 (대분류 12종 전용)")
 
-    c1, c2 = st.columns([1.2, 1])
+    # 네가 요청한 12종만 선택
+    cat = st.selectbox("카테고리", list(TOP_CID.keys()), index=3)  # 기본: 디지털/가전
+    cid = TOP_CID[cat]
+
+    # 기간/개수
+    today = pd.Timestamp.today().normalize()
+    c1, c2, c3 = st.columns([1,1,1])
     with c1:
-        query = st.text_input("카테고리 검색 또는 URL/텍스트 붙여넣기 → 자동 cid 추출", value="")
+        count = st.number_input("개수", min_value=10, max_value=100, value=50, step=1)
     with c2:
-        extracted = guess_cid_from_text(query)
-        st.text_input("자동 추출 cid", value=extracted, key="cid_auto")
+        start = st.date_input("시작일", today - pd.Timedelta(days=30))
+    with c3:
+        end   = st.date_input("종료일", today)
 
-    labels = [name for name, _ in CID_TABLE]
-    sel_label = st.selectbox("카테고리(선택) — 필요시 직접 cid 입력", labels, index=0, key="dl_map")
-    mapped_cid = dict(CID_TABLE).get(sel_label, "")
-
-    cid_val = extracted or mapped_cid
-    cid = st.text_input("실제 cid", value=cid_val or "50000249", key="dl_cid")
-
-    left, right = st.columns([1,1])
-    with right:
-        today = pd.Timestamp.today().normalize()
-        start = st.date_input("시작일 (YYYY-MM-DD)", today - pd.Timedelta(days=30), key="dl_start")
-        end   = st.date_input("종료일 (YYYY-MM-DD)", today, key="dl_end")
-    with left:
-        count = st.number_input("개수", min_value=10, max_value=100, value=50, step=1, key="dl_cnt")
-        if st.button("갱신", key="dl_refresh"):
-            st.cache_data.clear()
-
-    ref = st.session_state.get("hdr_referer","")
+    # 안정화 옵션(사이드바 고급 설정과 공유)
+    ref = st.session_state.get("hdr_referer","https://datalab.naver.com/shoppingInsight/sCategory.naver")
     cki = st.session_state.get("hdr_cookie","")
+
+    if st.button("갱신", type="primary"):
+        st.cache_data.clear()
+
     try:
-        df = datalab_fetch(str(cid), str(start), str(end), int(count), referer=ref, cookie=cki)
+        df = datalab_fetch(cid, str(start), str(end), int(count), referer=ref, cookie=cki)
         st.dataframe(df[["rank","keyword","score"]], use_container_width=True, hide_index=True)
         chart_df = df[["rank","score"]].set_index("rank").sort_index()
         st.line_chart(chart_df, height=220)
-
-        if cid and cid not in st.session_state["recent_cids"]:
-            st.session_state["recent_cids"] = ([cid] + st.session_state["recent_cids"])[:8]
-        if st.session_state["recent_cids"]:
-            st.caption("최근 사용 cid: " + ", ".join(st.session_state["recent_cids"]))
+        st.caption(f"선택 카테고리: **{cat}** (cid={cid})")
     except Exception as e:
         st.error(f"DataLab 호출 실패: {type(e).__name__}: {e}")
-        with st.expander("대체 방법(HTML 스냅/휴리스틱)"):
-            st.write("일시적으로 JSON 응답이 막히면 HTML에서 키워드를 추출해 표시합니다.")
 
 # =========================
 # Part 3 — 아이템스카우트 (placeholder)
