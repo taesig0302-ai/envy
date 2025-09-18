@@ -73,8 +73,46 @@ def inject_css():
       /* 라벨/부제 */
       [data-testid="stSidebar"] [data-testid="stWidgetLabel"] > div, 
       [data-testid="stSidebar"] label p {{
-        font-size: .88re
+        font-size: .88rem !important;
+        margin-bottom: .15rem !important;
+      }}
 
+      /* 인풋/셀렉트/넘버 입력 박스 높이 축소 */
+      [data-baseweb="input"] input, 
+      .stNumberInput input, 
+      [data-baseweb="select"] div[role="combobox"] {{
+        font-size: .9rem !important;
+        height: 1.7rem !important;
+        padding-top: .18rem !important; padding-bottom: .18rem !important;
+      }}
+
+      /* 버튼도 살짝 축소 */
+      button[kind="secondary"], button[kind="primary"] {{
+        padding: .22rem .5rem !important;
+        font-size: .9rem !important;
+      }}
+
+      /* 라디오/토글 간격 */
+      [data-testid="stSidebar"] [role="radiogroup"] > label {{
+        margin-right: .45rem !important;
+      }}
+
+      /* 원형 로고 더 컴팩트 */
+      .logo-circle {{
+        width: 80px; height: 80px; border-radius: 50%;
+        overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,.15);
+        margin: .15rem 0 .35rem 0; border: 1px solid rgba(0,0,0,.06);
+      }}
+      .logo-circle img {{width:100%; height:100%; object-fit:cover; display:block;}}
+
+      /* ===== 컬러 박스(배지) 복원 ===== */
+      .badge-green {{background:#e6ffcc; border:1px solid #b6f3a4; 
+        padding:6px 10px; border-radius:6px; color:#0b2e13; font-size:.9rem;}}
+      .badge-blue  {{background:#e6f0ff; border:1px solid #b7ccff; 
+        padding:6px 10px; border-radius:6px; color:#0b1e4a; font-size:.9rem;}}
+      .note-small  {{color:#8aa0b5; font-size:11px;}}
+    </style>
+    """, unsafe_allow_html=True)
 # ============================================
 # Part 1 — 사이드바  (REPLACE)
 # ============================================
