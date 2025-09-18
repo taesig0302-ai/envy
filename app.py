@@ -1,5 +1,5 @@
 # ============================================
-# Part 0 — 공통 유틸 & 테마  (PATCHED)
+# Part 0 — 공통 유틸 & 테마  (PATCH A)
 # ============================================
 import streamlit as st
 import requests, pandas as pd, re, json, urllib.parse
@@ -8,11 +8,14 @@ from pathlib import Path
 
 st.set_page_config(page_title="ENVY v8", page_icon="✨", layout="wide")
 
-# ---- (선택) 프록시: X-Frame-Options 우회용 Cloudflare Worker
-PROXY_URL = ""   # 예: "https://<your-worker>.workers.dev"  (비우면 임베드 버튼 비활성화)
+# ---- (선택) 프록시: Cloudflare Worker (X-Frame/CSP 우회)
+PROXY_URL = ""  # 예: "https://your-worker.workers.dev"  (비워도 앱 동작)
+
+def has_proxy() -> bool:
+    return isinstance(PROXY_URL, str) and PROXY_URL.strip() != ""
 
 def iframe_url(target: str) -> str:
-    if not PROXY_URL:
+    if not has_proxy():
         return ""
     return f"{PROXY_URL}/iframe?target={urllib.parse.quote(target, safe='')}"
 
@@ -45,9 +48,16 @@ def inject_css():
       html, body, [data-testid="stAppViewContainer"] {{
         background-color:{bg} !important; color:{fg} !important;
       }}
-      /* 상단 여백 약간 증가 */
-      .block-container{{padding-top:1.0rem; padding-bottom:.6rem;}}
-      /* 사이드바 여백 살짝 */
+
+      /* 섹션 카드를 더 아래로 (헤더 겹침 방지) */
+      .block-container{{padding-top:2.4rem; padding-bottom:.9rem;}}
+
+      /* 제목 보정: 상단 여백 추가 */
+      h1, h2, [data-testid="stHeader"] + div h2 {{
+        margin-top: .35rem !important;
+      }}
+
+      /* 사이드바 여백/락 */
       [data-testid="stSidebar"] section{{padding-top:.6rem; padding-bottom:.6rem; height:100vh; overflow:hidden;}}
       [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none;}}
 
@@ -56,20 +66,17 @@ def inject_css():
       .badge-blue  {{background:#e6f0ff; border:1px solid #b7ccff; padding:8px 12px; border-radius:6px; color:#0b1e4a;}}
       .note-small  {{color:#8aa0b5; font-size:12px;}}
 
-      /* 원형 로고 컨테이너 */
+      /* 원형 로고 */
       .logo-circle {{
         width: 120px; height: 120px; border-radius: 50%;
         overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.15);
         margin-bottom:.5rem; border: 1px solid rgba(0,0,0,.06);
       }}
-      .logo-circle img {{
-        width:100%; height:100%; object-fit:cover;
-        display:block;
-      }}
+      .logo-circle img {{width:100%; height:100%; object-fit:cover; display:block;}}
     </style>
     """, unsafe_allow_html=True)
 # ============================================
-# Part 1 — 사이드바 (PATCHED)
+# Part 1 — 사이드바  (PATCH B)
 # ============================================
 def render_sidebar():
     with st.sidebar:
@@ -80,8 +87,8 @@ def render_sidebar():
         else:
             st.warning("logo.png 를 앱 파일과 같은 폴더에 두면 사이드바에 표시됩니다.")
 
-        # 다크/라이트 토글
-        st.toggle("다크 모드", value=(st.session_state["theme"] == "dark"), on_change=toggle_theme)
+        # 🌓 다크 모드 토글
+        st.toggle("🌓 다크 모드", value=(st.session_state["theme"] == "dark"), on_change=toggle_theme)
 
         # 환율 계산기
         st.markdown("### ① 환율 계산기")
@@ -112,15 +119,15 @@ def render_sidebar():
         st.markdown(f'<div class="badge-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
         st.warning(f"순이익(마진): {(target_price - base_cost_won):,.2f} 원")
 # ============================================
-# Part 2 — 데이터랩 (PATCHED)
+# Part 2 — 데이터랩  (PATCH C)
 # ============================================
 def fetch_datalab_keywords(max_rows: int = 20) -> pd.DataFrame:
     url = "https://datalab.naver.com/shoppingInsight/sCategory.naver"
-    rows = []
     try:
         r = requests.get(url, headers={**MOBILE_HEADERS, "referer": "https://datalab.naver.com/"}, timeout=10)
         r.raise_for_status()
-    except Exception:
+    except Exception as e:
+        # 네트워크/차단 대비 데모
         return pd.DataFrame([
             {"rank":1,"keyword":"맥심 커피믹스"},
             {"rank":2,"keyword":"카누 미니"},
@@ -128,15 +135,15 @@ def fetch_datalab_keywords(max_rows: int = 20) -> pd.DataFrame:
         ])
 
     soup = BeautifulSoup(r.text, "html.parser")
+    rows = []
 
-    # 1) script JSON 패턴
-    scripts = soup.find_all("script")
-    for s in scripts:
+    # 1) script JSON 스니핑
+    for s in soup.find_all("script"):
         text = s.string or s.text or ""
         m = (re.search(r"__NEXT_DATA__\s*=\s*({[\s\S]*?})\s*;?", text) or
              re.search(r"__INITIAL_STATE__\s*=\s*({[\s\S]*?})\s*;?", text) or
              re.search(r"window\.__DATA__\s*=\s*({[\s\S]*?})\s*;?", text))
-        if not m:
+        if not m: 
             continue
         try:
             data = json.loads(m.group(1))
@@ -146,14 +153,14 @@ def fetch_datalab_keywords(max_rows: int = 20) -> pd.DataFrame:
         def walk(o):
             if isinstance(o, dict):
                 for v in o.values():
-                    found = walk(v)
-                    if found: return found
+                    r = walk(v)
+                    if r: return r
             elif isinstance(o, list):
-                if o and isinstance(o[0], dict) and any(("keyword" in o[0]) or ("name" in o[0]) or ("rank" in o[0]) for _ in [0]):
+                if o and isinstance(o[0], dict) and any(("keyword" in o[0]) or ("name" in o[0]) for _ in [0]):
                     return o
                 for v in o:
-                    found = walk(v)
-                    if found: return found
+                    r = walk(v)
+                    if r: return r
             return None
 
         items = walk(data) or []
@@ -165,22 +172,19 @@ def fetch_datalab_keywords(max_rows: int = 20) -> pd.DataFrame:
         if rows:
             return pd.DataFrame(rows)
 
-    # 2) 텍스트 휴리스틱(간소)
-    texts = []
+    # 2) 휴리스틱
+    uniq=[]
     for el in soup.select("a, li, span"):
         t = (el.get_text(" ", strip=True) or "").strip()
         if 2 <= len(t) <= 40 and any(ch.isalnum() for ch in t):
-            texts.append(re.sub(r"\s+", " ", t))
-    uniq=[]; 
-    for x in texts:
-        if x not in uniq:
-            uniq.append(x)
-        if len(uniq) >= max_rows:
-            break
+            t = re.sub(r"\s+", " ", t)
+            if t not in uniq: 
+                uniq.append(t)
+        if len(uniq) >= max_rows: break
     if uniq:
-        return pd.DataFrame([{"rank":i+1,"keyword":kw} for i,kw in enumerate(uniq)])
+        return pd.DataFrame([{"rank":i+1,"keyword":kw} for i, kw in enumerate(uniq)])
 
-    # 3) demo
+    # 3) 데모
     return pd.DataFrame([
         {"rank":1,"keyword":"맥심 커피믹스"},
         {"rank":2,"keyword":"카누 미니"},
@@ -192,13 +196,16 @@ def render_datalab_block():
     df = fetch_datalab_keywords()
     st.dataframe(df, use_container_width=True, hide_index=True)
 
-    # 선택적 임베드
-    if PROXY_URL:
-        if st.button("데이터랩 화면 열기 (iframe)"):
-            url = "https://datalab.naver.com/shoppingInsight/sCategory.naver"
-            st.components.v1.iframe(iframe_url(url), height=560)
-    else:
-        st.caption("임베드가 필요하면 Part 0의 PROXY_URL을 설정하세요.")
+    colA, colB = st.columns(2)
+    with colA:
+        if st.button("직접 iFrame (실패 가능)"):
+            st.components.v1.iframe("https://datalab.naver.com/shoppingInsight/sCategory.naver", height=560)
+    with colB:
+        if has_proxy():
+            if st.button("프록시 iFrame (권장)"):
+                st.components.v1.iframe(iframe_url("https://datalab.naver.com/shoppingInsight/sCategory.naver"), height=560)
+        else:
+            st.caption("임베드가 필요하면 Part 0의 PROXY_URL을 설정하세요.")
 # ============================================
 # Part 3 — 아이템스카우트 블록 (플레이스홀더)
 # ============================================
@@ -212,7 +219,7 @@ def render_sellerlife_block():
     st.subheader("셀러라이프")
     st.info("연동 대기 (API 키 확보 후 교체)")
 # ============================================
-# Part 5 — 11번가 (PATCHED)
+# Part 5 — 11번가 (PATCH D)
 # ============================================
 def fetch_11st_best(max_rows: int = 50) -> pd.DataFrame:
     url = "https://m.11st.co.kr/browsing/bestSellers.mall"
@@ -225,27 +232,25 @@ def fetch_11st_best(max_rows: int = 50) -> pd.DataFrame:
     soup = BeautifulSoup(r.text, "html.parser")
     rows=[]; i=0
 
-    # 선택자 강화
     selectors = [
-        "li[class*=prd]", "li[class*=product]", "li[class*=item]",
-        "div.c_card", "div.c_prd", "li.c_prd_item"
+        "li.c_prd_item", "div.c_prd", "div.c_card",
+        "li[class*=prd]", "li[class*=product]", "li[class*=item]"
     ]
     for sel in selectors:
         for li in soup.select(sel):
             a = li.select_one("a[href]")
-            title_el = (li.select_one(".name, .title, .prd_name, .c_prd_name, [class*=name], [class*=title]") 
-                        or a)
+            title_el = li.select_one(".name, .title, .prd_name, .c_prd_name, [class*=name], [class*=title]") or a
             price_el = li.select_one(".price, .value, .num, .c_prd_price, [class*=price], [class*=value]")
             title = (title_el.get_text(" ", strip=True) if title_el else "").strip()
             price = (price_el.get_text(" ", strip=True) if price_el else "").strip()
-            if not title:
+            if not title: 
                 continue
             i += 1
             rows.append({"rank": i, "title": title, "price": price})
             if i >= max_rows: break
         if rows: break
 
-    if rows:
+    if rows: 
         return pd.DataFrame(rows)
     return pd.DataFrame([{"rank":1,"title":"empty","price":""}])
 
@@ -254,31 +259,59 @@ def render_elevenst_block():
     df = fetch_11st_best()
     st.dataframe(df, use_container_width=True, hide_index=True)
 
-    if PROXY_URL:
-        if st.button("11번가 화면 열기 (iframe)"):
-            url = "https://m.11st.co.kr/browsing/bestSellers.mall"
-            st.components.v1.iframe(iframe_url(url), height=560)
-    else:
-        st.caption("임베드가 필요하면 Part 0의 PROXY_URL을 설정하세요.")
+    colA, colB = st.columns(2)
+    with colA:
+        if st.button("직접 iFrame (실패 가능)"):
+            st.components.v1.iframe("https://m.11st.co.kr/browsing/bestSellers.mall", height=560)
+    with colB:
+        if has_proxy():
+            if st.button("프록시 iFrame (권장)"):
+                st.components.v1.iframe(iframe_url("https://m.11st.co.kr/browsing/bestSellers.mall"), height=560)
+        else:
+            st.caption("임베드가 필요하면 Part 0의 PROXY_URL을 설정하세요.")
+# ============================================
+# Part 6 — AI 키워드 레이더 (PATCH E)
+# ============================================
+RAKUTEN_DEMO = {
+    "도서/미디어": [
+        "YOUNG OLD 初回盤 Blu-ray",
+        "YOUNG OLD DVD 初回盤 【SixTONES】",
+        "楽天ブックス限定特典",
+        "映画 パンフレット",
+        "アニメ OST"
+    ],
+    "가전/디지털": [
+        "Anker 充電器 65W",
+        "USB-C ケーブル 2m",
+        "Nintendo Switch Pro",
+        "Dyson V12 掃除機",
+        "AirPods ケース"
+    ],
+    "패션/잡화": [
+        "ニューバランス 530",
+        "ナイキ エアフォース1",
+        "カシオ G-SHOCK",
+        "無印良品 トートバッグ",
+        "帽子 キャップ"
+    ],
+}
 
-# ============================================
-# Part 6 — AI 키워드 레이더 블록 (라쿠텐 데모)
-# ============================================
-def fetch_rakuten_demo() -> pd.DataFrame:
-    return pd.DataFrame([
-        {"rank":1,"keyword":"YOUNG OLD 初回盤 Blu-ray","source":"Rakuten JP"},
-        {"rank":2,"keyword":"YOUNG OLD DVD 初回盤 【SixTONES】","source":"Rakuten JP"},
-        {"rank":3,"keyword":"YOUNG OLD Blu-ray 初回盤","source":"Rakuten JP"},
-        {"rank":4,"keyword":"楽天ブックス限定特典","source":"Rakuten JP"},
-        {"rank":5,"keyword":"楽天ブックス ランキング","source":"Rakuten JP"},
-    ])
+def fetch_rakuten_by_category(cat: str) -> pd.DataFrame:
+    items = RAKUTEN_DEMO.get(cat, [])[:10]
+    rows = [{"rank":i+1, "keyword":kw, "source":"Rakuten JP"} for i, kw in enumerate(items)]
+    return pd.DataFrame(rows)
 
 def render_rakuten_block():
     st.subheader("AI 키워드 레이더 (국내/글로벌)")
     mode = st.radio("모드", ["국내","글로벌"], horizontal=True, label_visibility="collapsed")
-    if mode == "국내":
-        st.info("국내는 데이터랩/아이템스카우트/셀러라이프 조합 (현재 DataLab 결과 우선)")
-    st.dataframe(fetch_rakuten_demo(), use_container_width=True, hide_index=True)
+    col1, col2 = st.columns([1,2])
+    with col1:
+        cat = st.selectbox("카테고리", list(RAKUTEN_DEMO.keys()), index=0)
+    with col2:
+        st.caption("※ 현재는 데모 데이터. API 연결 시 카테고리 파라미터만 매핑하면 됩니다.")
+
+    df = fetch_rakuten_by_category(cat)
+    st.dataframe(df, use_container_width=True, hide_index=True)
 # ============================================
 # Part 7 — 상품명 생성기 블록
 # ============================================
