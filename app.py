@@ -39,83 +39,38 @@ def toggle_theme():
     st.session_state["theme"] = "dark" if st.session_state["theme"] == "light" else "light"
 
 def inject_css():
-    if st.session_state.get("theme", "light") == "dark":
-        bg, fg = "#0e1117", "#e6edf3"
-    else:
-        bg, fg = "#ffffff", "#111111"
-
+    ...
     st.markdown(f"""
     <style>
-      html, body, [data-testid="stAppViewContainer"] {{
-        background-color:{bg} !important; color:{fg} !important;
-      }}
+      /* ...기존 CSS 유지... */
 
-      /* 본문 카드 상하 여백만 조정 */
-      .block-container {{
-        padding-top: 2.0rem !important;
-        padding-bottom: .8rem !important;
-      }}
-
-      /* ================= Sidebar ================= */
+      /* 사이드바 고정 + 폰트 살짝 축소 */
       [data-testid="stSidebar"] section {{
-        padding-top: .12rem !important;
-        padding-bottom: .12rem !important;
-        height: 100vh; overflow: hidden;  /* 스크롤락 */
-        font-size: .95rem;
-      }}
-      [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none;}}
-
-      /* 컴포넌트 간 간격 최소화 */
-      [data-testid="stSidebar"] .stSelectbox,
-      [data-testid="stSidebar"] .stNumberInput,
-      [data-testid="stSidebar"] .stRadio,
-      [data-testid="stSidebar"] .stTextInput,
-      [data-testid="stSidebar"] .stSlider,
-      [data-testid="stSidebar"] .stButton,
-      [data-testid="stSidebar"] .stMarkdown {{
-        margin-top: .14rem !important;
-        margin-bottom: .14rem !important;
+        padding-top:.08rem !important;
+        padding-bottom:.08rem !important;
+        height:100vh; overflow:hidden;       /* 스크롤락 */
+        font-size:.92rem;                    /* 한 단계 축소 */
       }}
 
-      /* 제목 줄간격 타이트 */
-      [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {{
-        margin-top: .12rem !important;
-        margin-bottom: .14rem !important;
-        line-height: 1.05rem !important;
+      /* 라디오(퍼센트/더하기) 폰트/간격 축소 */
+      [data-testid="stSidebar"] .stRadio label p {{
+        font-size:.90rem !important;
+        margin:0 .35rem 0 0 !important;
+        line-height:1.15rem !important;
       }}
+      [data-testid="stSidebar"] .stRadio {{ gap:.25rem !important; }}
 
-      /* 입력/셀렉트 높이 살짝 다운 */
+      /* 숫자/셀렉트 높이도 살짝 축소 */
       [data-baseweb="input"] input,
       .stNumberInput input,
       [data-baseweb="select"] div[role="combobox"] {{
-        height: 1.55rem !important;
-        padding-top: .12rem !important; padding-bottom: .12rem !important;
-        font-size: .92rem !important;
+        height:1.45rem !important;
+        padding:.10rem .45rem !important;
+        font-size:.90rem !important;
       }}
 
-      /* 버튼 높이/패딩 소폭 축소 */
-      button[kind="secondary"], button[kind="primary"] {{
-        padding: .18rem .5rem !important;
-        font-size: .92rem !important;
-      }}
-
-      /* 로고 */
-      .logo-circle {{
-        width: 120px; height: 120px; border-radius: 50%;
-        overflow: hidden; margin: .22rem auto .35rem auto;
-        box-shadow: 0 2px 8px rgba(0,0,0,.12);
-        border: 1px solid rgba(0,0,0,.06);
-      }}
-      .logo-circle img {{width:100%; height:100%; object-fit:cover;}}
-
-      /* 배지(얇게) */
-      .badge-green {{background:#e6ffcc; border:1px solid #b6f3a4;
-        padding:4px 8px; border-radius:6px; color:#0b2e13; font-size:.85rem;}}
-      .badge-blue  {{background:#e6f0ff; border:1px solid #b7ccff;
-        padding:4px 8px; border-radius:6px; color:#0b1e4a; font-size:.85rem;}}
-
-      /* 사이드바 컬럼 간 여백도 압축 */
-      [data-testid="stSidebar"] .stColumn > div {{ margin: 0.1rem 0 !important; }}
+      /* 배지 박스도 약간 낮춤 */
+      .badge-green,.badge-blue{{padding:3px 7px; font-size:.84rem;}}
     </style>
     """, unsafe_allow_html=True)
 # ============================================
@@ -154,30 +109,29 @@ def render_sidebar():
         st.caption(f"기준 환율: {FX_DEFAULT.get(base,0):,.2f} ₩ / {base}")
 
         # ================== ② 마진 계산기 ==================
-              # --- 마진 계산기 ---
-        st.markdown("### ② 마진 계산기")
-        m_base = st.selectbox("매입 통화", list(CURRENCY_SYMBOL.keys()), index=0, key="mbase")
-        m_sym  = CURRENCY_SYMBOL.get(m_base, "")
-        purchase_foreign = st.number_input(f"매입금액 (외화 {m_sym})", value=0.00, step=0.01, format="%.2f")
-        base_cost_won = FX_DEFAULT[m_base] * purchase_foreign if purchase_foreign>0 else won
-        st.markdown(f'<div class="badge-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
+             # --- 마진 계산기 ---
+st.markdown("### ② 마진 계산기")
+m_base = st.selectbox("매입 통화", list(CURRENCY_SYMBOL.keys()), index=0, key="mbase")
+m_sym  = CURRENCY_SYMBOL.get(m_base, "")
+purchase_foreign = st.number_input(f"매입금액 ({m_sym})", value=0.00, step=0.01, format="%.2f")
+base_cost_won = FX_DEFAULT[m_base] * purchase_foreign if purchase_foreign>0 else won
+st.markdown(f'<div class="badge-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
 
-        m_rate = st.number_input("카드수수료 (%)", value=4.00, step=0.01, format="%.2f")
-        m_fee  = st.number_input("마켓수수료 (%)", value=14.00, step=0.01, format="%.2f")
-        ship   = st.number_input("배송비 (₩)", value=0.0, step=100.0, format="%.0f")
+m_rate = st.number_input("카드수수료 %", value=4.00, step=0.01, format="%.2f")
+m_fee  = st.number_input("마켓수수료 %", value=14.00, step=0.01, format="%.2f")
+ship   = st.number_input("배송비 (₩)", value=0.0, step=100.0, format="%.0f")
 
-        # 여기부터 변경: 모드별 입력칸 분리
-        mode = st.radio("마진 방식", ["퍼센트 마진(%)", "더하기 마진(₩)"], horizontal=True, key="margin_mode")
+mode = st.radio("마진 방식", ["퍼센트 마진", "더하기 마진"], horizontal=True, key="margin_mode")
 
-        if mode == "퍼센트 마진(%)":
-            margin_pct = st.number_input("마진율 (%)", value=10.00, step=0.01, format="%.2f", key="margin_pct")
-            target_price = base_cost_won * (1 + m_rate/100) * (1 + m_fee/100) * (1 + margin_pct/100) + ship
-        else:
-            margin_won = st.number_input("마진액 (₩)", value=10000.0, step=100.0, format="%.0f", key="margin_won")
-            target_price = base_cost_won * (1 + m_rate/100) * (1 + m_fee/100) + margin_won + ship
+if mode == "퍼센트 마진":
+    margin_pct = st.number_input("마진율 (%)", value=10.00, step=0.01, format="%.2f", key="margin_pct")
+    target_price = base_cost_won * (1 + m_rate/100) * (1 + m_fee/100) * (1 + margin_pct/100) + ship
+else:
+    margin_won = st.number_input("마진액 (₩)", value=10000.0, step=100.0, format="%.0f", key="margin_won")
+    target_price = base_cost_won * (1 + m_rate/100) * (1 + m_fee/100) + margin_won + ship
 
-        st.markdown(f'<div class="badge-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
-        st.warning(f"순이익(마진): {(target_price - base_cost_won):,.2f} 원")
+st.markdown(f'<div class="badge-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
+st.warning(f"순이익(마진): {(target_price - base_cost_won):,.2f} 원")
 # ============================================
 # Part 2 — 데이터랩 (프록시 iFrame 고정, 캐시버스터)
 # ============================================
@@ -220,42 +174,37 @@ def render_sellerlife_block():
     st.subheader("셀러라이프")
     st.info("연동 대기 (API 키 확보 후 교체)")
 # ============================================
-# Part 5 — 11번가 (모바일 화면 iFrame 고정 + 스냅샷 폴백)
+# Part 5 — 11번가 (모바일 화면 임베드 고정)
 # ============================================
-ELEVENST_DEFAULT = "https://m.11st.co.kr/browsing/bestSellers.mall"
+import time, urllib.parse
+
+ELEVEN_URL = "https://m.11st.co.kr/browsing/bestSellers.mall"
+
+def _cache_busted(url: str) -> str:
+    joiner = "&" if "?" in url else "?"
+    return f"{url}{joiner}_={int(time.time())}"
 
 def render_elevenst_block():
     st.subheader("11번가 (모바일)")
 
-    ucol1, ucol2 = st.columns([3,1])
-    with ucol1:
-        url = st.text_input("모바일 URL", value=ELEVENST_DEFAULT, key="e11_url")
-    with ucol2:
-        refresh = st.button("새로고침", key="e11_reload")
+    # 입력 URL(필요 시 바꿔볼 수 있도록)
+    url = st.text_input("모바일 URL", value=ELEVEN_URL, label_visibility="collapsed")
+    col1, col2 = st.columns([1,8])
+    with col1:
+        refresh = st.button("새로고침", use_container_width=True)
 
-    showed = False
-    # 1) 프록시 iFrame (가장 안정적)
-    if has_proxy():
-        try:
+    try:
+        src = _cache_busted(url) if refresh else _cache_busted(url)   # 항상 캐시버스터 부착
+        if has_proxy():
             st.caption("프록시 iFrame (권장)")
-            st.components.v1.iframe(iframe_url(url), height=760, scrolling=True, key=f"e11_iframe_proxy_{refresh}")
-            showed = True
-        except Exception:
-            showed = False
-
-        # 2) 프록시 스냅샷(스크립트 제거본) 폴백
-        if not showed:
-            try:
-                st.caption("프록시 Snapshot 폴백")
-                st.components.v1.iframe(snapshot_url(url), height=760, scrolling=True, key=f"e11_iframe_snap_{refresh}")
-                showed = True
-            except Exception:
-                showed = False
-
-    # 3) 직접 iFrame (PROXY_URL 미설정 또는 모두 실패)
-    if not showed:
-        st.warning("PROXY_URL 미설정이거나 정책에 막혔습니다. 직접 iFrame으로 시도합니다(실패 가능).")
-        st.components.v1.iframe(url, height=760, scrolling=True, key=f"e11_iframe_direct_{refresh}")
+            st.components.v1.iframe(iframe_url(src), height=720, scrolling=True)  # key 없음!
+        else:
+            st.warning("PROXY_URL 미설정이거나 정책에 막힐 수 있어요. 직접 iFrame으로 시도합니다.")
+            st.components.v1.iframe(src, height=720, scrolling=True)              # key 없음!
+    except Exception as e:
+        # 이 블록이 터져도 다른 섹션이 그대로 보이도록 swallow
+        st.error(f"11번가 임베드 실패: {type(e).__name__}: {e}")
+        st.caption("PROXY_URL 설정(Cloudflare Worker) 후 다시 시도하면 대부분 통과합니다.")
 # ============================================
 # Part 6 — AI 키워드 레이더 (Rakuten)  [REPLACE]
 # ============================================
