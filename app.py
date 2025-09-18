@@ -1,12 +1,20 @@
 # ============================================
-# Part 0 — 공통 유틸 & 테마
+# Part 0 — 공통 유틸 & 테마  (PATCHED)
 # ============================================
 import streamlit as st
-import requests, pandas as pd, re, json
+import requests, pandas as pd, re, json, urllib.parse
 from bs4 import BeautifulSoup
 from pathlib import Path
 
 st.set_page_config(page_title="ENVY v8", page_icon="✨", layout="wide")
+
+# ---- (선택) 프록시: X-Frame-Options 우회용 Cloudflare Worker
+PROXY_URL = ""   # 예: "https://<your-worker>.workers.dev"  (비우면 임베드 버튼 비활성화)
+
+def iframe_url(target: str) -> str:
+    if not PROXY_URL:
+        return ""
+    return f"{PROXY_URL}/iframe?target={urllib.parse.quote(target, safe='')}"
 
 # ---- UA / 공통 상수
 MOBILE_HEADERS = {
@@ -16,7 +24,6 @@ MOBILE_HEADERS = {
     "accept-language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
     "cache-control": "no-cache",
 }
-
 CURRENCY_SYMBOL = {"USD":"$", "EUR":"€", "JPY":"¥", "CNY":"元"}
 FX_DEFAULT = {"USD":1400.0, "EUR":1500.0, "JPY":10.0, "CNY":200.0}
 
@@ -38,23 +45,38 @@ def inject_css():
       html, body, [data-testid="stAppViewContainer"] {{
         background-color:{bg} !important; color:{fg} !important;
       }}
-      .block-container{{padding-top:.4rem; padding-bottom:.4rem;}}
-      [data-testid="stSidebar"] section{{padding-top:.4rem; padding-bottom:.4rem; height:100vh; overflow:hidden;}}
+      /* 상단 여백 약간 증가 */
+      .block-container{{padding-top:1.0rem; padding-bottom:.6rem;}}
+      /* 사이드바 여백 살짝 */
+      [data-testid="stSidebar"] section{{padding-top:.6rem; padding-bottom:.6rem; height:100vh; overflow:hidden;}}
       [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none;}}
+
+      /* 뱃지 */
       .badge-green {{background:#e6ffcc; border:1px solid #b6f3a4; padding:8px 12px; border-radius:6px; color:#0b2e13;}}
       .badge-blue  {{background:#e6f0ff; border:1px solid #b7ccff; padding:8px 12px; border-radius:6px; color:#0b1e4a;}}
       .note-small  {{color:#8aa0b5; font-size:12px;}}
+
+      /* 원형 로고 컨테이너 */
+      .logo-circle {{
+        width: 120px; height: 120px; border-radius: 50%;
+        overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.15);
+        margin-bottom:.5rem; border: 1px solid rgba(0,0,0,.06);
+      }}
+      .logo-circle img {{
+        width:100%; height:100%; object-fit:cover;
+        display:block;
+      }}
     </style>
     """, unsafe_allow_html=True)
 # ============================================
-# Part 1 — 사이드바 (로고/다크토글/계산기)
+# Part 1 — 사이드바 (PATCHED)
 # ============================================
 def render_sidebar():
     with st.sidebar:
-        # 로고
+        # 원형 로고
         lp = Path(__file__).parent / "logo.png"
         if lp.exists():
-            st.image(str(lp), width=140)
+            st.markdown(f'<div class="logo-circle"><img src="file://{lp.as_posix()}"></div>', unsafe_allow_html=True)
         else:
             st.warning("logo.png 를 앱 파일과 같은 폴더에 두면 사이드바에 표시됩니다.")
 
@@ -90,7 +112,7 @@ def render_sidebar():
         st.markdown(f'<div class="badge-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
         st.warning(f"순이익(마진): {(target_price - base_cost_won):,.2f} 원")
 # ============================================
-# Part 2 — 데이터랩 블록 (크롤링)
+# Part 2 — 데이터랩 (PATCHED)
 # ============================================
 def fetch_datalab_keywords(max_rows: int = 20) -> pd.DataFrame:
     url = "https://datalab.naver.com/shoppingInsight/sCategory.naver"
@@ -107,7 +129,7 @@ def fetch_datalab_keywords(max_rows: int = 20) -> pd.DataFrame:
 
     soup = BeautifulSoup(r.text, "html.parser")
 
-    # 1) <script> 내부 JSON(__NEXT_DATA__/__INITIAL_STATE__/window.__DATA__) 탐색
+    # 1) script JSON 패턴
     scripts = soup.find_all("script")
     for s in scripts:
         text = s.string or s.text or ""
@@ -143,20 +165,20 @@ def fetch_datalab_keywords(max_rows: int = 20) -> pd.DataFrame:
         if rows:
             return pd.DataFrame(rows)
 
-    # 2) 텍스트 휴리스틱
+    # 2) 텍스트 휴리스틱(간소)
     texts = []
-    for el in soup.select("li, a, span, div"):
+    for el in soup.select("a, li, span"):
         t = (el.get_text(" ", strip=True) or "").strip()
-        if len(t) >= 2 and any(ch.isalnum() for ch in t):
+        if 2 <= len(t) <= 40 and any(ch.isalnum() for ch in t):
             texts.append(re.sub(r"\s+", " ", t))
-    uniq = []
+    uniq=[]; 
     for x in texts:
         if x not in uniq:
             uniq.append(x)
         if len(uniq) >= max_rows:
             break
     if uniq:
-        return pd.DataFrame([{"rank":i+1, "keyword":kw} for i, kw in enumerate(uniq)])
+        return pd.DataFrame([{"rank":i+1,"keyword":kw} for i,kw in enumerate(uniq)])
 
     # 3) demo
     return pd.DataFrame([
@@ -169,6 +191,14 @@ def render_datalab_block():
     st.subheader("데이터랩")
     df = fetch_datalab_keywords()
     st.dataframe(df, use_container_width=True, hide_index=True)
+
+    # 선택적 임베드
+    if PROXY_URL:
+        if st.button("데이터랩 화면 열기 (iframe)"):
+            url = "https://datalab.naver.com/shoppingInsight/sCategory.naver"
+            st.components.v1.iframe(iframe_url(url), height=560)
+    else:
+        st.caption("임베드가 필요하면 Part 0의 PROXY_URL을 설정하세요.")
 # ============================================
 # Part 3 — 아이템스카우트 블록 (플레이스홀더)
 # ============================================
@@ -182,7 +212,7 @@ def render_sellerlife_block():
     st.subheader("셀러라이프")
     st.info("연동 대기 (API 키 확보 후 교체)")
 # ============================================
-# Part 5 — 11번가 블록 (모바일 크롤링)
+# Part 5 — 11번가 (PATCHED)
 # ============================================
 def fetch_11st_best(max_rows: int = 50) -> pd.DataFrame:
     url = "https://m.11st.co.kr/browsing/bestSellers.mall"
@@ -195,17 +225,25 @@ def fetch_11st_best(max_rows: int = 50) -> pd.DataFrame:
     soup = BeautifulSoup(r.text, "html.parser")
     rows=[]; i=0
 
-    for li in soup.select("li[class*=prd], li[class*=product], li[class*=item]"):
-        a = li.select_one("a[href]")
-        title_el = li.select_one(".name, .title, .prd_name, [class*=name], [class*=title]") or a
-        price_el = li.select_one(".price, .value, .num, [class*=price], [class*=value]")
-        title = (title_el.get_text(" ", strip=True) if title_el else "").strip()
-        price = (price_el.get_text(" ", strip=True) if price_el else "").strip()
-        if not title:
-            continue
-        i += 1
-        rows.append({"rank": i, "title": title, "price": price})
-        if i >= max_rows: break
+    # 선택자 강화
+    selectors = [
+        "li[class*=prd]", "li[class*=product]", "li[class*=item]",
+        "div.c_card", "div.c_prd", "li.c_prd_item"
+    ]
+    for sel in selectors:
+        for li in soup.select(sel):
+            a = li.select_one("a[href]")
+            title_el = (li.select_one(".name, .title, .prd_name, .c_prd_name, [class*=name], [class*=title]") 
+                        or a)
+            price_el = li.select_one(".price, .value, .num, .c_prd_price, [class*=price], [class*=value]")
+            title = (title_el.get_text(" ", strip=True) if title_el else "").strip()
+            price = (price_el.get_text(" ", strip=True) if price_el else "").strip()
+            if not title:
+                continue
+            i += 1
+            rows.append({"rank": i, "title": title, "price": price})
+            if i >= max_rows: break
+        if rows: break
 
     if rows:
         return pd.DataFrame(rows)
@@ -215,6 +253,14 @@ def render_elevenst_block():
     st.subheader("11번가 (모바일)")
     df = fetch_11st_best()
     st.dataframe(df, use_container_width=True, hide_index=True)
+
+    if PROXY_URL:
+        if st.button("11번가 화면 열기 (iframe)"):
+            url = "https://m.11st.co.kr/browsing/bestSellers.mall"
+            st.components.v1.iframe(iframe_url(url), height=560)
+    else:
+        st.caption("임베드가 필요하면 Part 0의 PROXY_URL을 설정하세요.")
+
 # ============================================
 # Part 6 — AI 키워드 레이더 블록 (라쿠텐 데모)
 # ============================================
