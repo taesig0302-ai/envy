@@ -1,26 +1,29 @@
 
 # =========================
-# ENVY v10 — 안정화 완전체
+# ENVY v10.1 — UI 스페이싱 & 번역 높이
 # =========================
 import streamlit as st
 import requests, pandas as pd, json, urllib.parse, time, base64, re, hashlib
 from bs4 import BeautifulSoup
 from pathlib import Path
 
-st.set_page_config(page_title="ENVY v10", page_icon="✨", layout="wide")
+st.set_page_config(page_title="ENVY v10.1", page_icon="✨", layout="wide")
 
 # -------------------------
 # Common / Proxy / Headers
 # -------------------------
-PROXY_URL = "https://envy-proxy.taesig0302.workers.dev"  # Cloudflare Worker URL (배포된 주소)
+PROXY_URL = "https://envy-proxy.taesig0302.workers.dev"  # Cloudflare Worker URL
 
 def has_proxy() -> bool:
     return isinstance(PROXY_URL, str) and PROXY_URL.strip() != ""
 
+def proxyify(target: str, mode: str = "iframe") -> str:
+    # /iframe 또는 루트 모두 허용
+    base = PROXY_URL.rstrip("/")
+    return f"{base}/{mode}?target={urllib.parse.quote(target, safe='')}"
+
 def iframe_url(target: str) -> str:
-    if not has_proxy():
-        return target
-    return f"{PROXY_URL}/iframe?target={urllib.parse.quote(target, safe='')}"
+    return proxyify(target, "iframe")
 
 MOBILE_HEADERS = {
     "user-agent": ("Mozilla/5.0 (Linux; Android 13; Pixel 7) "
@@ -67,11 +70,13 @@ def inject_css():
       .badge-yellow {{ background:#fff7d6; border:1px solid #f1d27a; padding:6px 10px; border-radius:6px; color:#4a3b07; font-size:.86rem; }}
       .logo-circle {{ width: 95px; height: 95px; border-radius: 50%; overflow: hidden; margin: .15rem auto .35rem auto;
                      box-shadow: 0 2px 8px rgba(0,0,0,.12); border: 1px solid rgba(0,0,0,.06); }}
-      .logo-circle img {{ width:100%; height:100%; object-fit:cover; }}
 
       /* 제목/카드 잘림 방지 */
       [data-testid="stMarkdownContainer"] h3 {{ display:block !important; line-height:1.3 !important; margin:.25rem 0 .5rem 0 !important; }}
       [data-testid="stVerticalBlock"] {{ overflow: visible !important; }}
+
+      /* 최상단 섹션 20% 아래로 밀기 */
+      .top-spacer {{ height: 20vh; }}
     </style>
     ''', unsafe_allow_html=True)
 
@@ -121,7 +126,7 @@ def render_sidebar():
             st.text_input("Cookie (선택, 브라우저에서 복사)", value="", key="hdr_cookie", type="password")
 
 # -------------------------
-# DataLab — Rank/Trend
+# DataLab — Rank/Trend (동일)
 # -------------------------
 DATALAB_RANK_API = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordRank.naver"
 TOP_CID = {
@@ -199,14 +204,10 @@ def _range_from_preset(preset: str):
 
 @st.cache_data(ttl=300, show_spinner=False)
 def datalab_trend_fetch(cid: str, keywords: list, preset: str, device: str, referer: str = "", cookie: str = ""):
-    # 프리셋 -> 기간/단위 자동화
     start, end = _range_from_preset(preset)
-    if preset == "1년":
-        time_unit = "week"
-    elif preset in ("1개월","3개월"):
-        time_unit = "week"
-    else:
-        time_unit = "date"
+    if preset == "1년": time_unit = "week"
+    elif preset in ("1개월","3개월"): time_unit = "week"
+    else: time_unit = "date"
     params = {"cid": cid, "startDate": str(start.date()), "endDate": str(end.date()),
               "timeUnit": time_unit, "device": device, "keywords": ",".join(keywords[:5])}
     headers = dict(MOBILE_HEADERS)
@@ -233,7 +234,6 @@ def datalab_trend_fetch(cid: str, keywords: list, preset: str, device: str, refe
         except Exception: pass
         return df, True
     # fallback
-    real = False
     rng = pd.date_range(start, end, freq={"date":"D","week":"W","month":"MS"}.get(time_unit,"D"))
     if len(rng) == 0: rng = pd.date_range(end - pd.DateOffset(months=1), end, freq="D")
     rows=[]
@@ -263,7 +263,7 @@ def render_datalab_trend_block():
     badge = "✅ REAL" if real else "⚠️ FALLBACK"
     st.caption(f"트렌드 데이터 상태: **{badge}** — 프리셋: {preset}, 기기: {device_opt}")
     df_sorted = df.sort_values("date"); chart_df = df_sorted.pivot(index="date", columns="keyword", values="value")
-    st.line_chart(chart_df, height=280); st.dataframe(df_sorted.head(120), use_container_width=True, hide_index=True)
+    st.line_chart(chart_df, height=260); st.dataframe(df_sorted.head(120), use_container_width=True, hide_index=True)
 
 # -------------------------
 # 11번가 / Rakuten / ItemScout / SellerLife / Translate
@@ -272,7 +272,7 @@ ELEVEN_URL = "https://m.11st.co.kr/browsing/bestSellers.mall"
 def render_elevenst_block():
     st.markdown("### 11번가 (모바일)")
     url = st.text_input("모바일 URL", value=ELEVEN_URL, label_visibility="collapsed", key="eleven_url")
-    h = st.slider("뷰 높이", 480, 900, 640, key="eleven_h")
+    h = st.slider("뷰 높이", 360, 900, 560, key="eleven_h")  # 기본값 더 낮춤
     try:
         if has_proxy():
             st.caption("프록시 iFrame (권장)")
@@ -292,7 +292,6 @@ SAFE_GENRES = {
 DEFAULT_GENRE = SAFE_GENRES["전체(샘플)"]
 
 def _rk_url(params: dict) -> str:
-    # 프록시 미사용 (403 회피)
     endpoint = "https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628"
     return f"{endpoint}?{urllib.parse.urlencode(params, safe='')}"
 
@@ -364,46 +363,36 @@ def render_google_translate_block():
     params = { "sl": sl, "tl": tl, "op": "translate" }
     if seed.strip(): params["text"] = seed.strip()
     url = base + "?" + urllib.parse.urlencode(params, safe="")
-    if has_proxy(): st.components.v1.iframe(iframe_url(url), height=600, scrolling=True)
+    h = st.slider("번역 뷰 높이", 240, 720, 320, key="gt_h")  # 절반으로 기본값 축소
+    if has_proxy(): st.components.v1.iframe(iframe_url(url), height=h, scrolling=True)
     else: st.warning("PROXY_URL 설정 필요 (Cloudflare Worker). 현재 직접 iFrame은 차단될 수 있습니다.")
-
-# -------------------------
-# Name generator
-# -------------------------
-def render_namegen_block():
-    st.markdown("### 상품명 생성기 (규칙 기반)")
-    brand = st.text_input("브랜드", value="envy", key="namegen_brand")
-    base_kw = st.text_input("베이스 키워드", value="K-coffee mix", key="namegen_base")
-    rel_kw = st.text_input("연관키워드(콤마)", value="Maxim, Kanu, Korea", key="namegen_rel")
-    limit = st.slider("글자수 제한", 20, 80, 80, key="namegen_limit")
-    if st.button("제목 5개 생성", key="namegen_go"):
-        kws = [k.strip() for k in rel_kw.split(",") if k.strip()]
-        outs = [f"{brand} {base_kw} {k}"[:limit] for k in kws[:5]]
-        st.text_area("생성 결과", "\n".join(outs), height=200)
 
 # -------------------------
 # Layout
 # -------------------------
 def main():
-    init_theme_state(); inject_css(); render_sidebar()
+    init_theme_state(); inject_css()
 
+    # 상단 20% 스페이서
+    st.markdown('<div class="top-spacer"></div>', unsafe_allow_html=True)
+
+    # Top row
     top1, top2 = st.columns([1,1])
     with top1: render_datalab_rank_block()
     with top2: render_datalab_trend_block()
 
+    # Middle row
     mid1, mid2 = st.columns([1,1])
     with mid1: render_elevenst_block()
     with mid2: render_rakuten_block()
 
+    # Bottom row
     bot1, bot2 = st.columns([1,1])
     with bot1: render_itemscout_block()
     with bot2: render_sellerlife_block()
 
     st.divider()
     render_google_translate_block()
-
-    st.divider()
-    render_namegen_block()
 
 if __name__ == "__main__":
     main()
