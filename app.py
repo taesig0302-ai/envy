@@ -50,40 +50,52 @@ def inject_css():
         background-color:{bg} !important; color:{fg} !important;
       }}
 
-      /* 본문 카드 여백 (위/아래 최소화) */
-      .block-container{{padding-top:1.2rem; padding-bottom:.5rem;}}
+      /* 섹션 카드 간격 조정 */
+      .block-container {{
+        padding-top:2rem !important;
+        padding-bottom:.5rem !important;
+      }}
 
-      /* ===== Sidebar Compact ===== */
+      /* 제목 상단 여백 축소 */
+      h1, h2, h3 {{
+        margin-top:.2rem !important;
+        margin-bottom:.4rem !important;
+      }}
+
+      /* 사이드바 최적화 */
       [data-testid="stSidebar"] section {{
-        padding-top:.2rem; padding-bottom:.2rem;
-        height:100vh; overflow:hidden;   /* 스크롤락 */
-        font-size: 0.93rem;
+        padding-top:.3rem !important;
+        padding-bottom:.3rem !important;
       }}
-      [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none;}}
-
-      /* 제목 줄 간격 최소화 */
-      [data-testid="stSidebar"] h2, 
-      [data-testid="stSidebar"] h3 {{
-        font-size: 0.95rem !important;
-        line-height: 1.05rem !important;
-        margin: .15rem 0 .15rem 0 !important;
+      [data-testid="stSidebar"] .stSelectbox, 
+      [data-testid="stSidebar"] .stNumberInput, 
+      [data-testid="stSidebar"] .stRadio, 
+      [data-testid="stSidebar"] .stButton {{
+        margin-top:.2rem !important;
+        margin-bottom:.2rem !important;
       }}
 
-      /* 원형 로고 (이전 사이즈 120px 복원) */
+      /* 로고 */
       .logo-circle {{
-        width: 120px; height: 120px; border-radius: 50%;
-        overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.15);
-        margin: .25rem auto .45rem auto; 
-        border: 1px solid rgba(0,0,0,.06);
+        width: 130px; height: 130px; border-radius: 50%;
+        overflow: hidden; margin-bottom:.2rem;
+        box-shadow:0 2px 6px rgba(0,0,0,.1);
       }}
-      .logo-circle img {{width:100%; height:100%; object-fit:cover; display:block;}}
+      .logo-circle img {{width:100%; height:100%; object-fit:cover;}}
 
-      /* ===== 컬러 박스 (배지) ===== */
-      .badge-green {{background:#e6ffcc; border:1px solid #b6f3a4; 
-        padding:6px 10px; border-radius:6px; color:#0b2e13; font-size:.9rem;}}
-      .badge-blue  {{background:#e6f0ff; border:1px solid #b7ccff; 
-        padding:6px 10px; border-radius:6px; color:#0b1e4a; font-size:.9rem;}}
-      .note-small  {{color:#8aa0b5; font-size:11px;}}
+      /* 컬러 박스 크기 축소 */
+      .stAlert, .stSuccess, .stWarning, .stInfo {{
+        padding:.4rem .6rem !important;
+        font-size:0.82rem !important;
+      }}
+      .stAlert > div, .stSuccess > div, .stWarning > div, .stInfo > div {{
+        margin:0 !important;
+      }}
+
+      /* 마진계산 결과 박스 */
+      div[data-testid="stMarkdownContainer"] p {{
+        margin:0.1rem 0 !important;
+      }}
     </style>
     """, unsafe_allow_html=True)
 # ============================================
@@ -296,46 +308,92 @@ def render_elevenst_block():
 # ============================================
 # Part 6 — AI 키워드 레이더 (PATCH E)
 # ============================================
-RAKUTEN_DEMO = {
-    "도서/미디어": [
-        "YOUNG OLD 初回盤 Blu-ray",
-        "YOUNG OLD DVD 初回盤 【SixTONES】",
-        "楽天ブックス限定特典",
-        "映画 パンフレット",
-        "アニメ OST"
-    ],
-    "가전/디지털": [
-        "Anker 充電器 65W",
-        "USB-C ケーブル 2m",
-        "Nintendo Switch Pro",
-        "Dyson V12 掃除機",
-        "AirPods ケース"
-    ],
-    "패션/잡화": [
-        "ニューバランス 530",
-        "ナイキ エアフォース1",
-        "カシオ G-SHOCK",
-        "無印良品 トートバッグ",
-        "帽子 キャップ"
-    ],
+# 🔑 라쿠텐 App ID (네가 준 값으로 직접 심어둠)
+RAKUTEN_APP_ID = "1079389531957868278"   # secrets.toml 불필요
+
+# 카테고리 프리셋 (genreId 확장)
+RAKUTEN_GENRES = {
+    "도서/서적": "101266",
+    "음반/CD": "101240",
+    "영화/DVD/블루레이": "101251",
+    "가전/디지털": "213310",
+    "PC/주변기기": "100026",
+    "스마트폰/액세서리": "568972",
+    "남성 패션": "551169",
+    "여성 패션": "100371",
+    "패션잡화": "216129",
+    "뷰티/코스메틱": "100939",
+    "식품/식료품": "100316",
+    "주류/음료": "510915",
+    "생활/건강": "215783",
+    "인테리어/가구": "2157830",
+    "스포츠/레저": "101070",
+    "취미/게임/완구": "101205",
+    "자동차/바이크": "558929",
+    "베이비/키즈": "100533",
+    "반려동물": "101213",
+    "사무/문구": "216131",
+    "꽃/가드닝": "100005"
 }
 
-def fetch_rakuten_by_category(cat: str) -> pd.DataFrame:
-    items = RAKUTEN_DEMO.get(cat, [])[:10]
-    rows = [{"rank":i+1, "keyword":kw, "source":"Rakuten JP"} for i, kw in enumerate(items)]
-    return pd.DataFrame(rows)
+def _rakuten_build_url(endpoint: str, params: dict) -> str:
+    q = urllib.parse.urlencode(params, safe="")
+    base = f"{endpoint}?{q}"
+    if has_proxy():
+        return f"{PROXY_URL}/fetch?target={urllib.parse.quote(base, safe='')}"
+    return base
+
+@st.cache_data(ttl=600)
+def rakuten_fetch_ranking(app_id: str, genre_id: str, rows: int = 50) -> pd.DataFrame:
+    """
+    Rakuten IchibaItem Ranking API
+    """
+    if not app_id:
+        demo = ["デモ 상품 A","デモ 상품 B","デモ 상품 C"]
+        return pd.DataFrame([{"rank": i+1,"keyword":t,"source":"Rakuten JP (DEMO)"} for i,t in enumerate(demo)])
+
+    endpoint = "https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628"
+    url = _rakuten_build_url(endpoint, {
+        "applicationId": app_id,
+        "format": "json",
+        "genreId": genre_id
+    })
+    try:
+        resp = requests.get(url, headers=MOBILE_HEADERS, timeout=12)
+        resp.raise_for_status()
+        data = resp.json()
+        items = data.get("Items", [])[:rows]
+        out = []
+        for i,it in enumerate(items, start=1):
+            item = it.get("Item", {})
+            name = item.get("itemName") or ""
+            out.append({"rank": i, "keyword": name, "source": "Rakuten JP"})
+        return pd.DataFrame(out) if out else pd.DataFrame([{"rank":1,"keyword":"데이터 없음","source":"Rakuten JP"}])
+    except Exception as e:
+        return pd.DataFrame([{"rank":1,"keyword":f"API 실패: {e}","source":"Rakuten JP"}])
 
 def render_rakuten_block():
     st.subheader("AI 키워드 레이더 (국내/글로벌)")
-    mode = st.radio("모드", ["국내","글로벌"], horizontal=True, label_visibility="collapsed")
-    col1, col2 = st.columns([1,2])
-    with col1:
-        cat = st.selectbox("카테고리", list(RAKUTEN_DEMO.keys()), index=0)
-    with col2:
-        st.caption("※ 현재는 데모 데이터. API 연결 시 카테고리 파라미터만 매핑하면 됩니다.")
 
-    df = fetch_rakuten_by_category(cat)
+    # ---- 모드 선택
+    mode = st.radio("모드", ["국내","글로벌"], horizontal=True, label_visibility="collapsed")
+
+    # ---- 카테고리 선택 + 직접 genreId 입력
+    c1, c2 = st.columns([1.5,1])
+    with c1:
+        preset = st.selectbox("라쿠텐 카테고리", list(RAKUTEN_GENRES.keys()), index=0)
+        preset_id = RAKUTEN_GENRES[preset]
+    with c2:
+        genre_id = st.text_input("genreId (직접 입력 가능)", value=preset_id)
+
+    # ---- 데이터 로드
+    df = rakuten_fetch_ranking(app_id=RAKUTEN_APP_ID, genre_id=genre_id, rows=50)
+
+    # ---- 표 표시
     st.dataframe(df, use_container_width=True, hide_index=True)
+
+    # ---- 안내
+    st.caption("※ Rakuten 공식 Ranking API는 상품 랭킹을 반환합니다. 상품명을 키워드처럼 취급하여 표시합니다.")
 # ============================================
 # Part 7 — 상품명 생성기 블록
 # ============================================
