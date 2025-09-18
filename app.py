@@ -1,7 +1,6 @@
 # ============================================
 # Part 0 — 공통 유틸 & 테마  (PATCH A)
-# ============================================
-import streamlit as st
+# ============================================import streamlit as st
 import requests, pandas as pd, re, json, urllib.parse
 from bs4 import BeautifulSoup
 from pathlib import Path
