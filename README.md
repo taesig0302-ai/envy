@@ -1,12 +1,10 @@
-# ENVY v9.8 — 안정 패치
+# ENVY v10 — 안정화 완전체
 
-## 변경점
-- 11번가 프록시 워커가 앱 유도 스크립트/배너를 제거하여 iFrame 표시 안정화
-- Rakuten 랭킹: 프록시 미사용(직접 호출)로 403 회피
-- DataLab 섹션 제목을 markdown 헤딩으로 렌더 → 잘림 방지
-- ItemScout/SellerLife 위젯에 고유 key 부여 → DuplicateWidgetID 해결
-- 섹션명 정리: "AI 키워드 레이더 (Rakuten)"
-- 상품명 생성기 유지
+## 포함
+- `app.py` (DataLab 대분류 랭킹/트렌드 + REAL/FALLBACK 배지, 11번가 높이 슬라이더, 제목 잘림 해소)
+- `worker.js` (모든 호스트 허용, 프레임 차단 헤더 제거, 11번가 앱유도 제거, 번역 iFrame 지원)
+- `requirements.txt`
+- `.gitignore`
 
 ## 실행
 ```bash

@@ -1,18 +1,18 @@
 
 # =========================
-# ENVY v9.8 — 안정 패치
+# ENVY v10 — 안정화 완전체
 # =========================
 import streamlit as st
 import requests, pandas as pd, json, urllib.parse, time, base64, re, hashlib
 from bs4 import BeautifulSoup
 from pathlib import Path
 
-st.set_page_config(page_title="ENVY v9.8", page_icon="✨", layout="wide")
+st.set_page_config(page_title="ENVY v10", page_icon="✨", layout="wide")
 
 # -------------------------
 # Common / Proxy / Headers
 # -------------------------
-PROXY_URL = "https://envy-proxy.taesig0302.workers.dev"  # Cloudflare Worker URL
+PROXY_URL = "https://envy-proxy.taesig0302.workers.dev"  # Cloudflare Worker URL (배포된 주소)
 
 def has_proxy() -> bool:
     return isinstance(PROXY_URL, str) and PROXY_URL.strip() != ""
@@ -68,13 +68,10 @@ def inject_css():
       .logo-circle {{ width: 95px; height: 95px; border-radius: 50%; overflow: hidden; margin: .15rem auto .35rem auto;
                      box-shadow: 0 2px 8px rgba(0,0,0,.12); border: 1px solid rgba(0,0,0,.06); }}
       .logo-circle img {{ width:100%; height:100%; object-fit:cover; }}
+
       /* 제목/카드 잘림 방지 */
-      h1, h2, h3, [data-testid="stMarkdownContainer"] h2, [data-testid="stMarkdownContainer"] h3 {{
-        line-height: 1.3 !important; margin-top: .2rem !important; margin-bottom: .5rem !important;
-        white-space: normal !important; overflow: visible !important;
-      }}
+      [data-testid="stMarkdownContainer"] h3 {{ display:block !important; line-height:1.3 !important; margin:.25rem 0 .5rem 0 !important; }}
       [data-testid="stVerticalBlock"] {{ overflow: visible !important; }}
-      .element-container:has(> div[data-testid="stHorizontalBlock"]) {{ margin-top: .25rem !important; }}
     </style>
     ''', unsafe_allow_html=True)
 
@@ -201,19 +198,28 @@ def _range_from_preset(preset: str):
     return today - pd.DateOffset(months=1), today
 
 @st.cache_data(ttl=300, show_spinner=False)
-def datalab_trend_fetch(cid: str, keywords: list, time_unit: str, start_date: str, end_date: str,
-                        device: str = "all", referer: str = "", cookie: str = "") -> pd.DataFrame:
-    params = {"cid": cid, "startDate": start_date, "endDate": end_date, "timeUnit": time_unit, "device": device, "keywords": ",".join(keywords[:5])}
+def datalab_trend_fetch(cid: str, keywords: list, preset: str, device: str, referer: str = "", cookie: str = ""):
+    # 프리셋 -> 기간/단위 자동화
+    start, end = _range_from_preset(preset)
+    if preset == "1년":
+        time_unit = "week"
+    elif preset in ("1개월","3개월"):
+        time_unit = "week"
+    else:
+        time_unit = "date"
+    params = {"cid": cid, "startDate": str(start.date()), "endDate": str(end.date()),
+              "timeUnit": time_unit, "device": device, "keywords": ",".join(keywords[:5])}
     headers = dict(MOBILE_HEADERS)
     if referer: headers["referer"] = referer
     if cookie:  headers["cookie"]  = cookie
+    real = True
     try:
         resp = requests.get(DATALAB_TREND_API, params=params, headers=headers, timeout=12); resp.raise_for_status(); data = resp.json()
     except Exception:
         try:
             resp = requests.post(DATALAB_TREND_API, data=params, headers=headers, timeout=12); resp.raise_for_status(); data = resp.json()
         except Exception:
-            data = {}
+            data = {}; real = False
     series = data.get("result") or data.get("data") or []
     rows = []
     for s in series or []:
@@ -225,9 +231,9 @@ def datalab_trend_fetch(cid: str, keywords: list, time_unit: str, start_date: st
         df = pd.DataFrame(rows)
         try: df["date"] = pd.to_datetime(df["date"]).dt.date
         except Exception: pass
-        return df
-    # strong fallback
-    start = pd.to_datetime(start_date); end = pd.to_datetime(end_date)
+        return df, True
+    # fallback
+    real = False
     rng = pd.date_range(start, end, freq={"date":"D","week":"W","month":"MS"}.get(time_unit,"D"))
     if len(rng) == 0: rng = pd.date_range(end - pd.DateOffset(months=1), end, freq="D")
     rows=[]
@@ -235,7 +241,7 @@ def datalab_trend_fetch(cid: str, keywords: list, time_unit: str, start_date: st
         seed = int(hashlib.sha256(kw.encode()).hexdigest(), 16) % 97; base = 40 + (seed % 30)
         for i, d in enumerate(rng):
             val = max(5, base + ((i*3) % 40) - (seed % 13)); rows.append({"date": d.date(), "keyword": kw, "value": val})
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows), False
 
 def render_datalab_trend_block():
     st.markdown("### 키워드 트렌드 (기간 프리셋 + 기기별)")
@@ -243,27 +249,19 @@ def render_datalab_trend_block():
     kw_text = st.text_input("키워드(최대 5개, 콤마로 구분)", value=default_kws, key="trend_kw_input")
     keywords = [k.strip() for k in kw_text.split(",") if k.strip()][:5]
     c1, c2, c3, c4 = st.columns([1,1,1,1.2])
-    with c1: preset = st.selectbox("기간 프리셋", ["1주","1개월","3개월","1년","직접입력"], index=2)
-    with c2: time_unit = st.selectbox("단위", ["일간","주간","월간"], index=1)
-    with c3: device_opt = st.selectbox("기기별", ["전체","PC","모바일"], index=0)
-    with c4: 
+    with c1: preset = st.selectbox("기간 프리셋", ["1주","1개월","3개월","1년"], index=2)
+    with c2: device_opt = st.selectbox("기기별", ["전체","PC","모바일"], index=0)
+    with c3: 
         cid_cat = st.selectbox("카테고리(대분류)", list(TOP_CID.keys()), index=3); cid = TOP_CID[cid_cat]
-    if preset != "직접입력":
-        start, end = _range_from_preset(preset)
-    else:
-        today = pd.Timestamp.today().normalize()
-        s1, s2 = st.columns(2)
-        with s1: start = st.date_input("시작일", today - pd.DateOffset(months=1), key="trend_start")
-        with s2: end   = st.date_input("종료일", today, key="trend_end")
-    if st.button("트렌드 조회", type="primary"): st.cache_data.clear()
+    with c4:
+        force_refresh = st.button("트렌드 조회", type="primary")
+    if force_refresh: st.cache_data.clear()
     ref = st.session_state.get("hdr_referer","https://datalab.naver.com/shoppingInsight/sCategory.naver")
     cki = st.session_state.get("hdr_cookie","")
-    tu = {"일간":"date", "주간":"week", "월간":"month"}[time_unit]
     dev = {"전체":"all", "PC":"pc", "모바일":"mo"}[device_opt]
-    df = datalab_trend_fetch(cid, keywords, tu, str(start), str(end), device=dev, referer=ref, cookie=cki)
-    if df.empty:
-        st.warning("실데이터 응답이 비었습니다. 표시용 시계열을 그립니다.")
-        df = datalab_trend_fetch(cid, keywords or ["키워드A","키워드B"], tu, str(start), str(end), device=dev)
+    df, real = datalab_trend_fetch(cid, keywords, preset, dev, referer=ref, cookie=cki)
+    badge = "✅ REAL" if real else "⚠️ FALLBACK"
+    st.caption(f"트렌드 데이터 상태: **{badge}** — 프리셋: {preset}, 기기: {device_opt}")
     df_sorted = df.sort_values("date"); chart_df = df_sorted.pivot(index="date", columns="keyword", values="value")
     st.line_chart(chart_df, height=280); st.dataframe(df_sorted.head(120), use_container_width=True, hide_index=True)
 
@@ -274,11 +272,14 @@ ELEVEN_URL = "https://m.11st.co.kr/browsing/bestSellers.mall"
 def render_elevenst_block():
     st.markdown("### 11번가 (모바일)")
     url = st.text_input("모바일 URL", value=ELEVEN_URL, label_visibility="collapsed", key="eleven_url")
+    h = st.slider("뷰 높이", 480, 900, 640, key="eleven_h")
     try:
         if has_proxy():
-            st.caption("프록시 iFrame (권장)"); st.components.v1.iframe(iframe_url(url), height=720, scrolling=True)
+            st.caption("프록시 iFrame (권장)")
+            st.components.v1.iframe(iframe_url(url), height=h, scrolling=True)
         else:
-            st.warning("PROXY_URL 미설정: 직접 iFrame은 정책에 막힐 수 있습니다."); st.components.v1.iframe(url, height=720, scrolling=True)
+            st.warning("PROXY_URL 미설정: 직접 iFrame은 정책에 막힐 수 있습니다.")
+            st.components.v1.iframe(url, height=h, scrolling=True)
     except Exception as e:
         st.error(f"11번가 임베드 실패: {type(e).__name__}: {e}")
 
@@ -291,7 +292,7 @@ SAFE_GENRES = {
 DEFAULT_GENRE = SAFE_GENRES["전체(샘플)"]
 
 def _rk_url(params: dict) -> str:
-    # 403 회피: 프록시 미사용 (직접 호출)
+    # 프록시 미사용 (403 회피)
     endpoint = "https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628"
     return f"{endpoint}?{urllib.parse.urlencode(params, safe='')}"
 
