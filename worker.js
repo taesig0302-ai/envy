@@ -1,2 +1,3 @@
-// ENVY v10.7 worker.js
-// 11번가 배너/앱 유도 제거 강화 버전
+// ENVY v10.7.1 worker.js
+// 11번가 배너 제거 강화
+async function proxyFetch(request){const url=new URL(request.url);const target=url.searchParams.get("target");if(!target)return new Response("target required",{status:400});const res=await fetch(target);let body=await res.text();const headers=new Headers(res.headers);["x-frame-options","content-security-policy","frame-ancestors"].forEach(h=>headers.delete(h));if((headers.get("content-type")||"").includes("text/html")){body=body.replace(/<body>/i,"<body><style>header,.app,.banner,.download{display:none!important}</style>");}return new Response(body,{status:res.status,headers});}export default{fetch:proxyFetch};
