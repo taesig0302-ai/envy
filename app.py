@@ -182,108 +182,73 @@ def render_sidebar():
             unsafe_allow_html=True
         )
 # ============================================
-# Part 2 — 데이터랩
+# Part 2 — 데이터랩 (REPLACE)
 # ============================================
-def fetch_datalab_keywords(max_rows: int = 20) -> pd.DataFrame:
+import re, json
+import pandas as pd
+import streamlit as st
+import requests
+from bs4 import BeautifulSoup
+
+# 네트워크 탭에서 확인한 실제 엔드포인트를 여기에 넣으세요
+REAL_API_BASE = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordRank.naver"
+
+@st.cache_data(ttl=300)
+def fetch_datalab_category_top20(category_id: str, period="7d") -> pd.DataFrame:
     """
-    공개 HTML에서 안전하게 키워드 후보를 수집.
-    내부 JSON 구조가 노출되면 그 경로를 파싱하고,
-    아니면 휴리스틱으로 텍스트를 추출한다.
+    네이버 Datalab 쇼핑인사이트 Top20 키워드 크롤링.
+    category_id는 네이버 내부 카테고리 코드.
     """
-    url = "https://datalab.naver.com/shoppingInsight/sCategory.naver"
+    params = {
+        "cid": category_id,
+        "period": period,
+    }
     try:
-        r = requests.get(url, headers={**MOBILE_HEADERS, "referer":"https://datalab.naver.com/"}, timeout=10)
+        r = requests.get(REAL_API_BASE, params=params, timeout=10)
         r.raise_for_status()
-    except Exception:
-        demo = ["맥심 커피믹스","카누 미니","원두커피 1kg","드립백 커피","스타벅스 다크","커피머신","핸드드립세트","모카포트","프렌치프레스","스틱커피"]
-        return pd.DataFrame([{"rank":i+1,"keyword":k} for i,k in enumerate(demo[:max_rows])])
-
-    soup = BeautifulSoup(r.text, "html.parser")
-    rows=[]
-
-    # 1) script 내 JSON 탐색
-    for s in soup.find_all("script"):
-        text = s.string or s.text or ""
-        m = (re.search(r"__NEXT_DATA__\s*=\s*({[\s\S]*?})\s*;?", text) or
-             re.search(r"__INITIAL_STATE__\s*=\s*({[\s\S]*?})\s*;?", text) or
-             re.search(r"window\.__DATA__\s*=\s*({[\s\S]*?})\s*;?", text))
-        if not m: 
-            continue
+        data = r.json()
+        rows = data.get("ranks", [])
+        if not rows:
+            raise ValueError("응답에 ranks 없음")
+        return pd.DataFrame(rows)
+    except Exception as e:
+        # fallback: HTML 파싱 시도
+        url = "https://datalab.naver.com/shoppingInsight/sCategory.naver"
         try:
-            data = json.loads(m.group(1))
+            r = requests.get(url, timeout=10)
+            soup = BeautifulSoup(r.text, "html.parser")
+            rows=[]
+            for i, el in enumerate(soup.select("a, li, span")[:20], start=1):
+                kw = (el.get_text(" ", strip=True) or "").strip()
+                if kw:
+                    rows.append({"rank": i, "keyword": kw})
+            return pd.DataFrame(rows)
         except Exception:
-            continue
-
-        def walk(o):
-            if isinstance(o, dict):
-                for v in o.values():
-                    r = walk(v)
-                    if r: return r
-            elif isinstance(o, list):
-                if o and isinstance(o[0], dict) and any(("keyword" in o[0]) or ("name" in o[0]) for _ in [0]):
-                    return o
-                for v in o:
-                    r = walk(v)
-                    if r: return r
-            return None
-
-        items = walk(data) or []
-        for i, it in enumerate(items[:max_rows], start=1):
-            kw = (it.get("keyword") or it.get("name") or it.get("title") or "").strip()
-            if kw:
-                rows.append({"rank":i, "keyword":kw})
-        if rows:
-            break
-
-    # 2) 휴리스틱 백업
-    if not rows:
-        uniq=[]
-        for el in soup.select("a, li, span"):
-            t = (el.get_text(" ", strip=True) or "").strip()
-            if 2 <= len(t) <= 40 and any(ch.isalnum() for ch in t):
-                t = re.sub(r"\s+"," ",t)
-                if t not in uniq:
-                    uniq.append(t)
-            if len(uniq) >= max_rows: break
-        rows = [{"rank":i+1,"keyword":kw} for i, kw in enumerate(uniq)]
-
-    return pd.DataFrame(rows)
+            demo = ["맥심 커피믹스","카누 미니","원두커피 1kg","드립백 커피","스타벅스 다크","커피머신"]
+            return pd.DataFrame([{"rank":i+1,"keyword":k} for i,k in enumerate(demo)])
 
 def render_datalab_block():
     st.subheader("데이터랩")
-    cats = ["디지털/가전","식품","생활/건강","가구/인테리어","스포츠/레저","뷰티","출산/육아","반려동물","패션잡화","도서/취미"]
-    st.selectbox("카테고리(표시용)", cats, index=0, key="datalab_cat")
 
-    df = fetch_datalab_keywords()
-    if df.empty:
-        st.warning("키워드 수집 실패. 잠시 후 다시 시도하세요.")
-        return
+    cats = {
+        "패션잡화":"50000000-FA","디지털/가전":"50000000-DG","식품":"50000000-FD",
+        "생활/건강":"50000000-LH","가구/인테리어":"50000000-FN","도서/취미":"50000000-BC",
+        "스포츠/레저":"50000000-SP","뷰티":"50000000-BT","출산/육아":"50000000-BB",
+        "반려동물":"50000000-PS",
+    }
+    category = st.selectbox("카테고리", list(cats.keys()), index=2)
+    cid = cats[category]
 
-    # 그래프용 임의 점수 (실데이터 연결 시 이 부분만 대체)
-    n=len(df)
-    df["score"] = [max(1, int(100 - (i*(100/max(1,n-1))))) for i in range(n)]
-
-    st.dataframe(df[["rank","keyword"]], use_container_width=True, hide_index=True)
-    st.line_chart(df.set_index("rank")["score"], height=200)
-
-    # iFrame 보기 (정책상 실패 가능 → 예외 삼켜서 아래 섹션 유지)
-    url = "https://datalab.naver.com/shoppingInsight/sCategory.naver"
-    colA, colB = st.columns(2)
-    with colA:
-        if st.button("직접 iFrame (실패 가능)", use_container_width=True):
-            try:
-                st.components.v1.iframe(url, height=700, scrolling=True)
-            except Exception as e:
-                st.error(f"임베드 실패: {type(e).__name__}")
-    with colB:
-        if has_proxy():
-            if st.button("프록시 iFrame (권장)", use_container_width=True):
-                try:
-                    st.components.v1.iframe(iframe_url(url), height=700, scrolling=True)
-                except Exception as e:
-                    st.error(f"임베드 실패: {type(e).__name__}")
-        else:
-            st.caption("프록시를 설정하면 임베드 성공률이 올라갑니다.")
+    try:
+        df = fetch_datalab_category_top20(cid)
+        if df.empty:
+            st.warning("데이터 없음. 엔드포인트/카테고리 코드를 확인하세요.")
+            return
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        if "search" in df.columns:
+            st.line_chart(df.set_index("rank")["search"], height=180)
+    except Exception as e:
+        st.error(f"DataLab 호출 실패: {e}")
 # ============================================
 # Part 3 — 아이템스카우트 (placeholder)
 # ============================================
