@@ -43,59 +43,38 @@ def inject_css():
         bg, fg = "#0e1117", "#e6edf3"
     else:
         bg, fg = "#ffffff", "#111111"
+
+    # 사이드바 전체 폰트 한 단계 ↓, 로고 더 작게, 배지(컬러 박스) 복원
     st.markdown(f"""
     <style>
       html, body, [data-testid="stAppViewContainer"] {{
         background-color:{bg} !important; color:{fg} !important;
       }}
 
-      /* 섹션 카드 여백 */
+      /* 본문 카드 여백 */
       .block-container{{padding-top:2.0rem; padding-bottom:.7rem;}}
 
-      /* 제목 보정 */
-      h1, h2, [data-testid="stHeader"] + div h2 {{
-        margin-top: .2rem !important;
-      }}
-
-      /* 사이드바 압축 */
+      /* ===== Sidebar Compact v4 ===== */
       [data-testid="stSidebar"] section {{
-        padding-top:.3rem; padding-bottom:.3rem;
-        height:100vh; overflow:hidden;
+        padding-top:.28rem; padding-bottom:.28rem;
+        height:100vh; overflow:hidden;   /* 스크롤락 */
+        font-size: 0.93rem;              /* ← 전체 한 단계 축소 */
       }}
       [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none;}}
 
-      /* 사이드바 제목 폰트 축소 */
-      [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {{
-        font-size: 0.95rem !important;
-        margin-bottom: .25rem !important;
-      }}
-
-      /* input / select box 축소 */
-      [data-baseweb="input"] input, 
-      [data-baseweb="select"] div, 
-      .stNumberInput input {{
+      /* 제목(### …) 더 작고 타이트 */
+      [data-testid="stSidebar"] h2, 
+      [data-testid="stSidebar"] h3 {{
         font-size: 0.9rem !important;
-        padding-top: .2rem !important;
-        padding-bottom: .2rem !important;
-        height: 1.8rem !important;
+        line-height: 1.05rem !important;
+        margin: .25rem 0 .2rem 0 !important;
       }}
 
-      /* 버튼 크기 축소 */
-      button[kind="secondary"], button[kind="primary"] {{
-        padding-top: .25rem !important;
-        padding-bottom: .25rem !important;
-        font-size: 0.9rem !important;
-      }}
+      /* 라벨/부제 */
+      [data-testid="stSidebar"] [data-testid="stWidgetLabel"] > div, 
+      [data-testid="stSidebar"] label p {{
+        font-size: .88re
 
-      /* 원형 로고 더 작게 */
-      .logo-circle {{
-        width: 90px; height: 90px; border-radius: 50%;
-        overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,.15);
-        margin-bottom:.3rem; border: 1px solid rgba(0,0,0,.06);
-      }}
-      .logo-circle img {{width:100%; height:100%; object-fit:cover; display:block;}}
-    </style>
-    """, unsafe_allow_html=True)
 # ============================================
 # Part 1 — 사이드바  (REPLACE)
 # ============================================
