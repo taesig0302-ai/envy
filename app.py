@@ -115,72 +115,87 @@ def inject_css():
     </style>
     """, unsafe_allow_html=True)
 # ============================================
-# Part 1 — 사이드바
+# Part 1 — 사이드바 (REPLACE)
 # ============================================
 import base64
 from pathlib import Path
 
 def render_sidebar():
     with st.sidebar:
-        # 로고 (95px)
+        # ── 로고(크기 소폭 축소, 스크롤 여유) ─────────────────────────────
         lp = Path(__file__).parent / "logo.png"
         if lp.exists():
             b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
             st.markdown(
-                f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>',
+                '<div class="logo-circle" style="width:96px;height:96px;">'
+                f'<img src="data:image/png;base64,{b64}"></div>',
                 unsafe_allow_html=True
             )
         else:
-            st.caption("logo.png 를 앱 파일과 같은 폴더에 두면 로고가 표시됩니다.")
+            st.caption("logo.png 를 앱 폴더에 넣으면 원형 로고가 표시됩니다.")
 
-        # 다크모드
-        st.toggle("🌓 다크 모드", value=(st.session_state.get("theme","light")=="dark"), on_change=toggle_theme)
+        # 다크모드 토글
+        st.toggle("🌓 다크 모드", value=(st.session_state.get("theme","light") == "dark"),
+                  on_change=toggle_theme)
 
-        # ===== ① 환율 계산기 =====
+        # ── ① 환율 계산기 ─────────────────────────────────────────────
         st.markdown("### ① 환율 계산기")
-        base = st.selectbox("기준 통화", list(CURRENCY_SYMBOL.keys()), index=0)
-        sale_foreign = st.number_input("판매금액 (외화)", value=1.00, step=0.01, format="%.2f")
+        base = st.selectbox("기준 통화", list(CURRENCY_SYMBOL.keys()), index=0, key="fx_base")
+        sym  = CURRENCY_SYMBOL.get(base, "")
+        sale_foreign = st.number_input(f"판매금액 (외화 {sym})", value=1.00, step=0.01, format="%.2f",
+                                       key="sale_foreign")
         won = FX_DEFAULT[base] * sale_foreign
-        st.markdown(f'<div class="badge-green">환산 금액: <b>{won:,.2f} 원</b></div>', unsafe_allow_html=True)
-        st.caption(f"환율 기준: {FX_DEFAULT[base]:,.2f} ₩/{base}")
-
-        # ===== ② 마진 계산기 =====
-        st.markdown("### ② 마진 계산기")
-        m_base = st.selectbox("매입 통화", list(CURRENCY_SYMBOL.keys()), index=0, key="mbase")
-        purchase_foreign = st.number_input("매입금액 (외화)", value=0.00, step=0.01, format="%.2f")
-        base_cost_won = FX_DEFAULT[m_base] * purchase_foreign if purchase_foreign>0 else won
-        st.markdown(f'<div class="badge-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
-
-        fee_col1, fee_col2 = st.columns(2)
-        with fee_col1:
-            m_rate = st.number_input("카드수수료(%)", value=4.00, step=0.01, format="%.2f")
-        with fee_col2:
-            m_fee  = st.number_input("마켓수수료(%)", value=14.00, step=0.01, format="%.2f")
-
-        ship = st.number_input("배송비(₩)", value=0.0, step=100.0, format="%.0f")
-
-        # --- 마진 방식 라디오 (요구 표기 준수) ---
-        mode = st.radio("마진 방식", ["% 마진", "+ 마진"], horizontal=True)
-
-        # --- 선택에 따른 입력칸 & 계산 ---
-        margin_desc = ""
-        if mode == "% 마진":
-            margin_pct = st.number_input("마진율 (%)", value=10.00, step=0.01, format="%.2f", key="margin_pct")
-            target_price = base_cost_won * (1 + m_rate/100) * (1 + m_fee/100) * (1 + margin_pct/100) + ship
-            margin_value = target_price - base_cost_won
-            margin_desc = f"{margin_pct:.2f}% 마진"
-        else:
-            margin_won = st.number_input("마진액 (₩)", value=10000.0, step=100.0, format="%.0f", key="margin_won")
-            target_price = base_cost_won * (1 + m_rate/100) * (1 + m_fee/100) + margin_won + ship
-            margin_value = margin_won
-            margin_desc = f"+{margin_won:,.0f} 마진"
-
-        # 결과 박스(색 유지)
-        st.markdown(f'<div class="badge-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
         st.markdown(
-            f'<div class="badge-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {margin_desc}</div>',
+            f'<div class="badge-green">환산 금액: <b>{won:,.2f} 원</b></div>',
             unsafe_allow_html=True
         )
+        st.markdown(
+            f'<div class="note-small">환율 기준: {FX_DEFAULT[base]:,.2f} ₩/{base}</div>',
+            unsafe_allow_html=True
+        )
+
+        # ── ② 마진 계산기 ─────────────────────────────────────────────
+        st.markdown("### ② 마진 계산기")
+        m_base = st.selectbox("매입 통화", list(CURRENCY_SYMBOL.keys()), index=0, key="cost_base")
+        m_sym  = CURRENCY_SYMBOL.get(m_base, "")
+        purchase_foreign = st.number_input(f"매입금액 (외화 {m_sym})", value=0.00, step=0.01, format="%.2f",
+                                           key="purchase_foreign")
+
+        # 기본 원가(₩): 매입금액 입력이 0이면, 위 환산 금액(won)을 원가로 간주
+        base_cost_won = FX_DEFAULT[m_base] * purchase_foreign if purchase_foreign > 0 else won
+        st.markdown(
+            f'<div class="badge-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>',
+            unsafe_allow_html=True
+        )
+
+        m_rate = st.number_input("카드수수료 (%)", value=4.00, step=0.01, format="%.2f", key="fee_card")
+        m_fee  = st.number_input("마켓수수료 (%)", value=14.00, step=0.01, format="%.2f", key="fee_market")
+        ship   = st.number_input("배송비 (₩)", value=0.0, step=100.0, format="%.0f", key="ship")
+
+        # === 마진 방식 선택: % 마진 / + 마진 ===
+        margin_mode = st.radio("마진 방식", ["% 마진", "+ 마진"], horizontal=True, key="margin_mode")
+
+        if margin_mode == "% 마진":
+            margin_rate = st.number_input("마진율 (%)", value=10.00, step=0.01, format="%.2f",
+                                          key="margin_rate")
+            target_price = base_cost_won * (1 + m_rate/100) * (1 + m_fee/100) * (1 + margin_rate/100) + ship
+            margin_value = margin_rate
+            margin_desc  = f"{margin_rate:.2f}% 마진"
+        else:
+            # + 기호가 항상 보이도록 '풀폭 플러스' 사용(＋)
+            margin_won = st.number_input("마진액 (₩)", value=10000.0, step=100.0, format="%.0f",
+                                         key="margin_won")
+            target_price = base_cost_won * (1 + m_rate/100) * (1 + m_fee/100) + margin_won + ship
+            margin_value = margin_won
+            margin_desc  = f"＋{margin_won:,.0f} 마진"
+
+        # 결과 표시
+        st.markdown(
+            f'<div class="badge-blue">판매가: <b>{target_price:,.2f} 원</b></div>',
+            unsafe_allow_html=True
+        )
+        profit = target_price - base_cost_won
+        st.warning(f"순이익(마진): {profit:,.2f} 원 · {margin_desc}")
 # ============================================
 # Part 2 — 데이터랩
 # ============================================
