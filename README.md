@@ -1,16 +1,16 @@
-# ENVY v9 (Streamlit)
-
-변경 사항
-- **CID 매핑 강화**: 검색/URL에서 자동 추출, 매핑 드롭다운, 최근 사용 cid 기록
-- **DataLab 안정 패치**: Referer/Cookie 입력 지원, JSON 스니핑(스크립트 내 객체 파싱)
+# ENVY v9.4 — Full Pack
+- Rank(대분류 12종) + Trend(기간 프리셋/단위/기기별, GET→POST→fallback)
+- 11번가 프록시 임베드 (Cloudflare Worker 포함)
+- Rakuten 키워드 레이더, 상품명 생성기 포함
+- Sidebar 하단 마지막 버튼 숨김
 
 ## 실행
-```bash
-python -m venv .venv && source .venv/bin/activate  # (Windows: .venv\Scripts\activate)
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 streamlit run app.py
-```
 
-## 팁
-- 브라우저 네트워크 탭에서 복사한 **Cookie**를 사이드바 > 고급 설정에 붙여넣으면 성공률이 올라갑니다.
-- 네이버 카테고리 URL/텍스트를 상단 입력칸에 붙여넣으면 `cid`를 자동 추출합니다.
+## 11번가 프록시
+1) Cloudflare → Workers → 새 Worker 생성 → 아래 worker.js 전체 복붙 → Deploy
+2) 발급 주소를 app.py 상단 `PROXY_URL`에 입력
+3) 테스트: https://YOUR-WORKER.workers.dev/iframe?target=https%3A%2F%2Fm.11st.co.kr%2Fbrowsing%2FbestSellers.mall
+
