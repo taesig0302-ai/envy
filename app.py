@@ -76,18 +76,24 @@ def inject_css():
     </style>
     """, unsafe_allow_html=True)
 # ============================================
-# Part 1 — 사이드바  (PATCH B)
+# Part 1 — 사이드바  (REPLACE)
 # ============================================
+import base64
+
 def render_sidebar():
     with st.sidebar:
-        # 원형 로고
+        # 원형 로고(base64 인라인) – cloud에서도 보임
         lp = Path(__file__).parent / "logo.png"
         if lp.exists():
-            st.markdown(f'<div class="logo-circle"><img src="file://{lp.as_posix()}"></div>', unsafe_allow_html=True)
+            b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
+            st.markdown(
+                f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>',
+                unsafe_allow_html=True
+            )
         else:
             st.warning("logo.png 를 앱 파일과 같은 폴더에 두면 사이드바에 표시됩니다.")
 
-        # 🌓 다크 모드 토글
+        # 🌓 다크 모드 토글 (라벨에 이모지)
         st.toggle("🌓 다크 모드", value=(st.session_state["theme"] == "dark"), on_change=toggle_theme)
 
         # 환율 계산기
@@ -119,25 +125,20 @@ def render_sidebar():
         st.markdown(f'<div class="badge-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
         st.warning(f"순이익(마진): {(target_price - base_cost_won):,.2f} 원")
 # ============================================
-# Part 2 — 데이터랩  (PATCH C)
+# Part 2 — 데이터랩  (REPLACE)
 # ============================================
 def fetch_datalab_keywords(max_rows: int = 20) -> pd.DataFrame:
     url = "https://datalab.naver.com/shoppingInsight/sCategory.naver"
     try:
         r = requests.get(url, headers={**MOBILE_HEADERS, "referer": "https://datalab.naver.com/"}, timeout=10)
         r.raise_for_status()
-    except Exception as e:
-        # 네트워크/차단 대비 데모
-        return pd.DataFrame([
-            {"rank":1,"keyword":"맥심 커피믹스"},
-            {"rank":2,"keyword":"카누 미니"},
-            {"rank":3,"keyword":"원두커피 1kg"},
-        ])
+    except Exception:
+        demo = ["맥심 커피믹스","카누 미니","원두커피 1kg","드립백 커피","스타벅스 다크","커피머신","핸드드립세트","모카포트","프렌치프레스","스틱커피"]
+        return pd.DataFrame([{"rank":i+1,"keyword":k} for i,k in enumerate(demo[:max_rows])])
 
     soup = BeautifulSoup(r.text, "html.parser")
-    rows = []
-
-    # 1) script JSON 스니핑
+    # 1) 스크립트 JSON 시도
+    rows=[]
     for s in soup.find_all("script"):
         text = s.string or s.text or ""
         m = (re.search(r"__NEXT_DATA__\s*=\s*({[\s\S]*?})\s*;?", text) or
@@ -165,44 +166,56 @@ def fetch_datalab_keywords(max_rows: int = 20) -> pd.DataFrame:
 
         items = walk(data) or []
         for i, it in enumerate(items[:max_rows], start=1):
-            kw = it.get("keyword") or it.get("name") or it.get("title") or str(it)
-            kw = re.sub(r"\s+", " ", kw).strip()
+            kw = (it.get("keyword") or it.get("name") or it.get("title") or "").strip()
             if kw:
                 rows.append({"rank": i, "keyword": kw})
         if rows:
-            return pd.DataFrame(rows)
+            break
 
-    # 2) 휴리스틱
-    uniq=[]
-    for el in soup.select("a, li, span"):
-        t = (el.get_text(" ", strip=True) or "").strip()
-        if 2 <= len(t) <= 40 and any(ch.isalnum() for ch in t):
-            t = re.sub(r"\s+", " ", t)
-            if t not in uniq: 
-                uniq.append(t)
-        if len(uniq) >= max_rows: break
-    if uniq:
-        return pd.DataFrame([{"rank":i+1,"keyword":kw} for i, kw in enumerate(uniq)])
+    # 2) 휴리스틱 백업
+    if not rows:
+        uniq=[]
+        for el in soup.select("a, li, span"):
+            t = (el.get_text(" ", strip=True) or "").strip()
+            if 2 <= len(t) <= 40 and any(ch.isalnum() for ch in t):
+                t = re.sub(r"\s+", " ", t)
+                if t not in uniq: 
+                    uniq.append(t)
+            if len(uniq) >= max_rows: break
+        rows = [{"rank":i+1,"keyword":kw} for i, kw in enumerate(uniq)]
 
-    # 3) 데모
-    return pd.DataFrame([
-        {"rank":1,"keyword":"맥심 커피믹스"},
-        {"rank":2,"keyword":"카누 미니"},
-        {"rank":3,"keyword":"원두커피 1kg"},
-    ])
+    return pd.DataFrame(rows)
 
 def render_datalab_block():
     st.subheader("데이터랩")
-    df = fetch_datalab_keywords()
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    # 카테고리 프리셋(표시용): 실제 크롤링은 동일 페이지 기준
+    cats = ["도서/취미","디지털/가전","식품","생활/건강","가구/인테리어","스포츠/레저","뷰티","출산/육아","반려동물","패션잡화"]
+    cat = st.selectbox("카테고리(표시용)", cats, index=2, key="datalab_cat")
 
+    df = fetch_datalab_keywords()
+    if df.empty:
+        st.warning("키워드 수집 실패. 잠시 후 다시 시도하세요.")
+        return
+
+    # 의사 점수 생성 (그래프용) — 실제 수치 생기면 이 부분만 바꿔 끼우면 됨
+    n = len(df)
+    df["score"] = [max(1, int(100 - (i*(100/max(1,n-1))))) for i in range(n)]
+
+    st.dataframe(df[["rank","keyword"]], use_container_width=True, hide_index=True)
+
+    # 라인 그래프
+    chart_df = df[["rank","score"]].set_index("rank")
+    st.line_chart(chart_df, height=200)
+
+    # 임베드(테스트/프록시)
     colA, colB = st.columns(2)
     with colA:
-        if st.button("직접 iFrame (실패 가능)"):
+        st.caption("직접 iFrame은 사이트 정책에 따라 실패할 수 있습니다.")
+        if st.button("직접 iFrame (실패 가능)", key="dl_iframe_direct"):
             st.components.v1.iframe("https://datalab.naver.com/shoppingInsight/sCategory.naver", height=560)
     with colB:
         if has_proxy():
-            if st.button("프록시 iFrame (권장)"):
+            if st.button("프록시 iFrame (권장)", key="dl_iframe_proxy"):
                 st.components.v1.iframe(iframe_url("https://datalab.naver.com/shoppingInsight/sCategory.naver"), height=560)
         else:
             st.caption("임베드가 필요하면 Part 0의 PROXY_URL을 설정하세요.")
@@ -219,7 +232,7 @@ def render_sellerlife_block():
     st.subheader("셀러라이프")
     st.info("연동 대기 (API 키 확보 후 교체)")
 # ============================================
-# Part 5 — 11번가 (PATCH D)
+# Part 5 — 11번가 (REPLACE)
 # ============================================
 def fetch_11st_best(max_rows: int = 50) -> pd.DataFrame:
     url = "https://m.11st.co.kr/browsing/bestSellers.mall"
@@ -261,11 +274,11 @@ def render_elevenst_block():
 
     colA, colB = st.columns(2)
     with colA:
-        if st.button("직접 iFrame (실패 가능)"):
+        if st.button("직접 iFrame (실패 가능)", key="e11_iframe_direct"):
             st.components.v1.iframe("https://m.11st.co.kr/browsing/bestSellers.mall", height=560)
     with colB:
         if has_proxy():
-            if st.button("프록시 iFrame (권장)"):
+            if st.button("프록시 iFrame (권장)", key="e11_iframe_proxy"):
                 st.components.v1.iframe(iframe_url("https://m.11st.co.kr/browsing/bestSellers.mall"), height=560)
         else:
             st.caption("임베드가 필요하면 Part 0의 PROXY_URL을 설정하세요.")
