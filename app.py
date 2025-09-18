@@ -49,37 +49,49 @@ def inject_css():
         background-color:{bg} !important; color:{fg} !important;
       }}
 
-      /* 섹션 카드를 더 아래로 (헤더 겹침 방지) */
-      .block-container{{padding-top:2.2rem; padding-bottom:.8rem;}}
+      /* 섹션 카드 여백 */
+      .block-container{{padding-top:2.0rem; padding-bottom:.7rem;}}
 
       /* 제목 보정 */
       h1, h2, [data-testid="stHeader"] + div h2 {{
-        margin-top: .25rem !important;
+        margin-top: .2rem !important;
       }}
 
-      /* 사이드바 영역 조정 */
+      /* 사이드바 압축 */
       [data-testid="stSidebar"] section {{
-        padding-top:.4rem; padding-bottom:.4rem;
+        padding-top:.3rem; padding-bottom:.3rem;
         height:100vh; overflow:hidden;
       }}
       [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none;}}
 
-      /* 사이드바 제목 폰트 크기 줄이기 */
+      /* 사이드바 제목 폰트 축소 */
       [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {{
-        font-size: 1rem !important;   /* 기존보다 살짝 작게 */
-        margin-bottom: .3rem !important;
+        font-size: 0.95rem !important;
+        margin-bottom: .25rem !important;
       }}
 
-      /* 카드/뱃지 */
-      .badge-green {{background:#e6ffcc; border:1px solid #b6f3a4; padding:6px 10px; border-radius:6px; color:#0b2e13; font-size:13px;}}
-      .badge-blue  {{background:#e6f0ff; border:1px solid #b7ccff; padding:6px 10px; border-radius:6px; color:#0b1e4a; font-size:13px;}}
-      .note-small  {{color:#8aa0b5; font-size:11px;}}
+      /* input / select box 축소 */
+      [data-baseweb="input"] input, 
+      [data-baseweb="select"] div, 
+      .stNumberInput input {{
+        font-size: 0.9rem !important;
+        padding-top: .2rem !important;
+        padding-bottom: .2rem !important;
+        height: 1.8rem !important;
+      }}
 
-      /* 원형 로고 */
+      /* 버튼 크기 축소 */
+      button[kind="secondary"], button[kind="primary"] {{
+        padding-top: .25rem !important;
+        padding-bottom: .25rem !important;
+        font-size: 0.9rem !important;
+      }}
+
+      /* 원형 로고 더 작게 */
       .logo-circle {{
-        width: 100px; height: 100px; border-radius: 50%;
-        overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.15);
-        margin-bottom:.4rem; border: 1px solid rgba(0,0,0,.06);
+        width: 90px; height: 90px; border-radius: 50%;
+        overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,.15);
+        margin-bottom:.3rem; border: 1px solid rgba(0,0,0,.06);
       }}
       .logo-circle img {{width:100%; height:100%; object-fit:cover; display:block;}}
     </style>
