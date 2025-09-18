@@ -44,68 +44,41 @@ def inject_css():
     else:
         bg, fg = "#ffffff", "#111111"
 
-    # 사이드바 전체 폰트 한 단계 ↓, 로고 더 작게, 배지(컬러 박스) 복원
     st.markdown(f"""
     <style>
       html, body, [data-testid="stAppViewContainer"] {{
         background-color:{bg} !important; color:{fg} !important;
       }}
 
-      /* 본문 카드 여백 */
-      .block-container{{padding-top:2.0rem; padding-bottom:.7rem;}}
+      /* 본문 카드 여백 (위/아래 최소화) */
+      .block-container{{padding-top:1.2rem; padding-bottom:.5rem;}}
 
-      /* ===== Sidebar Compact v4 ===== */
+      /* ===== Sidebar Compact ===== */
       [data-testid="stSidebar"] section {{
-        padding-top:.28rem; padding-bottom:.28rem;
+        padding-top:.2rem; padding-bottom:.2rem;
         height:100vh; overflow:hidden;   /* 스크롤락 */
-        font-size: 0.93rem;              /* ← 전체 한 단계 축소 */
+        font-size: 0.93rem;
       }}
       [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none;}}
 
-      /* 제목(### …) 더 작고 타이트 */
+      /* 제목 줄 간격 최소화 */
       [data-testid="stSidebar"] h2, 
       [data-testid="stSidebar"] h3 {{
-        font-size: 0.9rem !important;
+        font-size: 0.95rem !important;
         line-height: 1.05rem !important;
-        margin: .25rem 0 .2rem 0 !important;
+        margin: .15rem 0 .15rem 0 !important;
       }}
 
-      /* 라벨/부제 */
-      [data-testid="stSidebar"] [data-testid="stWidgetLabel"] > div, 
-      [data-testid="stSidebar"] label p {{
-        font-size: .88rem !important;
-        margin-bottom: .15rem !important;
-      }}
-
-      /* 인풋/셀렉트/넘버 입력 박스 높이 축소 */
-      [data-baseweb="input"] input, 
-      .stNumberInput input, 
-      [data-baseweb="select"] div[role="combobox"] {{
-        font-size: .9rem !important;
-        height: 1.7rem !important;
-        padding-top: .18rem !important; padding-bottom: .18rem !important;
-      }}
-
-      /* 버튼도 살짝 축소 */
-      button[kind="secondary"], button[kind="primary"] {{
-        padding: .22rem .5rem !important;
-        font-size: .9rem !important;
-      }}
-
-      /* 라디오/토글 간격 */
-      [data-testid="stSidebar"] [role="radiogroup"] > label {{
-        margin-right: .45rem !important;
-      }}
-
-      /* 원형 로고 더 컴팩트 */
+      /* 원형 로고 (이전 사이즈 120px 복원) */
       .logo-circle {{
-        width: 80px; height: 80px; border-radius: 50%;
-        overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,.15);
-        margin: .15rem 0 .35rem 0; border: 1px solid rgba(0,0,0,.06);
+        width: 120px; height: 120px; border-radius: 50%;
+        overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.15);
+        margin: .25rem auto .45rem auto; 
+        border: 1px solid rgba(0,0,0,.06);
       }}
       .logo-circle img {{width:100%; height:100%; object-fit:cover; display:block;}}
 
-      /* ===== 컬러 박스(배지) 복원 ===== */
+      /* ===== 컬러 박스 (배지) ===== */
       .badge-green {{background:#e6ffcc; border:1px solid #b6f3a4; 
         padding:6px 10px; border-radius:6px; color:#0b2e13; font-size:.9rem;}}
       .badge-blue  {{background:#e6f0ff; border:1px solid #b7ccff; 
