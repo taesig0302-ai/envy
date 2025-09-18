@@ -58,14 +58,14 @@ def inject_css():
 
       /* ================= Sidebar ================= */
       [data-testid="stSidebar"] section {{
-        padding-top: .12rem !important;   /* 더 줄임 */
+        padding-top: .12rem !important;
         padding-bottom: .12rem !important;
         height: 100vh; overflow: hidden;  /* 스크롤락 */
-        font-size: .95rem;                /* 가독성 유지 */
+        font-size: .95rem;
       }}
       [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none;}}
 
-      /* 컴포넌트 사이 세로 간격 최소화(요소 유지) */
+      /* 컴포넌트 간 간격 최소화 */
       [data-testid="stSidebar"] .stSelectbox,
       [data-testid="stSidebar"] .stNumberInput,
       [data-testid="stSidebar"] .stRadio,
@@ -77,21 +77,20 @@ def inject_css():
         margin-bottom: .14rem !important;
       }}
 
-      /* 제목 줄간격만 타이트 */
+      /* 제목 줄간격 타이트 */
       [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {{
         margin-top: .12rem !important;
         margin-bottom: .14rem !important;
         line-height: 1.05rem !important;
       }}
 
-      /* 입력/셀렉트 높이 살짝 더 낮춤 */
+      /* 입력/셀렉트 높이 살짝 다운 */
       [data-baseweb="input"] input,
       .stNumberInput input,
       [data-baseweb="select"] div[role="combobox"] {{
-        height: 1.6rem !important;
-        padding-top: .14rem !important;
-        padding-bottom: .14rem !important;
-        font-size: .93rem !important;
+        height: 1.55rem !important;
+        padding-top: .12rem !important; padding-bottom: .12rem !important;
+        font-size: .92rem !important;
       }}
 
       /* 버튼 높이/패딩 소폭 축소 */
@@ -100,7 +99,7 @@ def inject_css():
         font-size: .92rem !important;
       }}
 
-      /* 로고는 기존 120px 유지 */
+      /* 로고 */
       .logo-circle {{
         width: 120px; height: 120px; border-radius: 50%;
         overflow: hidden; margin: .22rem auto .35rem auto;
@@ -109,22 +108,25 @@ def inject_css():
       }}
       .logo-circle img {{width:100%; height:100%; object-fit:cover;}}
 
-      /* 컬러 박스(배지) — 사이즈만 소폭 축소, 색상/스타일은 유지 */
+      /* 배지(얇게) */
       .badge-green {{background:#e6ffcc; border:1px solid #b6f3a4;
-        padding:5px 8px; border-radius:6px; color:#0b2e13; font-size:.86rem;}}
+        padding:4px 8px; border-radius:6px; color:#0b2e13; font-size:.85rem;}}
       .badge-blue  {{background:#e6f0ff; border:1px solid #b7ccff;
-        padding:5px 8px; border-radius:6px; color:#0b1e4a; font-size:.86rem;}}
-      .note-small  {{color:#8aa0b5; font-size:11px;}}
+        padding:4px 8px; border-radius:6px; color:#0b1e4a; font-size:.85rem;}}
+
+      /* 사이드바 컬럼 간 여백도 압축 */
+      [data-testid="stSidebar"] .stColumn > div {{ margin: 0.1rem 0 !important; }}
     </style>
     """, unsafe_allow_html=True)
 # ============================================
 # Part 1 — 사이드바  (REPLACE)
 # ============================================
 import base64
+from pathlib import Path
 
 def render_sidebar():
     with st.sidebar:
-        # 원형 로고(base64 인라인) – cloud에서도 보임
+        # --- 로고 (base64 인라인: 배포/클라우드에서도 깨지지 않음)
         lp = Path(__file__).parent / "logo.png"
         if lp.exists():
             b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
@@ -133,39 +135,66 @@ def render_sidebar():
                 unsafe_allow_html=True
             )
         else:
-            st.warning("logo.png 를 앱 파일과 같은 폴더에 두면 사이드바에 표시됩니다.")
+            st.caption("logo.png 를 앱 폴더에 두면 사이드바에 표시됩니다.")
 
-        # 🌓 다크 모드 토글 (라벨에 이모지)
-        st.toggle("🌓 다크 모드", value=(st.session_state["theme"] == "dark"), on_change=toggle_theme)
+        # --- 다크모드 토글 (이모지 포함)
+        st.toggle("🌓 다크 모드", value=(st.session_state.get("theme","light") == "dark"), on_change=toggle_theme)
 
-        # 환율 계산기
+        # ================== ① 환율 계산기 ==================
         st.markdown("### ① 환율 계산기")
-        base = st.selectbox("기준 통화", list(CURRENCY_SYMBOL.keys()), index=0)
-        sym = CURRENCY_SYMBOL.get(base, "")
-        sale_foreign = st.number_input(f"판매금액 (외화 {sym})", value=1.00, step=0.01, format="%.2f")
-        won = FX_DEFAULT[base] * sale_foreign
+        c1, c2 = st.columns(2)
+        with c1:
+            base = st.selectbox("기준 통화", list(CURRENCY_SYMBOL.keys()), index=0, key="fx_base")
+        with c2:
+            sym = CURRENCY_SYMBOL.get(base, "")
+            sale_foreign = st.number_input(f"판매금액 ({sym})", value=1.00, step=0.01, format="%.2f", key="fx_sale")
+
+        won = FX_DEFAULT.get(base, 1400.0) * sale_foreign
         st.markdown(f'<div class="badge-green">환산 금액: <b>{won:,.2f} 원</b></div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="note-small">환율 기준: {FX_DEFAULT[base]:,.2f} ₩/{base}</div>', unsafe_allow_html=True)
+        st.caption(f"기준 환율: {FX_DEFAULT.get(base,0):,.2f} ₩ / {base}")
 
-        # 마진 계산기
+        # ================== ② 마진 계산기 ==================
         st.markdown("### ② 마진 계산기")
-        m_base = st.selectbox("매입 통화", list(CURRENCY_SYMBOL.keys()), index=0, key="mbase")
-        m_sym  = CURRENCY_SYMBOL.get(m_base, "")
-        purchase_foreign = st.number_input(f"매입금액 (외화 {m_sym})", value=0.00, step=0.01, format="%.2f")
-        base_cost_won = FX_DEFAULT[m_base] * purchase_foreign if purchase_foreign>0 else won
-        st.markdown(f'<div class="badge-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
+        # 매입 통화/금액 (2열로 세로 공간 절약)
+        c3, c4 = st.columns(2)
+        with c3:
+            m_base = st.selectbox("매입 통화", list(CURRENCY_SYMBOL.keys()), index=0, key="mbase")
+        with c4:
+            m_sym  = CURRENCY_SYMBOL.get(m_base, "")
+            purchase_foreign = st.number_input(f"매입금액 ({m_sym})", value=0.00, step=0.01, format="%.2f", key="m_buy")
 
-        m_rate = st.number_input("카드수수료 (%)", value=4.00, step=0.01, format="%.2f")
-        m_fee  = st.number_input("마켓수수료 (%)", value=14.00, step=0.01, format="%.2f")
-        ship   = st.number_input("배송비 (₩)", value=0.0, step=100.0, format="%.0f")
-        mode   = st.radio("마진 방식", ["퍼센트 마진(%)","더하기 마진(₩)"], horizontal=True)
-        margin = st.number_input("마진율/마진액", value=10.00, step=0.01, format="%.2f")
-        if mode=="퍼센트 마진(%)":
-            target_price = base_cost_won * (1 + m_rate/100) * (1 + m_fee/100) * (1 + margin/100) + ship
+        base_cost_won = FX_DEFAULT.get(m_base, 1400.0) * purchase_foreign if purchase_foreign>0 else won
+        st.markdown(f'<div class="badge-green">원가(₩): <b>{base_cost_won:,.2f}</b></div>', unsafe_allow_html=True)
+
+        # 수수료/비용 (2열로 압축)
+        c5, c6 = st.columns(2)
+        with c5:
+            m_rate = st.number_input("카드수수료(%)", value=4.00, step=0.01, format="%.2f", key="m_card")
+        with c6:
+            m_fee  = st.number_input("마켓수수료(%)", value=14.00, step=0.01, format="%.2f", key="m_market")
+
+        c7, c8 = st.columns(2)
+        with c7:
+            ship   = st.number_input("배송비(₩)", value=0.0, step=100.0, format="%.0f", key="m_ship")
+        with c8:
+            mode   = st.radio("마진 방식", ["퍼센트(%)","더하기(₩)"], horizontal=True, key="m_mode")
+
+        margin = st.number_input("마진율/마진액", value=10.00, step=0.01, format="%.2f", key="m_margin")
+
+        # 계산
+        fee_mult  = (1 + m_rate/100) * (1 + m_fee/100)
+        if mode == "퍼센트(%)":
+            target_price = base_cost_won * fee_mult * (1 + margin/100) + ship
         else:
-            target_price = base_cost_won * (1 + m_rate/100) * (1 + m_fee/100) + margin + ship
-        st.markdown(f'<div class="badge-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
-        st.warning(f"순이익(마진): {(target_price - base_cost_won):,.2f} 원")
+            target_price = base_cost_won * fee_mult + margin + ship
+        profit = target_price - base_cost_won
+
+        # 결과 (2열 배지로 컴팩트하게)
+        r1, r2 = st.columns(2)
+        with r1:
+            st.markdown(f'<div class="badge-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
+        with r2:
+            st.markdown(f'<div class="badge-green">순이익: <b>{profit:,.2f} 원</b></div>', unsafe_allow_html=True)
 # ============================================
 # Part 2 — 데이터랩  (REPLACE)
 # ============================================
@@ -330,6 +359,7 @@ def render_elevenst_block():
 # 🔑 라쿠텐 App ID (네가 준 값으로 직접 심어둠)
 # ---- Rakuten: App ID 복원(네가 준 값) + 안전 장르 셋 ----
 # App ID 고정 (네가 준 값)
+# ==== Rakuten (AI 키워드 레이더) ====
 RAKUTEN_APP_ID = "1043271015809337425"
 
 SAFE_GENRES = {
@@ -360,7 +390,7 @@ def rakuten_fetch_ranking(genre_id: str, rows: int = 50) -> pd.DataFrame:
     """
     formatVersion 1: Items -> Item -> itemName
     formatVersion 2: Items -> itemName
-    둘 다 안전하게 파싱
+    둘 다 파싱
     """
     params = {
         "applicationId": RAKUTEN_APP_ID,
@@ -370,30 +400,27 @@ def rakuten_fetch_ranking(genre_id: str, rows: int = 50) -> pd.DataFrame:
     }
     try:
         resp = requests.get(_rk_url(params), headers=MOBILE_HEADERS, timeout=12)
-        status = resp.status_code
-        if status == 400:
-            raise ValueError("400 Bad Request (장르 코드/매개변수 문제)")
+        if resp.status_code == 400:
+            raise ValueError("400 Bad Request (장르 코드/매개변수)")
         resp.raise_for_status()
         data = resp.json()
         items = data.get("Items", [])[:rows]
 
         out = []
         for i, it in enumerate(items, start=1):
-            # v2: 바로 itemName, v1: Item 내부에 itemName
+            # v2 직계, v1 Item 내부 모두 처리
             if isinstance(it, dict) and "itemName" in it:
                 name = it.get("itemName") or ""
             else:
                 name = (it.get("Item") or {}).get("itemName", "")
             if name:
                 out.append({"rank": i, "keyword": name, "source": "Rakuten JP"})
-
         if not out:
-            raise ValueError("응답 파싱 결과가 비어 있음")
-
+            raise ValueError("응답 파싱 결과 비어 있음")
         return pd.DataFrame(out)
 
-    except Exception as e:
-        # 안전 폴백 1회
+    except Exception as e):
+        # 1차 폴백
         if genre_id != DEFAULT_GENRE:
             try:
                 fb = rakuten_fetch_ranking.__wrapped__(DEFAULT_GENRE, rows)
@@ -401,7 +428,7 @@ def rakuten_fetch_ranking(genre_id: str, rows: int = 50) -> pd.DataFrame:
                 return fb
             except Exception:
                 pass
-        # 최종 데모(오류 메시지 표시)
+        # 최종 데모
         return pd.DataFrame([{
             "rank": 1,
             "keyword": f"(Rakuten) {type(e).__name__}: {e}",
