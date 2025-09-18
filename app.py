@@ -50,27 +50,36 @@ def inject_css():
       }}
 
       /* 섹션 카드를 더 아래로 (헤더 겹침 방지) */
-      .block-container{{padding-top:2.4rem; padding-bottom:.9rem;}}
+      .block-container{{padding-top:2.2rem; padding-bottom:.8rem;}}
 
-      /* 제목 보정: 상단 여백 추가 */
+      /* 제목 보정 */
       h1, h2, [data-testid="stHeader"] + div h2 {{
-        margin-top: .35rem !important;
+        margin-top: .25rem !important;
       }}
 
-      /* 사이드바 여백/락 */
-      [data-testid="stSidebar"] section{{padding-top:.6rem; padding-bottom:.6rem; height:100vh; overflow:hidden;}}
+      /* 사이드바 영역 조정 */
+      [data-testid="stSidebar"] section {{
+        padding-top:.4rem; padding-bottom:.4rem;
+        height:100vh; overflow:hidden;
+      }}
       [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none;}}
 
-      /* 뱃지 */
-      .badge-green {{background:#e6ffcc; border:1px solid #b6f3a4; padding:8px 12px; border-radius:6px; color:#0b2e13;}}
-      .badge-blue  {{background:#e6f0ff; border:1px solid #b7ccff; padding:8px 12px; border-radius:6px; color:#0b1e4a;}}
-      .note-small  {{color:#8aa0b5; font-size:12px;}}
+      /* 사이드바 제목 폰트 크기 줄이기 */
+      [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {{
+        font-size: 1rem !important;   /* 기존보다 살짝 작게 */
+        margin-bottom: .3rem !important;
+      }}
+
+      /* 카드/뱃지 */
+      .badge-green {{background:#e6ffcc; border:1px solid #b6f3a4; padding:6px 10px; border-radius:6px; color:#0b2e13; font-size:13px;}}
+      .badge-blue  {{background:#e6f0ff; border:1px solid #b7ccff; padding:6px 10px; border-radius:6px; color:#0b1e4a; font-size:13px;}}
+      .note-small  {{color:#8aa0b5; font-size:11px;}}
 
       /* 원형 로고 */
       .logo-circle {{
-        width: 120px; height: 120px; border-radius: 50%;
+        width: 100px; height: 100px; border-radius: 50%;
         overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.15);
-        margin-bottom:.5rem; border: 1px solid rgba(0,0,0,.06);
+        margin-bottom:.4rem; border: 1px solid rgba(0,0,0,.06);
       }}
       .logo-circle img {{width:100%; height:100%; object-fit:cover; display:block;}}
     </style>
