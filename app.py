@@ -302,15 +302,11 @@ def naver_ads_relkwd(hint_keywords:list[str], max_rows:int=20) -> pd.DataFrame:
     except Exception:
         return pd.DataFrame()
 # =========================
-# Part 3 — 데이터랩 (강화판 v2 · 전체 교체본)
-#  - 카테고리 → Top20 키워드(20개 고정)
-#  - 선택 키워드(최대 5개) 트렌드 라인
-#  - NAVER_COOKIE: secrets/env/session 자동 인식, 없을 때만 입력
-#  - API 200/0·빈 본문 대비: POST → GET → HTML 스크레이핑 3단 폴백
+# Part 3 — 데이터랩 (강화판 v3 · 전체 교체본)
 # =========================
 import os, json, re
 from datetime import date, timedelta
-from typing import List
+from typing import List, Dict, Any
 from collections import defaultdict
 
 import streamlit as st
@@ -347,7 +343,7 @@ def _naver_cookie() -> str:
         return env
     return st.session_state.get('__NAVER_COOKIE', '').strip()
 
-# ── DataLab 공통 헤더(Referer에 실제 CID/기간/디바이스 반영)
+# ── 헤더
 def _hdr(cookie: str, cid: str, time_unit: str = 'week', device: str = 'all', as_json: bool = True) -> dict:
     h = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
@@ -364,176 +360,229 @@ def _hdr(cookie: str, cid: str, time_unit: str = 'week', device: str = 'all', as
         h["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
     return h
 
-# ── Top20 정규화: 퍼센트/콤마/문자 섞임까지 안전 파싱
-def _normalize_top20(data: dict) -> List[dict]:
+# ── score 안전 파싱
+def _to_float(v) -> float:
+    if v is None:
+        return 0.0
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v).replace(',', '')
+    m = re.search(r'-?\d+(?:\.\d+)?', s)
+    return float(m.group(0)) if m else 0.0
+
+# ── Top20 정규화
+def _normalize_top20(obj: Any) -> List[dict]:
     rows: List[dict] = []
 
-    def to_float(v):
-        if v is None:
-            return 0.0
-        if isinstance(v, (int, float)):
-            return float(v)
-        s = str(v).replace(',', '')
-        m = re.search(r'-?\d+(?:\.\d+)?', s)  # "12.3%" "1,234" 등 처리
-        return float(m.group(0)) if m else 0.0
+    # 1) ranks 배열 직행
+    if isinstance(obj, dict) and isinstance(obj.get("ranks"), list):
+        for i, d in enumerate(obj["ranks"], 1):
+            kw = (d.get("keyword") or d.get("relKeyword") or "").strip()
+            sc = None
+            for k in ("ratio","ratioValue","value","score","count","ratioIndex"):
+                if k in d:
+                    sc = _to_float(d.get(k))
+                    break
+            if kw:
+                rows.append({"rank": i, "keyword": kw, "score": 0.0 if sc is None else sc})
 
+    # 2) 임의 dict/list에서 keyword/score 추적
     def consider(d: dict):
         kw = (d.get('keyword') or d.get('relKeyword') or d.get('name') or d.get('key') or '').strip()
         sc = None
         for k in ('ratio','ratioValue','ratioIndex','value','score','count'):
             if k in d:
-                sc = to_float(d.get(k))
+                sc = _to_float(d.get(k))
                 break
         if kw:
             rows.append({'keyword': kw, 'score': 0.0 if sc is None else sc})
 
     def walk(o):
         if isinstance(o, dict):
+            if "ranks" in o and isinstance(o["ranks"], list):
+                for i, d in enumerate(o["ranks"], 1):
+                    kw = (d.get("keyword") or d.get("relKeyword") or "").strip()
+                    sc = None
+                    for k in ("ratio","ratioValue","value","score","count","ratioIndex"):
+                        if k in d:
+                            sc = _to_float(d.get(k))
+                            break
+                    if kw:
+                        rows.append({"rank": i, "keyword": kw, "score": 0.0 if sc is None else sc})
             for v in o.values():
-                if isinstance(v, dict):
+                if isinstance(v, (dict, list)):
                     walk(v)
-                elif isinstance(v, list):
-                    for it in v:
-                        if isinstance(it, dict):
-                            consider(it)
-                        else:
-                            walk(it)
             consider(o)
         elif isinstance(o, list):
             for v in o:
                 walk(v)
 
-    walk(data)
+    walk(obj)
 
-    # 중복 키워드는 최고 점수만
-    dedup = {}
+    # dedup + 상위 20
+    best = {}
     for r in rows:
-        k, s = r['keyword'], float(r.get('score', 0) or 0)
-        if k and (k not in dedup or s > dedup[k]['score']):
-            dedup[k] = {'keyword': k, 'score': s}
-
-    out = list(dedup.values())
-    out.sort(key=lambda x: x.get('score', 0), reverse=True)
+        k = r["keyword"]
+        s = float(r.get("score", 0) or 0)
+        if k and (k not in best or s > best[k]["score"]):
+            best[k] = {"keyword": k, "score": s}
+    out = list(best.values())
+    out.sort(key=lambda x: x.get("score", 0), reverse=True)
     out = out[:20]
     for i, r in enumerate(out, 1):
-        r['rank'] = i
+        r["rank"] = i
     return out
 
-# ── Top20 호출: POST → GET → HTML 스크레이핑 폴백
+# ── JSON 텍스트에서 {…} 블럭 추출 후 ranks/keyword 파싱
+def _extract_top20_from_text(txt: str) -> List[dict]:
+    hits = []
+
+    # 1) {"message": … "ranks":[…]} 패턴 우선
+    for m in re.finditer(r'\{"message"\s*:\s*null.*?\}', txt, re.S):
+        try:
+            data = json.loads(m.group(0))
+            rows = _normalize_top20(data)
+            if rows:
+                return rows
+        except Exception:
+            pass
+
+    # 2) "ranks":[{…}]만 잡아도 감지
+    m = re.search(r'"ranks"\s*:\s*(\[[^\]]+\])', txt, re.S)
+    if m:
+        try:
+            arr = json.loads(m.group(1))
+            return _normalize_top20({"ranks": arr})
+        except Exception:
+            pass
+
+    # 3) 키워드/ratio 조각 모아 만들기(최후)
+    pats = [
+        r'"keyword"\s*:\s*"([^"]+)"[^}]*?(?:ratio|ratioValue|value|score)"\s*:\s*"?(?P<num>[-\d.,]+%?)"?',
+        r'"relKeyword"\s*:\s*"([^"]+)"[^}]*?(?:ratio|ratioValue|value|score)"\s*:\s*"?(?P<num>[-\d.,]+%?)"?',
+    ]
+    kv = defaultdict(float)
+    for p in pats:
+        for kw, sc in re.findall(p, txt):
+            kw = kw.strip()
+            val = _to_float(sc)
+            if kw and val > kv[kw]:
+                kv[kw] = val
+    rows = [{"keyword": k, "score": v} for k, v in kv.items()]
+    rows.sort(key=lambda x: x["score"], reverse=True)
+    rows = rows[:20]
+    for i, r in enumerate(rows, 1):
+        r["rank"] = i
+    return rows
+
+# ── Top20 호출: POST/GET(`age|ages`) → getCategory.naver → HTML 폴백
 @st.cache_data(show_spinner=False, ttl=600)
 def _fetch_top20(cookie: str, cid: str, start: str, end: str) -> dict:
     if not requests:
         return {"ok": False, "reason": "requests 미설치"}
 
-    base = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordRank.naver"
     tried, last_json, last_reason = [], None, ""
+    base_kw = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordRank.naver"
 
-    # 1) 공식 POST (week/date × all/pc/mo)
+    # 1) 공식 POST/GET (timeUnit × device × age-key)
+    for method in ("POST", "GET"):
+        for time_unit in ("week", "date"):
+            for device in ("all", "pc", "mo"):
+                for age_key in ("age", "ages"):
+                    tried.append(f"{method}:{time_unit}/{device}/{age_key}")
+                    payload = {
+                        "cid": str(cid).strip(),
+                        "timeUnit": time_unit,
+                        "startDate": start,
+                        "endDate": end,
+                        "device": device,
+                        "gender": "all",
+                    }
+                    payload[age_key] = "all"
+                    try:
+                        if method == "POST":
+                            r = requests.post(
+                                base_kw,
+                                headers=_hdr(cookie, cid, time_unit, device, as_json=True),
+                                data=payload, timeout=12, allow_redirects=False
+                            )
+                        else:
+                            r = requests.get(
+                                base_kw,
+                                headers=_hdr(cookie, cid, time_unit, device, as_json=True),
+                                params=payload, timeout=12, allow_redirects=False
+                            )
+                        ct = (r.headers.get("content-type") or "").lower()
+                        if r.status_code in (301,302,303,307,308):
+                            return {"ok": False, "reason": "302 리다이렉트 — 쿠키 만료/로그인 필요", "tried": tried}
+                        if "text/html" in ct:
+                            last_reason = "HTML 응답 — 쿠키/리퍼러 불일치 또는 권한 거절"
+                            continue
+                        r.raise_for_status()
+                        data = r.json()
+                        last_json = data
+                        rows = _normalize_top20(data)
+                        if rows:
+                            return {"ok": True, "rows": rows}
+                        last_reason = "응답 파싱 실패(구조 변경 가능성)"
+                    except Exception as e:
+                        last_reason = f"요청 실패: {e}"
+
+    # 2) getCategory.naver 직접 (일부 세션에서 여기에 키워드 포함)
+    base_cat = "https://datalab.naver.com/shoppingInsight/getCategory.naver"
     for time_unit in ("week", "date"):
-        for device in ("all", "pc", "mo"):
-            payload = {
-                "cid": str(cid).strip(),
-                "timeUnit": time_unit,
-                "startDate": start,
-                "endDate": end,
-                "gender": "all",
-                "device": device,
-                "age": "all",
-            }
-            tried.append(f"POST:{time_unit}/{device}")
-            try:
-                r = requests.post(base, headers=_hdr(cookie, cid, time_unit, device, as_json=True),
-                                  data=payload, timeout=12, allow_redirects=False)
-                ct = (r.headers.get("content-type") or "").lower()
-                if r.status_code in (301,302,303,307,308):
-                    return {"ok": False, "reason": "302 리다이렉트 — 쿠키 만료/로그인 필요"}
-                if "text/html" in ct:
-                    last_reason = "HTML 응답 — 쿠키/리퍼러 불일치 또는 권한 거절"
-                    continue
-                r.raise_for_status()
-                data = r.json()
-                last_json = data
-                rows = _normalize_top20(data)
-                if rows:
-                    return {"ok": True, "rows": rows}
-                last_reason = "응답 파싱 실패(구조 변경 가능성)"
-            except Exception as e:
-                last_reason = f"요청 실패: {e}"
+        for device in ("all","pc","mo"):
+            for age_key in ("age","ages"):
+                tried.append(f"GET:getCategory/{time_unit}/{device}/{age_key}")
+                params = {
+                    "cid": str(cid).strip(),
+                    "timeUnit": time_unit,
+                    "startDate": start,
+                    "endDate": end,
+                    "device": device,
+                    "gender": "all",
+                }
+                params[age_key] = "all"
+                try:
+                    r = requests.get(
+                        base_cat, headers=_hdr(cookie, cid, time_unit, device, as_json=True),
+                        params=params, timeout=12, allow_redirects=False
+                    )
+                    if r.status_code in (301,302,303,307,308):
+                        return {"ok": False, "reason": "302 리다이렉트 — 쿠키 만료/로그인 필요", "tried": tried}
+                    ct = (r.headers.get("content-type") or "").lower()
+                    if "application/json" in ct:
+                        data = r.json()
+                        last_json = data
+                        rows = _normalize_top20(data)
+                        if rows:
+                            return {"ok": True, "rows": rows}
+                        # 혹시 texto/json 형태일 수 있으니 텍스트에서도 시도
+                        rows = _extract_top20_from_text(r.text or "")
+                        if rows:
+                            return {"ok": True, "rows": rows}
+                    else:
+                        rows = _extract_top20_from_text(r.text or "")
+                        if rows:
+                            return {"ok": True, "rows": rows}
+                    last_reason = "getCategory 응답 파싱 실패"
+                except Exception as e:
+                    last_reason = f"getCategory 실패: {e}"
 
-    # 2) 같은 엔드포인트 GET
-    for time_unit in ("week", "date"):
-        for device in ("all", "pc", "mo"):
-            params = {
-                "cid": str(cid).strip(),
-                "timeUnit": time_unit,
-                "startDate": start,
-                "endDate": end,
-                "gender": "all",
-                "device": device,
-                "age": "all",
-            }
-            tried.append(f"GET:{time_unit}/{device}")
-            try:
-                r = requests.get(base, headers=_hdr(cookie, cid, time_unit, device, as_json=True),
-                                 params=params, timeout=12, allow_redirects=False)
-                ct = (r.headers.get("content-type") or "").lower()
-                if r.status_code in (301,302,303,307,308):
-                    return {"ok": False, "reason": "302 리다이렉트 — 쿠키 만료/로그인 필요"}
-                if "text/html" in ct:
-                    last_reason = "HTML 응답 — 쿠키/리퍼러 불일치 또는 권한 거절"
-                    continue
-                r.raise_for_status()
-                data = r.json()
-                last_json = data
-                rows = _normalize_top20(data)
-                if rows:
-                    return {"ok": True, "rows": rows}
-                last_reason = "응답 파싱 실패(구조 변경 가능성)"
-            except Exception as e:
-                last_reason = f"요청 실패: {e}"
-
-    # 3) HTML 폴백(페이지에서 직접 추출)
+    # 3) HTML 폴백: sCategory.naver 페이지에서 추출
     try:
         page_url = (
             "https://datalab.naver.com/shoppingInsight/sCategory.naver"
-            f"?cid={cid}&timeUnit=week&startDate={start}&endDate={end}&device=all&gender=all&age=all"
+            f"?cid={cid}&timeUnit=week&startDate={start}&endDate={end}&device=all&gender=all&ages=all"
         )
-        r = requests.get(page_url, headers=_hdr(cookie, cid, as_json=False), timeout=12, allow_redirects=False)
+        r = requests.get(page_url, headers=_hdr(cookie, cid, as_json=False),
+                         timeout=12, allow_redirects=False)
         if r.status_code in (301,302,303,307,308):
             return {"ok": False, "reason": "302 리다이렉트 — 쿠키 만료/로그인 필요", "tried": tried}
         html = r.text or ""
-
-        # 다양한 JSON 조각에서 keyword / score 류를 긁어냄
-        pats = [
-            r'"keyword"\s*:\s*"([^"]+)"[^}]*?(?:ratio|ratioValue|value|score)"\s*:\s*"?(?P<num>[-\d.,]+%?)"?',
-            r'"relKeyword"\s*:\s*"([^"]+)"[^}]*?(?:ratio|ratioValue|value|score)"\s*:\s*"?(?P<num>[-\d.,]+%?)"?',
-        ]
-        hits = []
-        for p in pats:
-            hits += re.findall(p, html)
-
-        best = defaultdict(float)
-
-        def _to_float(s):
-            s = str(s).replace(',', '')
-            m = re.search(r'-?\d+(?:\.\d+)?', s)
-            return float(m.group(0)) if m else 0.0
-
-        for kw, sc in hits:
-            kw = kw.strip()
-            v = _to_float(sc)
-            if kw and v > best[kw]:
-                best[kw] = v
-
-        rows = [{"keyword": k, "score": v} for k, v in best.items()]
-        rows.sort(key=lambda x: x["score"], reverse=True)
-        rows = rows[:20]
-        for i, rr in enumerate(rows, 1):
-            rr["rank"] = i
-
+        rows = _extract_top20_from_text(html)
         if rows:
             return {"ok": True, "rows": rows, "fallback": "html"}
-
         sample = ""
         try:
             if last_json is not None:
@@ -550,12 +599,11 @@ def _fetch_top20(cookie: str, cid: str, start: str, end: str) -> dict:
             pass
         return {"ok": False, "reason": f"HTML 폴백 실패: {e}", "tried": tried, "sample": sample}
 
-# ── 키워드 트렌드(주간 기준). 빈값이면 샘플 라인 제공
+# ── 키워드 트렌드(주간). 실패 시 샘플 라인
 @st.cache_data(show_spinner=False, ttl=600)
 def _fetch_trend(cookie: str, keywords: List[str], start: str, end: str) -> pd.DataFrame:
     if not (requests and keywords):
         return pd.DataFrame()
-
     url = "https://datalab.naver.com/shoppingInsight/getKeywordTrends.naver"
     headers = _hdr(cookie, cid='50000000', as_json=True)
     payload = {
@@ -565,7 +613,7 @@ def _fetch_trend(cookie: str, keywords: List[str], start: str, end: str) -> pd.D
         "keyword": json.dumps([{"name": k.strip(), "param": [k.strip()]} for k in keywords], ensure_ascii=False),
         "device": "all",
         "gender": "all",
-        "age": "all",
+        "ages": "all",   # ← 여기도 ages
     }
     try:
         r = requests.post(url, headers=headers, data=payload, timeout=12, allow_redirects=False)
@@ -577,7 +625,7 @@ def _fetch_trend(cookie: str, keywords: List[str], start: str, end: str) -> pd.D
     except Exception:
         return pd.DataFrame()
 
-    series = {}
+    series: Dict[str, list] = {}
     def walk(o):
         if isinstance(o, dict):
             title = o.get("title") or o.get("name")
@@ -589,7 +637,8 @@ def _fetch_trend(cookie: str, keywords: List[str], start: str, end: str) -> pd.D
                     series.setdefault("period", []).append(period)
                     series.setdefault(title, []).append(ratio)
             for v in o.values():
-                walk(v)
+                if isinstance(v, (dict, list)):
+                    walk(v)
         elif isinstance(o, list):
             for v in o:
                 walk(v)
@@ -602,7 +651,7 @@ def _fetch_trend(cookie: str, keywords: List[str], start: str, end: str) -> pd.D
         df = df.set_index("period")
     return df
 
-# ── 화면 렌더러(메인에서 이 함수를 호출)
+# ── 화면 렌더러
 def render_datalab_block():
     st.markdown("## 데이터랩")
 
