@@ -1,3 +1,5 @@
-streamlit
-deep-translator
+streamlit==1.37.1
 requests
+pandas
+beautifulsoup4
+deep-translator

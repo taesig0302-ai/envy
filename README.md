@@ -1,3 +1,17 @@
-# Envy v11.0 Full
 
-풀버전 패키지 (데이터랩, 트렌드, 11번가, 라쿠텐, 아이템스카우트, 셀러라이프, 번역기, 환율/마진계산기 포함)
+# ENVY v11.0 (Cloud Patched)
+
+## Cloud/Local 공통 실행
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+## Streamlit Cloud 필수
+- runtime.txt → `3.11`
+- .streamlit/config.toml → `showErrorDetails=true`
+- 레포 루트에 `app.py`/`requirements.txt`/`runtime.txt`/`.streamlit/config.toml`
+
+## 11번가 프록시
+- worker.js 를 Cloudflare Workers에 배포 → 사이드바 `PROXY_URL` 입력
+- iFrame 경로: `https://<worker>/iframe?target=<ENCODED_URL>`
