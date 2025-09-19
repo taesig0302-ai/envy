@@ -304,11 +304,11 @@ def naver_ads_relkwd(hint_keywords:list[str], max_rows:int=20) -> pd.DataFrame:
 # =========================
 # Part 3 — 데이터랩 (강화판 전체)
 #  - 카테고리 → Top20 키워드 (20개 고정)
-#  - 선택 키워드(최대 5개) 주간/일간 트렌드 조회
-#  - NAVER_COOKIE: secrets/env/session 자동 인식, 없을 때만 입력칸 표시
-#  - 응답 포맷 변화에 견디는 범용 파서 + week/date × all/pc/mo 폴백
+#  - 선택 키워드(최대 5개) 주간/일간 트렌드
+#  - NAVER_COOKIE: secrets/env/session 자동 인식, 없을 때만 입력칸
+#  - API 응답이 비거나 포맷이 바뀌어도 HTML 폴백으로 Top20 추출
 # =========================
-import os, json
+import os, json, re
 from datetime import date, timedelta
 from typing import List, Dict
 
@@ -332,46 +332,46 @@ CID_MAP = {
     '생활/건강':'50000008','여가/생활편의':'50000009','면세점':'50000010','도서':'50005542',
 }
 
-# ── NAVER_COOKIE: secrets → env → session
+# ── NAVER_COOKIE 가져오기(secrets → env → session)
 def _naver_cookie() -> str:
     sec = ''
     try:
         sec = st.secrets.get('NAVER_COOKIE', '')
     except Exception:
         sec = ''
-    if sec:
-        return sec.strip()
+    if sec: return sec.strip()
     env = os.getenv('NAVER_COOKIE', '').strip()
-    if env:
-        return env
+    if env: return env
     return st.session_state.get('__NAVER_COOKIE', '').strip()
 
 # ── DataLab 헤더(Referer에 CID 포함 + XHR 지정)
-def _headers_for_datalab(cookie: str, cid: str) -> dict:
-    return {
+def _headers_for_datalab(cookie: str, cid: str, as_json: bool = True) -> dict:
+    h = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*',
-        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
         'Origin': 'https://datalab.naver.com',
         'Referer': f'https://datalab.naver.com/shoppingInsight/sCategory.naver?cid={cid}&timeUnit=week&device=all',
-        'X-Requested-With': 'XMLHttpRequest',
         'Cookie': cookie.strip(),
     }
+    if as_json:
+        h['Accept'] = 'application/json, text/plain, */*'
+        h['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8'
+        h['X-Requested-With'] = 'XMLHttpRequest'
+    else:
+        h['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+    return h
 
 # ── Top20 응답 정규화(포맷 변화 광범위 커버)
 def _normalize_top20(data: dict) -> List[dict]:
     rows: List[dict] = []
 
     def _as_float(x):
-        try:
-            return float(x)
-        except Exception:
-            return 0.0
+        try: return float(x)
+        except Exception: return 0.0
 
     def _consider(it: dict):
         kw = (it.get('keyword') or it.get('relKeyword') or it.get('name') or it.get('key') or '').strip()
         sc = None
-        for k in ('ratio', 'ratioValue', 'ratioIndex', 'value', 'score', 'count'):
+        for k in ('ratio','ratioValue','ratioIndex','value','score','count'):
             if k in it:
                 sc = _as_float(it.get(k))
                 break
@@ -381,25 +381,20 @@ def _normalize_top20(data: dict) -> List[dict]:
     def _walk(obj):
         if isinstance(obj, dict):
             for v in obj.values():
-                if isinstance(v, dict):
-                    _walk(v)
+                if isinstance(v, dict): _walk(v)
                 elif isinstance(v, list):
                     for it in v:
-                        if isinstance(it, dict):
-                            _consider(it)
-                        elif isinstance(it, (list, dict)):
-                            _walk(it)
+                        if isinstance(it, dict): _consider(it)
+                        elif isinstance(it, (list, dict)): _walk(it)
             _consider(obj)
         elif isinstance(obj, list):
-            for v in obj:
-                _walk(v)
+            for v in obj: _walk(v)
 
     _walk(data)
 
     dedup = {}
     for r in rows:
-        k = r['keyword']
-        s = float(r.get('score', 0) or 0)
+        k = r['keyword']; s = float(r.get('score', 0) or 0)
         if k and (k not in dedup or s > dedup[k]['score']):
             dedup[k] = {'keyword': k, 'score': s}
 
@@ -410,62 +405,102 @@ def _normalize_top20(data: dict) -> List[dict]:
         r['rank'] = i
     return out
 
-# ── Top20 호출(‘week’/‘date’ × ‘all’/‘pc’/‘mo’ 폴백 + 디버그용 샘플)
+# ── Top20 호출(week/date × all/pc/mo 폴백 + HTML 폴백)
 @st.cache_data(show_spinner=False, ttl=600)
-def _fetch_top20(cookie: str, cid: str, start: str, end: str) -> Dict:
+def _fetch_top20(cookie: str, cid: str, start: str, end: str) -> dict:
     if not requests:
-        return {'ok': False, 'reason': 'requests 미설치'}
+        return {"ok": False, "reason": "requests 미설치"}
 
-    url = 'https://datalab.naver.com/shoppingInsight/getCategoryKeywordRank.naver'
-    tried, last_json, last_reason = [], None, ''
+    url = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordRank.naver"
+    tried, last_json, last_reason = [], None, ""
 
-    for time_unit in ('week', 'date'):
-        for device in ('all', 'pc', 'mo'):
-            headers = _headers_for_datalab(cookie, cid)
+    # 1) 공식 API 폴백(여러 조합 시도)
+    for time_unit in ("week", "date"):
+        for device in ("all", "pc", "mo"):
             payload = {
-                'cid': str(cid).strip(),
-                'timeUnit': time_unit,
-                'startDate': start,
-                'endDate': end,
-                'gender': 'all',
-                'device': device,
-                'age': 'all',
+                "cid": str(cid).strip(),
+                "timeUnit": time_unit,
+                "startDate": start,
+                "endDate": end,
+                "gender": "all",
+                "device": device,
+                "age": "all",
             }
-            tried.append(f'{time_unit}/{device}')
+            tried.append(f"{time_unit}/{device}")
             try:
-                r = requests.post(url, headers=headers, data=payload, timeout=12, allow_redirects=False)
-                ct = (r.headers.get('content-type') or '').lower()
+                r = requests.post(url, headers=_headers_for_datalab(cookie, cid, as_json=True),
+                                  data=payload, timeout=12, allow_redirects=False)
+                ct = (r.headers.get("content-type") or "").lower()
                 if r.status_code in (301, 302, 303, 307, 308):
-                    return {'ok': False, 'reason': '302 리다이렉트 — 쿠키 만료/로그인 필요'}
-                if 'text/html' in ct:
-                    last_reason = 'HTML 응답 — 쿠키/리퍼러 불일치 또는 권한 거절'
+                    return {"ok": False, "reason": "302 리다이렉트 — 쿠키 만료/로그인 필요"}
+                if "text/html" in ct:
+                    last_reason = "HTML 응답 — 쿠키/리퍼러 불일치 또는 권한 거절"
                     continue
                 r.raise_for_status()
                 data = r.json()
                 last_json = data
 
-                if isinstance(data, dict):
-                    status = str(data.get('status') or data.get('code') or '').lower()
-                    msg = data.get('message') or data.get('msg') or ''
-                    if status and status not in ('ok', 'success', '200', '0') and not data.get('data'):
-                        last_reason = f'API 응답 상태: {status} {msg}'.strip()
-                        continue
-
                 rows = _normalize_top20(data)
                 if rows:
-                    return {'ok': True, 'rows': rows}
+                    return {"ok": True, "rows": rows}
 
-                last_reason = '응답 파싱 실패(구조 변경 가능성)'
+                last_reason = "응답 파싱 실패(구조 변경 가능성)"
             except Exception as e:
-                last_reason = f'요청 실패: {e}'
+                last_reason = f"요청 실패: {e}"
 
-    sample = ''
+    # 2) HTML 스크레이핑 폴백(페이지 내 JSON 조각에서 keyword/ratio 추출)
     try:
-        if last_json is not None:
-            sample = json.dumps(last_json, ensure_ascii=False)[:800]
-    except Exception:
-        sample = ''
-    return {'ok': False, 'reason': last_reason or '응답 파싱 실패', 'tried': tried, 'sample': sample}
+        page_url = (
+            "https://datalab.naver.com/shoppingInsight/sCategory.naver"
+            f"?cid={cid}&timeUnit=week&startDate={start}&endDate={end}&device=all"
+        )
+        resp = requests.get(page_url, headers=_headers_for_datalab(cookie, cid, as_json=False),
+                            timeout=12, allow_redirects=False)
+        if resp.status_code in (301, 302, 303, 307, 308):
+            return {"ok": False, "reason": "302 리다이렉트 — 쿠키 만료/로그인 필요", "tried": tried}
+        html = resp.text or ""
+
+        patterns = [
+            r'{"keyword"\s*:\s*"([^"]+)"[^}]*?(?:ratio|ratioValue|value|score)"\s*:\s*([0-9.]+)',
+            r'{"relKeyword"\s*:\s*"([^"]+)"[^}]*?(?:ratio|ratioValue|value|score)"\s*:\s*([0-9.]+)',
+        ]
+        hits = []
+        for p in patterns:
+            hits += re.findall(p, html)
+
+        from collections import defaultdict
+        best = defaultdict(float)
+        for kw, sc in hits:
+            kw = kw.strip()
+            try: v = float(sc)
+            except Exception: v = 0.0
+            if kw and v > best[kw]:
+                best[kw] = v
+
+        rows = [{"keyword": k, "score": v} for k, v in best.items()]
+        rows.sort(key=lambda x: x["score"], reverse=True)
+        rows = rows[:20]
+        for i, r in enumerate(rows, 1):
+            r["rank"] = i
+
+        if rows:
+            return {"ok": True, "rows": rows, "fallback": "html"}
+
+        sample = ""
+        try:
+            if last_json is not None:
+                sample = json.dumps(last_json, ensure_ascii=False)[:800]
+        except Exception:
+            sample = ""
+        return {"ok": False, "reason": last_reason or "응답 파싱 실패", "tried": tried, "sample": sample}
+    except Exception as e:
+        sample = ""
+        try:
+            if last_json is not None:
+                sample = json.dumps(last_json, ensure_ascii=False)[:800]
+        except Exception:
+            sample = ""
+        return {"ok": False, "reason": f"HTML 폴백 실패: {e}", "tried": tried, "sample": sample}
 
 # ── 키워드 트렌드(선 그래프)
 @st.cache_data(show_spinner=False, ttl=600)
@@ -474,7 +509,7 @@ def _fetch_trend(cookie: str, keywords: List[str], start: str, end: str) -> pd.D
         return pd.DataFrame()
 
     url = 'https://datalab.naver.com/shoppingInsight/getKeywordTrends.naver'
-    headers = _headers_for_datalab(cookie, cid='50000000')
+    headers = _headers_for_datalab(cookie, cid='50000000', as_json=True)
     payload = {
         'timeUnit': 'week',
         'startDate': start,
@@ -487,7 +522,7 @@ def _fetch_trend(cookie: str, keywords: List[str], start: str, end: str) -> pd.D
     try:
         r = requests.post(url, headers=headers, data=payload, timeout=12, allow_redirects=False)
         ct = (r.headers.get('content-type') or '').lower()
-        if r.status_code in (301, 302, 303, 307, 308) or 'text/html' in ct:
+        if r.status_code in (301,302,303,307,308) or 'text/html' in ct:
             return pd.DataFrame()
         r.raise_for_status()
         data = r.json()
@@ -519,7 +554,7 @@ def _fetch_trend(cookie: str, keywords: List[str], start: str, end: str) -> pd.D
         df = df.set_index('period')
     return df
 
-# ── 화면 렌더러 (이 이름이 main()에서 호출됩니다)
+# ── 화면 렌더러(메인에서 이 함수를 호출)
 def render_datalab_block():
     st.markdown('## 데이터랩')
 
@@ -556,8 +591,7 @@ def render_datalab_block():
                     if res.get('tried'):
                         st.caption('시도 조합: ' + ', '.join(res['tried']))
                     if res.get('sample'):
-                        st.caption('응답 샘플(앞부분):')
-                        st.code(res['sample'])
+                        st.caption('응답 샘플(앞부분):'); st.code(res['sample'])
                 else:
                     top_df = pd.DataFrame(res['rows'], columns=['rank','keyword','score'])
                     st.dataframe(
@@ -585,7 +619,9 @@ def render_datalab_block():
                 elif not picks:
                     st.warning('키워드를 선택해 주세요.')
                 else:
-                    df_line = _fetch_trend(cookie, picks, str(st.session_state['dl_start_simple']), str(st.session_state['dl_end_simple']))
+                    df_line = _fetch_trend(cookie, picks,
+                                           str(st.session_state['dl_start_simple']),
+                                           str(st.session_state['dl_end_simple']))
                     if df_line.empty:
                         x = np.arange(0, 12)
                         base = 50 + 5*np.sin(x/2)
