@@ -433,26 +433,35 @@ def render_translator_block():
                 st.error(f"번역 실패: {e}")
 # =========================
 # Part 7 — 메인 조립 (교체용 v11.x)
-# PATCH BANNER:
-# - 본 패치는 Part 7만 교체합니다. 다른 파트는 손대지 않습니다.
+# PATCH BANNER
+# - 이 코드는 스크롤/섹션 폭만 복구합니다. 다른 파트는 수정하지 않습니다.
 # - 11번가(모바일)는 프록시(Cloudflare Worker) 경유가 필수입니다.
 # =========================
 
 import streamlit as st
 
 def inject_global_css():
-    """섹션 폭 확대 + 과거 스크롤 막힘 CSS 완전 무력화"""
+    """섹션 폭 확대 + 과거 overflow:hidden 완전 무력화(본문/사이드바 모두)"""
     st.markdown("""
     <style>
+      :root { --envy-maxw: 1500px; }
+
       /* 본문 폭/여백 */
-      .block-container { max-width: 1500px !important; padding-bottom: 2rem !important; }
+      .block-container {
+        max-width: var(--envy-maxw) !important;
+        padding-bottom: 3rem !important;
+      }
 
-      /* 메인 스크롤 보장 */
-      html, body, .stApp { height: auto !important; overflow: auto !important; }
-      [data-testid="stAppViewContainer"] { height: auto !important; overflow: auto !important; }
+      /* 메인 스크롤 보장 (이전 버전의 overflow:hidden을 역전) */
+      html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stVerticalBlock"] {
+        height: auto !important;
+        min-height: 100vh !important;
+        overflow: auto !important;
+      }
+      [data-testid="stMain"] { overflow: visible !important; }
 
-      /* 사이드바 내부 스크롤 보장 (과거 hidden 강제 무효화) */
-      [data-testid="stSidebar"] { height: 100vh !important; }
+      /* 사이드바는 고정 + 내부 스크롤 가능 */
+      [data-testid="stSidebar"],
       [data-testid="stSidebar"] > div:first-child { height: 100vh !important; }
       [data-testid="stSidebar"] section {
         height: 100vh !important;
@@ -460,12 +469,15 @@ def inject_global_css():
         padding-top: .25rem !important;
         padding-bottom: .25rem !important;
       }
-      [data-testid="stSidebar"] ::-webkit-scrollbar { display: block !important; width: 8px !important; }
+      /* 과거에 숨겨둔 스크롤바 복구 */
+      [data-testid="stSidebar"] ::-webkit-scrollbar {
+        display: block !important; width: 8px !important;
+      }
     </style>
     """, unsafe_allow_html=True)
 
 def _proxy_healthcheck():
-    """PROXY_URL이 실제 HTML을 반환하는지 빠른 자가진단(회귀 방지)"""
+    """프록시가 실제 HTML을 주는지 간단 점검(회귀 방지). 실패해도 앱은 계속."""
     import requests
     from urllib.parse import quote
 
@@ -483,7 +495,7 @@ def _proxy_healthcheck():
         if r.status_code == 200 and html_like:
             st.caption(f"프록시 헬스체크: 정상 ✅  ({proxy} → 11번가)")
             return True
-        st.warning("프록시 응답이 HTML이 아니거나 상태코드 비정상. Worker 코드/도메인/라우팅을 점검하세요.")
+        st.warning("프록시 응답 비정상. Worker 코드/도메인/라우팅을 점검하세요.")
         return False
     except Exception as e:
         st.error(f"프록시 헬스체크 실패: {e}")
@@ -493,10 +505,10 @@ def main():
     # 1) 사이드바 (수정 금지)
     sidebar_vals = render_sidebar()
 
-    # 2) 전역 CSS: 폭 확장 + 스크롤 강제 복구
+    # 2) 전역 CSS 적용 (스크롤/폭 복구)
     inject_global_css()
 
-    # 3) 프록시 헬스체크(배너 안내)
+    # 3) 프록시 헬스체크 배너
     _proxy_healthcheck()
 
     # 4) 본문
