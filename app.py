@@ -1,5 +1,5 @@
 # ==============================================================
-# ENVY — v11.x (stable)  |  4x2 Grid + Sidebar (original) 2025-09
+# ENVY — v11.x (stable)  |  4x2 Grid + Original Sidebar (Logo + FX/Margin)
 # ==============================================================
 
 import streamlit as st
@@ -7,18 +7,17 @@ import base64
 from pathlib import Path
 import pandas as pd
 import numpy as np
-from datetime import date, timedelta
+from datetime import date
 import urllib.parse
 
-# 외부 통신 모듈 (없어도 돌아가게)
 try:
     import requests
 except Exception:
     requests = None
 
-# -----------------------------
-# 전역 상수
-# -----------------------------
+# ──────────────────────────────────────────────────────────────
+# 기본 데이터
+# ──────────────────────────────────────────────────────────────
 CURRENCIES = {
     "USD": {"kr": "미국 달러", "symbol": "$", "unit": "USD"},
     "EUR": {"kr": "유로",     "symbol": "€", "unit": "EUR"},
@@ -27,9 +26,9 @@ CURRENCIES = {
 }
 FX_DEFAULT = {"USD": 1400.0, "EUR": 1500.0, "JPY": 10.0, "CNY": 200.0}
 
-# ------------------------------------------------------------
-# Sidebar (원본) — 로고 + 환율/마진 계산기 + PROXY_URL
-# ------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────
+# Sidebar (원본): 로고 + 환율/마진 계산기 + PROXY_URL
+# ──────────────────────────────────────────────────────────────
 def _ensure_session_defaults():
     ss = st.session_state
     ss.setdefault("theme", "light")
@@ -49,7 +48,7 @@ def _ensure_session_defaults():
 def _toggle_theme():
     st.session_state["theme"] = "dark" if st.session_state.get("theme","light")=="light" else "light"
 
-def _inject_sidebar_css():
+def _inject_global_css():
     theme = st.session_state.get("theme","light")
     bg, fg = ("#0e1117", "#e6edf3") if theme=="dark" else ("#ffffff","#111111")
     st.markdown(f"""
@@ -57,34 +56,51 @@ def _inject_sidebar_css():
       html, body, [data-testid="stAppViewContainer"] {{
         background-color:{bg} !important; color:{fg} !important;
       }}
-      /* 본문 넓게 */
-      .block-container {{ max-width: 1800px !important; padding-top:.8rem !important; padding-bottom:.6rem !important; }}
-      /* 사이드바 고정/간격 */
-      [data-testid="stSidebar"], [data-testid="stSidebar"] section {{ height:100vh !important; overflow:hidden !important; }}
+      /* 본문 넓게 (2100px) */
+      .block-container {{
+        max-width: 2100px !important;
+        padding-top:.8rem !important; padding-bottom:.6rem !important;
+      }}
+      /* 사이드바 고정 + 스크롤 숨김 */
+      [data-testid="stSidebar"], [data-testid="stSidebar"] section {{
+        height:100vh !important; overflow:hidden !important;
+      }}
       [data-testid="stSidebar"] ::-webkit-scrollbar {{ display:none !important; }}
+
+      /* 사이드바 폼 간격 */
       [data-testid="stSidebar"] .stSelectbox, [data-testid="stSidebar"] .stNumberInput,
       [data-testid="stSidebar"] .stRadio, [data-testid="stSidebar"] .stMarkdown,
-      [data-testid="stSidebar"] .stTextInput, [data-testid="stSidebar"] .stButton {{ margin:.14rem 0 !important; }}
+      [data-testid="stSidebar"] .stTextInput, [data-testid="stSidebar"] .stButton {{
+        margin:.14rem 0 !important;
+      }}
       [data-baseweb="input"] input, .stNumberInput input, [data-baseweb="select"] div[role="combobox"] {{
         height:1.55rem !important; padding:.12rem !important; font-size:.92rem !important;
       }}
+
       /* 로고 */
       .logo-circle {{ width:95px; height:95px; border-radius:50%; overflow:hidden; margin:.15rem auto .35rem; box-shadow:0 2px 8px rgba(0,0,0,.12); border:1px solid rgba(0,0,0,.06); }}
       .logo-circle img {{ width:100%; height:100%; object-fit:cover; }}
+
       /* 배지 */
       .badge-green  {{ background:#e6ffcc; border:1px solid #b6f3a4; padding:6px 10px; border-radius:6px; color:#0b2e13; font-size:.86rem; }}
       .badge-blue   {{ background:#eef4ff; border:1px solid #bcd0ff; padding:6px 10px; border-radius:6px; color:#0a235a; font-size:.86rem; }}
       .badge-yellow {{ background:#fff7d6; border:1px solid #f1d27a; padding:6px 10px; border-radius:6px; color:#4a3b07; font-size:.86rem; }}
       .muted        {{ opacity:.8; font-size:.8rem; }}
-      .info-box {{ background:rgba(0,0,0,.03); border:1px dashed rgba(0,0,0,.08); padding:.6rem; border-radius:.5rem; }}
-      /* 카드 타이틀 압축 */
+      .info-box     {{ background:rgba(0,0,0,.03); border:1px dashed rgba(0,0,0,.08); padding:.6rem; border-radius:.5rem; }}
+
+      /* 카드 타이틀 */
       .card-title {{ margin:0 0 .4rem 0; font-weight:700; font-size:1.05rem; }}
+
+      /* 컬럼 간격 더 넓게 */
+      .stHorizontalBlock, .stBlock {{
+        gap: 1.1rem !important;
+      }}
     </style>
     """, unsafe_allow_html=True)
 
 def render_sidebar():
     _ensure_session_defaults()
-    _inject_sidebar_css()
+    _inject_global_css()
 
     with st.sidebar:
         # 로고
@@ -103,7 +119,7 @@ def render_sidebar():
         base = st.selectbox("기준 통화", list(CURRENCIES.keys()), index=list(CURRENCIES.keys()).index(st.session_state["fx_base"]), key="fx_base")
         sale_foreign = st.number_input("판매금액 (외화)", value=float(st.session_state["sale_foreign"]), step=0.01, format="%.2f", key="sale_foreign")
         won = FX_DEFAULT[base] * sale_foreign
-        st.markdown(f'<div class="badge-green">환산 금액: <b>{won:,.2f} 원</b> <span class="muted">({CURRENCIES[base]["kr"]} • {CURRENCIES[base]["symbol"]})</span></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="badge-green">환산 금액: <b>{won:,.2f} 원</b> <span class="muted">({CURRENCRIES := CURRENCIES[base]["kr"]} • {CURRENCIES[base]["symbol"]})</span></div>', unsafe_allow_html=True)
         st.caption(f"환율 기준: {FX_DEFAULT[base]:,.2f} ₩/{CURRENCIES[base]['unit']}")
 
         # ② 마진 계산기
@@ -142,16 +158,16 @@ def render_sidebar():
           · 다크/라이트 모드: 상단 토글
         </div>""", unsafe_allow_html=True)
 
-    # 반환 (본문에서 필요할 수 있어 그대로 리턴)
     return {
-        "fx_base": base, "sale_foreign": sale_foreign, "converted_won": won,
-        "purchase_base": m_base, "purchase_foreign": purchase_foreign, "base_cost_won": base_cost_won,
-        "card_fee_pct": card_fee, "market_fee_pct": market_fee, "shipping_won": shipping_won
+        "converted_won": won,
+        "base_cost_won": base_cost_won,
+        "target_price": target_price,
+        "margin_value": margin_value
     }
 
-# ------------------------------------------------------------
-# 공용 유틸
-# ------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────
+# 공용
+# ──────────────────────────────────────────────────────────────
 def status_chip(ok:bool, ok_txt="OK", bad_txt="MISSING"):
     color = "#16a34a" if ok else "#ef4444"
     txt = ok_txt if ok else bad_txt
@@ -161,29 +177,24 @@ def proxied(url:str) -> str:
     proxy = st.session_state.get("PROXY_URL","").strip()
     if not proxy:
         return url
-    # Cloudflare Worker가 ?url= 대상 경로를 받는 타입이라고 가정
-    if not proxy.endswith("/"):
-        proxy += ""
     return f"{proxy}?url={urllib.parse.quote(url, safe='')}"
 
-# ------------------------------------------------------------
-# 카드 1 — 데이터랩(원본 임베드)
-# ------------------------------------------------------------
-DATALAB_CATS = [
-    "디지털/가전","패션의류","패션잡화","화장품/미용","가구/인테리어","출산/육아","식품",
-    "스포츠/레저","생활/건강","여가/생활편의","면세점","도서"
-]
+# ──────────────────────────────────────────────────────────────
+# 카드들
+# ──────────────────────────────────────────────────────────────
+DATALAB_CATS = ["디지털/가전","패션의류","패션잡화","화장품/미용","가구/인테리어","출산/육아","식품","스포츠/레저","생활/건강","여가/생활편의","면세점","도서"]
+
 def view_datalab_embed():
     st.markdown('<div class="card-title">데이터랩 (원본 임베드)</div>', unsafe_allow_html=True)
     c1,c2,c3 = st.columns([1,1,1])
     with c1:
-        cat = st.selectbox("카테고리", DATALAB_CATS, key="dlb_cat")
+        st.selectbox("카테고리", DATALAB_CATS, key="dlb_cat")
     with c2:
-        unit = st.selectbox("기간 단위", ["week","mo"], index=0, key="dlb_unit")
+        st.selectbox("기간 단위", ["week","mo"], index=0, key="dlb_unit")
     with c3:
-        device = st.selectbox("기기", ["all","pc","mo"], index=0, key="dlb_device")
+        st.selectbox("기기", ["all","pc","mo"], index=0, key="dlb_device")
 
-    raw_url = f"https://datalab.naver.com/shoppingInsight/sCategory?cat_id=50000003&period={unit}&device={device}"
+    raw_url = "https://datalab.naver.com/shoppingInsight/sCategory?cat_id=50000003&period=week&device=all"
     if not st.session_state.get("PROXY_URL","").strip():
         st.info("PROXY_URL 이 비어 있습니다. 사이드바 하단에 Cloudflare Worker 주소를 입력해 주세요.")
     try:
@@ -191,12 +202,9 @@ def view_datalab_embed():
     except Exception as e:
         st.error(f"iFrame 로드 실패: {e}")
 
-# ------------------------------------------------------------
-# 카드 2 — 데이터랩(분석) : 샘플 그래프 + 자리잡기
-# ------------------------------------------------------------
 def view_datalab_analysis():
     st.markdown('<div class="card-title">데이터랩 (분석)</div>', unsafe_allow_html=True)
-    st.caption("※ 시즌1은 쿠키/광고 API 없이 샘플 그래프만 표시. (시즌2에서 원본 임베드 방식으로 전환)")
+    st.caption("※ 시즌1은 샘플 라인 그래프로 자리 고정. (시즌2에서 원본 임베드/자동 추출)")
     x = np.arange(0, 12)
     base = 50 + 5*np.sin(x/2)
     df_line = pd.DataFrame({
@@ -205,12 +213,8 @@ def view_datalab_analysis():
     }, index=[f"P{i}" for i in range(len(x))])
     st.line_chart(df_line, height=220, use_container_width=True)
 
-# ------------------------------------------------------------
-# 카드 3 — 11번가(모바일)
-# ------------------------------------------------------------
 def view_11st_mobile():
     st.markdown('<div class="card-title">11번가 (모바일)</div>', unsafe_allow_html=True)
-    # 요청: 아마존베스트 탭 바로
     default_url = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
     url = st.text_input("모바일 URL", value=default_url, key="t11_url_fixed")
     if not st.session_state.get("PROXY_URL","").strip():
@@ -220,15 +224,10 @@ def view_11st_mobile():
     except Exception as e:
         st.error(f"11번가 로드 실패: {e}")
 
-# ------------------------------------------------------------
-# 카드 4 — 상품명 생성기 (규칙 기반)
-# ------------------------------------------------------------
 def simple_keywords_from_title(title:str, topn:int=5):
     tokens = [t.strip() for t in title.replace("/", " ").replace("|"," ").split() if len(t.strip())>=2]
-    # 간단 빈도
     freq = {}
-    for t in tokens:
-        freq[t] = freq.get(t,0)+1
+    for t in tokens: freq[t] = freq.get(t,0)+1
     ranked = sorted(freq.items(), key=lambda x:(-x[1], -len(x[0]), x[0]))[:topn]
     return [{"kw":k, "count":c} for k,c in ranked]
 
@@ -256,39 +255,29 @@ def view_title_generator():
         if len(title) > max_len:
             title = title[:max_len-1].rstrip()+"…"
         st.success(title if title else "생성된 제목이 없습니다.")
-        # 추천 키워드 5개 (검색량은 자리값)
+
+        # 추천 키워드 5개(샘플 점수)
         topk = simple_keywords_from_title(title or (brand+" "+model+" "+attrs+" "+keywords))
         df = pd.DataFrame([{"rank":i+1,"keyword":x["kw"],"score":100-3*i} for i,x in enumerate(topk)])
         st.caption("추천 키워드(샘플 점수)")
         st.dataframe(df, hide_index=True, use_container_width=True)
 
-# ------------------------------------------------------------
-# 카드 5 — AI 키워드 레이더 (Rakuten)
-# ------------------------------------------------------------
 def view_rakuten():
     st.markdown('<div class="card-title">AI 키워드 레이더 (Rakuten)</div>', unsafe_allow_html=True)
     colA, colB, colC = st.columns([1,1,1])
-    with colA:
-        scope = st.radio("범위", ["국내","글로벌"], horizontal=True, key="rk_scope")
-    with colB:
-        cat = st.selectbox("라쿠텐 카테고리", ["전체(샘플)","뷰티/코스메틱","의류/패션","가전/디지털"], key="rk_cat")
+    with colA: st.radio("범위", ["국내","글로벌"], horizontal=True, key="rk_scope")
+    with colB: st.selectbox("라쿠텐 카테고리", ["전체(샘플)","뷰티/코스메틱","의류/패션","가전/디지털"], key="rk_cat")
     with colC:
-        genreid = st.text_input("GenreID", "100283", key="rk_genre")
+        st.text_input("GenreID", "100283", key="rk_genre")
 
-    # APP_ID 점검 (secrets 우선)
     app_id = st.secrets.get("RAKUTEN_APP_ID", "")
     with st.expander("Rakuten APP_ID 설정", expanded=(app_id=="")):
         app_id = st.text_input("APP_ID", value=app_id, type="password", key="rk_appid")
-    st.write("상태:", end=" ")
-    status_chip(bool(app_id), "APP_ID OK", "APP_ID 없음")
+    st.write("상태:", end=" "); status_chip(bool(app_id), "APP_ID OK", "APP_ID 없음")
 
-    # 실제 API는 네트워크/인증 이슈가 잦아 데모 테이블 제공
     rows = [{"rank":i+1, "keyword":f"[공식] 샘플 키워드 {i+1}", "source":"rakuten"} for i in range(20)]
     st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True, height=300)
 
-# ------------------------------------------------------------
-# 카드 6 — 구글 번역
-# ------------------------------------------------------------
 def view_translator():
     st.markdown('<div class="card-title">구글 번역 (텍스트 입력/출력 + 한국어 확인용)</div>', unsafe_allow_html=True)
     c1,c2 = st.columns([1,1])
@@ -300,15 +289,13 @@ def view_translator():
         if st.button("번역", key="tr_go"):
             try:
                 from deep_translator import GoogleTranslator
-                s = "auto" if src=="자동 감지" else {"한국어":"ko","영어":"en","일본어":"ja","중국어(간체)":"zh-CN","중국어(번체)":"zh-TW"} .get(src, "auto")
-                t = {"한국어":"ko","영어":"en","일본어":"ja","중국어(간체)":"zh-CN","중국어(번체)":"zh-TW"} .get(tgt, "en")
+                s = "auto" if src=="자동 감지" else {"한국어":"ko","영어":"en","일본어":"ja","중국어(간체)":"zh-CN","중국어(번체)":"zh-TW"}.get(src, "auto")
+                t = {"한국어":"ko","영어":"en","일본어":"ja","중국어(간체)":"zh-CN","중국어(번체)":"zh-TW"}.get(tgt, "en")
                 out = GoogleTranslator(source=s, target=t).translate(text_in or "")
                 ko_hint = ""
                 if t != "ko" and out.strip():
-                    try:
-                        ko_hint = GoogleTranslator(source=t, target="ko").translate(out)
-                    except Exception:
-                        pass
+                    try: ko_hint = GoogleTranslator(source=t, target="ko").translate(out)
+                    except Exception: pass
                 st.text_area("번역 결과", value=f"{out}\n{ko_hint}" if ko_hint else out, height=150)
                 st.success("번역 완료")
             except ModuleNotFoundError as e:
@@ -316,9 +303,6 @@ def view_translator():
             except Exception as e:
                 st.error(f"번역 실패: {e}")
 
-# ------------------------------------------------------------
-# 카드 7 — 아이템스카우트 (원본 임베드)
-# ------------------------------------------------------------
 def view_itemscout():
     st.markdown('<div class="card-title">아이템스카우트 (원본 임베드)</div>', unsafe_allow_html=True)
     url = "https://items.singtown.com"
@@ -329,9 +313,6 @@ def view_itemscout():
     except Exception as e:
         st.error(f"아이템스카우트 로드 실패: {e}")
 
-# ------------------------------------------------------------
-# 카드 8 — 셀러라이프 (원본 임베드)
-# ------------------------------------------------------------
 def view_sellerlife():
     st.markdown('<div class="card-title">셀러라이프 (원본 임베드)</div>', unsafe_allow_html=True)
     url = "https://www.sellerlife.co.kr"
@@ -342,17 +323,17 @@ def view_sellerlife():
     except Exception as e:
         st.error(f"셀러라이프 로드 실패: {e}")
 
-# ------------------------------------------------------------
-# 메인 (4×2 고정 배열)
-# ------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────
+# 메인 (4×2 고정)
+# ──────────────────────────────────────────────────────────────
 def main():
     render_sidebar()
 
     st.title("ENVY — v11.x (stable)")
-    st.caption("사이드바는 고정 · 본문은 4×2 카드 고정 배치")
+    st.caption("사이드바(로고 + 환율/마진 계산기) 유지 · 본문은 4×2 카드 고정 배치 · 컨테이너 폭 2100px")
 
     # Row 1
-    c1, c2, c3, c4 = st.columns(4, gap="medium")
+    c1, c2, c3, c4 = st.columns(4, gap="large")
     with c1: view_datalab_embed()
     with c2: view_datalab_analysis()
     with c3: view_11st_mobile()
@@ -361,25 +342,22 @@ def main():
     st.divider()
 
     # Row 2
-    r2c1, r2c2, r2c3, r2c4 = st.columns(4, gap="medium")
+    r2c1, r2c2, r2c3, r2c4 = st.columns(4, gap="large")
     with r2c1: view_rakuten()
     with r2c2: view_translator()
     with r2c3: view_itemscout()
     with r2c4: view_sellerlife()
 
     st.divider()
-    # 하단 공통 안내/오류 멘트 바
     proxy = st.session_state.get("PROXY_URL","").strip()
     rakuten_ok = bool(st.secrets.get("RAKUTEN_APP_ID","") or st.session_state.get("rk_appid",""))
     cols = st.columns([1,1,2])
     with cols[0]:
-        st.write("PROXY_URL:", end=" ")
-        status_chip(bool(proxy), "OK", "필요 시 입력")
+        st.write("PROXY_URL:", end=" "); status_chip(bool(proxy), "OK", "필요 시 입력")
     with cols[1]:
-        st.write("Rakuten APP_ID:", end=" ")
-        status_chip(rakuten_ok, "OK", "없음")
+        st.write("Rakuten APP_ID:", end=" "); status_chip(rakuten_ok, "OK", "없음")
     with cols[2]:
-        st.info("※ PROXY_URL이 없으면 일부 임베드가 차단될 수 있습니다. 라쿠텐 APP_ID가 없으면 키워드 레이더는 샘플 테이블이 표시됩니다.")
+        st.info("※ PROXY_URL 없으면 일부 임베드가 차단될 수 있습니다. 라쿠텐 APP_ID 없으면 키워드 레이더는 샘플 테이블이 표시됩니다.")
 
 if __name__ == "__main__":
     main()
