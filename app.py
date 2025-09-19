@@ -226,50 +226,122 @@ def toast_ok(msg:str): st.toast(f"✅ {msg}")
 def toast_warn(msg:str): st.toast(f"⚠️ {msg}")
 def toast_err(msg:str): st.toast(f"❌ {msg}")
 # =========================
-# Part 3 — 데이터랩(대분류 12종) + 그래프
+# Part 3 — 데이터랩(실데이터 20개 + 삼색 바차트) (교체)
 # =========================
-import numpy as np
+import datetime as _dt
+import pandas as pd, requests, matplotlib.pyplot as plt, streamlit as st
 
-DATALAB_CATS = [
-    "패션의류","패션잡화","화장품/미용","디지털/가전","가구/인테리어",
-    "출산/육아","식품","스포츠/레저","생활/건강","여가/생활편의","면세점","도서"
-]
+STATUS_COLOR = {"정상":"#2ecc71","주의":"#f1c40f","오류":"#e74c3c"}
 
-def mock_keywords(cat:str, k:int=20):
-    """실서비스 전 샘플: 카테고리명 seed로 항상 같은 20개 키워드/점수 반환"""
-    rng = np.random.default_rng(abs(hash(cat)) % (2**32))
-    pool = ["가습기","복합기","무선청소기","정수기필터","보조배터리","음식물처리기","노트북","아이폰16케이스","블루투스이어폰","블루투스스피커",
-            "공기청정기","제습기","레인저프린터","드라이기","커피머신","포터블모니터","태블릿PC","게이밍마우스","키보드","외장SSD"]
-    scores = sorted((rng.integers(40,100,size=k)).tolist(), reverse=True)
-    return [{"rank":i+1,"keyword":pool[i%len(pool)],"score":scores[i]} for i in range(k)]
+def _status(score: float) -> str:
+    if score is None: return "오류"
+    if score >= 70:   return "정상"
+    if score >= 40:   return "주의"
+    return "오류"
+
+# ① 카테고리 CID 실시간 시도 → 실패 시 하드코딩 폴백
+_FALLBACK_CID = {
+    "패션의류":"50000000","패션잡화":"50000001","화장품/미용":"50000002","디지털/가전":"50000003",
+    "가구/인테리어":"50000004","출산/육아":"50000005","식품":"50000006","스포츠/레저":"50000007",
+    "생활/건강":"50000008","여가/생활편의":"50000009","면세점":"50000010","도서":"50005542"
+}
+
+@st.cache_data(ttl=3600)
+def _load_category_map() -> dict:
+    try:
+        # 알려진 엔드포인트 (변경될 수 있음) — 실패 시 폴백
+        resp = requests.get(
+            "https://datalab.naver.com/shoppingInsight/getCategory.naver",
+            headers={
+                "User-Agent":"Mozilla/5.0",
+                "Referer":"https://datalab.naver.com/",
+                "Cookie": st.secrets.get("NAVER_COOKIE",""),
+            },
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            raise RuntimeError("getCategory 응답 비정상")
+        j = resp.json()
+        # 필요한 레벨만 평탄화 (대분류만 사용)
+        m = {}
+        for c in j.get("category", []):
+            name = c.get("name"); cid = c.get("cid")
+            if name and cid: m[name] = cid
+        # 대분류만 덜 수 있으면 사용, 아니면 폴백
+        return m if len(m) >= 8 else _FALLBACK_CID
+    except Exception:
+        return _FALLBACK_CID
+
+def _fetch_keywords_20(cid: str, start: str, end: str) -> pd.DataFrame:
+    cookie = st.secrets.get("NAVER_COOKIE","")
+    sess = requests.Session()
+    sess.headers.update({
+        "User-Agent":"Mozilla/5.0",
+        "Referer":"https://datalab.naver.com/",
+        "Origin":"https://datalab.naver.com",
+        "X-Requested-With":"XMLHttpRequest",
+        "Accept":"application/json, text/javascript, */*; q=0.01",
+        "Content-Type":"application/x-www-form-urlencoded; charset=UTF-8",
+        "Cookie": cookie,
+    })
+    url = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordRank.naver"
+    payload = {
+        "cid": cid, "timeUnit":"date",
+        "startDate": start, "endDate": end,
+        "device":"pc", "gender":"all", "ages":["all"],
+    }
+    r = sess.post(url, data=payload, timeout=20, allow_redirects=False)
+    if r.status_code in (301,302):
+        raise RuntimeError("302 리다이렉트 → 로그인 필요 또는 쿠키 스코프 불일치")
+    if "application/json" not in (r.headers.get("content-type","").lower()):
+        raise RuntimeError("JSON 아님 → Cookie/Referer/Origin 확인")
+    j = r.json()
+    kws = (j.get("result") or [{}])[0].get("keywords") or []
+    rows = [{"rank":i+1, "keyword":k.get("keyword"), "score":k.get("score",0)} for i,k in enumerate(kws[:20])]
+    return pd.DataFrame(rows)
 
 def render_datalab_block():
-    st.markdown("## 데이터랩 (대분류 12종 전용)")
-    c1,c2 = st.columns([1,1])
+    st.markdown("## 데이터랩 (대분류 12종)")
+    cats = _load_category_map()
+    c1, c2 = st.columns([1.25, 1.25])   # 넓이 확장
+
     with c1:
-        cat = st.selectbox("카테고리", DATALAB_CATS, key="dl_cat")
-        start = st.date_input("시작일", value=pd.to_datetime("2024-09-19"), key="dl_start")
-        end   = st.date_input("종료일", value=pd.to_datetime("2025-09-19"), key="dl_end")
-        st.button("시동", key="dl_go")
-        data = mock_keywords(cat, 20)
+        cat = st.selectbox("카테고리", list(cats.keys()), key="dl_cat")
+        cid = st.text_input("네이버 CID(수정 가능)", value=cats[cat], key="dl_cid")
 
-        df = pd.DataFrame(data)
-        st.dataframe(df, hide_index=True, use_container_width=True)
+        today = _dt.date.today()
+        start_d = st.date_input("시작일", value=today - _dt.timedelta(days=30), key="dl_start")
+        end_d   = st.date_input("종료일", value=today, key="dl_end")
 
-        # 아래 라인그래프는 “검색량 흐름” 데모 — 요청대로 보기용
-        x = np.arange(0, 22)
-        y = np.linspace(120, 0, len(x))
-        st.line_chart(pd.DataFrame({"trend":y}, index=x), height=220, use_container_width=True)
+        st.caption(f"쿠키 상태: {'✅' if st.secrets.get('NAVER_COOKIE') else '❌ 비어 있음'}")
+
+        if st.button("키워드 20개 불러오기", key="dl_go"):
+            try:
+                df = _fetch_keywords_20(
+                    st.session_state["dl_cid"],
+                    start_d.strftime("%Y-%m-%d"),
+                    end_d.strftime("%Y-%m-%d"),
+                )
+                if df.empty:
+                    st.warning("데이터 없음: NAVER_COOKIE/권한 확인")
+                    return
+                df["status"] = df["score"].apply(_status)
+                st.dataframe(df, hide_index=True, use_container_width=True)
+
+                # 삼색 바차트
+                fig, ax = plt.subplots(figsize=(10.5, 3.2))
+                ax.bar(df["keyword"], df["score"], color=df["status"].map(STATUS_COLOR))
+                ax.set_xticklabels(df["keyword"], rotation=45, ha="right")
+                ax.set_ylabel("score"); ax.set_title("카테고리 키워드 (상위 20)")
+                st.pyplot(fig, clear_figure=True)
+            except Exception as e:
+                st.error(f"키워드 불러오기 실패: {e}")
+        else:
+            st.info("카테고리 선택 후 ‘키워드 20개 불러오기’를 눌러주세요.")
 
     with c2:
-        st.markdown("### 캠프 기간 (기간 프리셋 + 기기별)")
-        kw = st.text_input("키워드(최대 5개, 콤마로 구분)", "가습기, 복합기, 무선청소기", key="trend_kws")
-        preset = st.selectbox("기간 프리셋", ["1년","3개월","1개월"], key="trend_preset")
-        device = st.selectbox("기기별", ["전체","PC","모바일"], key="trend_device")
-        bigcat = st.selectbox("카테고리(대분류)", DATALAB_CATS, key="trend_bigcat")
-        st.caption("※ 실제 API 접근 권한이 제한되어, 프리셋/기기/카테고리 변경시 **샘플 라인**을 표시합니다.")
-
-        # 샘플 라인 3개 (삼색 상태)
+        st.markdown("### 캠프 기간 (데모 라인)")
+        import numpy as np
         xx = np.arange(0, 12)
         base = 50 + 5*np.sin(xx/2)
         df_line = pd.DataFrame({
@@ -279,57 +351,75 @@ def render_datalab_block():
         }, index=xx)
         st.line_chart(df_line, height=220, use_container_width=True)
 # =========================
-# Part 4 — 11번가(모바일) 임베드
+# Part 4 — 11번가(모바일) 임베드 (프록시 강제)
 # =========================
+from urllib.parse import quote
+
 def render_11st_block():
     st.markdown("## 11번가 (모바일)")
-    url = st.text_input("모바일 URL", "https://m.11st.co.kr/browsing/bestSellers.mall", key="t11_url")
-    proxy = st.session_state.get("PROXY_URL","").strip()
+    url = st.text_input(
+        "모바일 URL",
+        "https://m.11st.co.kr/MW/store/bestSeller.tmall",
+        key="t11_url"
+    )
+
+    proxy = st.session_state.get("PROXY_URL", "").strip()
     if not proxy:
-        st.info("PROXY_URL 미설정: iFrame을 직접 막힐 수 있습니다.")
-    # 임베드 (Streamlit은 sandbox라 완전한 제어 어려움)
+        st.error("PROXY_URL이 비어 있습니다. Cloudflare Worker 주소를 사이드바 하단에 입력하세요.")
+        return
+
+    # 반드시 프록시 경유 (회귀 방지)
+    encoded = quote(url, safe=":/?&=%")
+    target = f"{proxy}?url={encoded}"
+
+    # 상태 뱃지 표시 (가시성)
+    st.caption(f"프록시 경유: **{proxy}** → **{url}**")
+
     try:
-        st.components.v1.iframe(url, height=560, scrolling=True)
+        st.components.v1.iframe(target, height=820, scrolling=True)
     except Exception as e:
         toast_err(f"11번가 로드 실패: {e}")
 # =========================
-# Part 5 — AI 키워드 레이더 (Rakuten)
+# Part 5 — AI 키워드 레이더 (Rakuten) (교체)
 # =========================
-RAKUTEN_CATS = [
-    "전체(샘플)","뷰티/코스메틱","의류/패션","가전/디지털","가구/인테리어","식품","생활/건강","스포츠/레저","문구/취미"
-]
+import pandas as pd, requests, streamlit as st
 
-def mock_rakuten_rows(n=30):
-    rng = np.random.default_rng(42)
-    items = []
-    for i in range(1, n+1):
-        kw = f"[公式] 샘플 키워드 {i} ハロウィン 秋 お彼岸 🍂"
-        items.append({"rank":i, "keyword":kw, "source":"Rakute"})
-    return items
+def _fetch_rakuten_keywords(genre_id: str, scope: str) -> pd.DataFrame:
+    app_id = st.secrets.get("RAKUTEN_APP_ID", "")
+    if not app_id:
+        return pd.DataFrame([{"rank":i, "keyword":f"[公式] 샘플 키워드 {i} ハロウィン 秋 🍂"} for i in range(1,31)])
+    try:
+        r = requests.get(
+            "https://app.rakuten.co.jp/services/api/IchibaItem/Search/20170706",
+            params={
+                "format":"json", "genreId": genre_id, "applicationId": app_id,
+                "hits": 30, "page": 1, "sort": "-reviewAverage"
+            },
+            timeout=15
+        )
+        j = r.json()
+        items = j.get("Items", [])
+        rows = [{"rank": i+1, "keyword": it.get("Item",{}).get("itemName","")} for i, it in enumerate(items[:30])]
+        return pd.DataFrame(rows)
+    except Exception:
+        return pd.DataFrame([{"rank":i, "keyword":f"[公式] 샘플 키워드 {i} 🍂"} for i in range(1,31)])
 
 def render_rakuten_block():
-    st.markdown("## AI 캠프 랩 (Rakuten)")
-
+    st.markdown("## AI 키워드 레이더 (Rakuten)")   # ← 명칭 고정
     colA, colB, colC = st.columns([1,1,1])
     with colA:
-        scope = st.radio("가구용 가구", ["국내","글로벌"], horizontal=True, key="rk_scope")
+        scope = st.radio("범위", ["국내","글로벌"], horizontal=True, key="rk_scope")
     with colB:
-        cat = st.selectbox("라쿠텐 카테고리", RAKUTEN_CATS, key="rk_cat")
+        cat = st.selectbox("라쿠텐 카테고리",
+            ["전체(샘플)","뷰티/코스메틱","의류/패션","가전/디지털","가구/인테리어","식품","생활/건강","스포츠/레저","문구/취미"],
+            key="rk_cat")
     with colC:
-        genreid = st.text_input("장르ID(직접 입력)", "100283", key="rk_genre")
+        genreid = st.text_input("GenreID", "100283", key="rk_genre")
 
-    st.caption("앱 ID: 1043271015809337425  |  400/파싱 실패 → ‘전체(샘플)’로 자동 폴백")
+    st.caption("APP_ID 없으면 샘플로 자동 폴백합니다. (st.secrets['RAKUTEN_APP_ID'])")
 
-    # 테이블 폰트 소형화
-    st.markdown("""
-    <style>
-      .rk table { font-size: 0.92rem !important; }
-    </style>
-    """, unsafe_allow_html=True)
-
-    # 샘플 데이터 (실제 연동 전 안전성)
-    rows = mock_rakuten_rows(30)
-    df = pd.DataFrame(rows)
+    st.markdown("<style>.rk table{font-size:0.92rem!important;}</style>", unsafe_allow_html=True)
+    df = _fetch_rakuten_keywords(genreid, "global" if scope=="글로벌" else "kr")
     with st.container():
         st.markdown('<div class="rk">', unsafe_allow_html=True)
         st.dataframe(df, hide_index=True, use_container_width=True)
@@ -374,29 +464,89 @@ def render_translator_block():
             except Exception as e:
                 st.error(f"번역 실패: {e}")
 # =========================
-# Part 7 — 메인 조립
+# Part 7 — 메인 조립 (교체용: 섹션 폭 확대 + 스크롤 보정 + 프록시 헬스체크 포함)
 # =========================
+
+def inject_global_css():
+    """섹션카드 폭 확대, 과거 스크롤 막힘 CSS 강제 무효화"""
+    st.markdown("""
+    <style>
+      /* 본문 폭 확장 */
+      .block-container { max-width: 1500px !important; }
+
+      /* 메인/사이드 스크롤 보장 */
+      html, body, .stApp { overflow: auto !important; }
+      [data-testid="stAppViewContainer"] { overflow: auto !important; }
+
+      /* 사이드바 내부 스크롤 허용 (과거 hidden 무력화) */
+      [data-testid="stSidebar"] section {
+        height: 100vh !important;
+        overflow-y: auto !important;
+        padding-top: .25rem !important;
+        padding-bottom: .25rem !important;
+      }
+
+      /* 과거에 숨겨둔 스크롤바를 복구 */
+      [data-testid="stSidebar"] ::-webkit-scrollbar { display: block !important; width: 8px; }
+    </style>
+    """, unsafe_allow_html=True)
+
+
+def _proxy_healthcheck():
+    """PROXY_URL이 실제 HTML을 반환하는지 빠른 자가진단 (회귀 방지)"""
+    import requests
+    from urllib.parse import quote
+
+    proxy = st.session_state.get("PROXY_URL", "").strip()
+    if not proxy:
+        st.error("PROXY_URL 없음 — 11번가 섹션이 동작하지 않습니다. 사이드바 하단에 Cloudflare Worker 주소를 입력하세요.")
+        return False
+
+    test_url = "https://m.11st.co.kr/MW/store/bestSeller.tmall"
+    target = f"{proxy}?url={quote(test_url, safe=':/?&=%')}"
+    try:
+        r = requests.get(target, timeout=10)
+        ctype = (r.headers.get("content-type") or "").lower()
+        html_like = ("text/html" in ctype) or ("<html" in r.text[:500].lower())
+        if r.status_code == 200 and html_like:
+            st.caption(f"프록시 헬스체크: 정상 ✅  ({proxy} → 11번가)")
+            return True
+        st.warning("프록시 응답이 HTML이 아니거나 상태코드가 비정상입니다. Worker 코드/도메인/라우팅을 점검하세요.")
+        return False
+    except Exception as e:
+        st.error(f"프록시 헬스체크 실패: {e}")
+        return False
+
+
 def main():
-    # 1) 사이드바 (이미 Part1에서 정의)
+    # 1) 사이드바 (수정 금지)
     sidebar_vals = render_sidebar()
 
-    st.title("ENVY — v11.x (stable)")
-    st.caption("사이드바는 고정/스크롤락, 본문 카드는 큼직하고 시안성 위주 배치")
+    # 2) 전역 CSS 적용 (섹션 폭/스크롤 보정 + 과거 CSS 무력화)
+    inject_global_css()
 
-    # 2) 데이터랩 + 기간/기기 그래프
+    # 3) 프록시 헬스체크 (회귀 방지)
+    _proxy_healthcheck()
+
+    # 4) 본문 섹션
+    st.title("ENVY — v11.x (stable)")
+    st.caption("사이드바 고정, 본문 카드는 큼직하고 시안성 위주 배치")
+
+    # 데이터랩
     render_datalab_block()
     st.divider()
 
-    # 3) 11번가 임베드 + 라쿠텐 키워드
-    colL, colR = st.columns([1,1])
+    # 11번가 + 라쿠텐
+    colL, colR = st.columns([1, 1])
     with colL:
         render_11st_block()
     with colR:
         render_rakuten_block()
     st.divider()
 
-    # 4) 번역기
+    # 번역기
     render_translator_block()
+
 
 if __name__ == "__main__":
     main()
