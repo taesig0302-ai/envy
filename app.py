@@ -1,11 +1,11 @@
 
-# ENVY v11.0 Stable (Cloud Patched)
+# ENVY v11.1 Full — v10.5-style layout (UI only), functions unchanged
 import streamlit as st
 import requests, pandas as pd, json, time, urllib.parse
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 
-st.set_page_config(page_title="ENVY v11.0", page_icon="✨", layout="wide")
+st.set_page_config(page_title="ENVY v11.1", page_icon="✨", layout="wide")
 
 # -------------------- Globals
 PROXY_URL = st.session_state.get("proxy_url", "")
@@ -38,9 +38,9 @@ def pill(text, mode="green"):
 def show_status(label, mode):
     st.markdown(f"{label} : {pill('REAL', 'green') if mode=='green' else pill('FALLBACK','yellow') if mode=='yellow' else pill('ERROR','red')}", unsafe_allow_html=True)
 
-# -------------------- Sidebar
+# -------------------- Sidebar (unchanged)
 with st.sidebar:
-    st.markdown("## ✨ ENVY v11.0")
+    st.markdown("## ✨ ENVY v11.1")
     st.text_input("PROXY_URL (Cloudflare Worker)", value=PROXY_URL, key="proxy_url", help="예: https://envy-proxy.xxx.workers.dev/")
 
     st.markdown("### ① 환율 계산기")
@@ -258,20 +258,38 @@ def render_translate():
             except Exception as e:
                 st.caption(f"한국어 확인용 실패: {type(e).__name__}: {e}")
 
-# -------------------- Layout
+# -------------------- placeholders (아이템스카우트/셀러라이프)
+def render_itemscout_block():
+    st.markdown("### 아이템스카우트")
+    st.info("연동 대기 (API 키 확보 후 교체) — 자리만 유지합니다.")
+
+def render_sellerlife_block():
+    st.markdown("### 셀러라이프")
+    st.info("연동 대기 (API 키 확보 후 교체) — 자리만 유지합니다.")
+
+# -------------------- Layout (v10.5-style order)
 def main():
     st.markdown("<style>.block-container{padding-top:.8rem !important; padding-bottom:.35rem !important;}</style>", unsafe_allow_html=True)
-    top1, top2 = st.columns([1,1])
-    with top1: render_rank()
-    with top2: render_trend()
 
-    mid1, mid2 = st.columns([1,1])
-    with mid1: render_11st()
-    with mid2: render_rakuten()
+    # 상단: 데이터랩(좌) + 트렌드(우)
+    topL, topR = st.columns([1, 1])
+    with topL: render_rank()
+    with topR: render_trend()
 
-    bot1, bot2 = st.columns([1,1])
-    with bot1: render_namegen()
-    with bot2: render_translate()
+    # 중단: 11번가(좌) + 라쿠텐(우)
+    midL, midR = st.columns([1, 1])
+    with midL: render_11st()
+    with midR: render_rakuten()
+
+    # 하단: 아이템스카우트(좌) + 셀러라이프(우)
+    row3L, row3R = st.columns([1, 1])
+    with row3L: render_itemscout_block()
+    with row3R: render_sellerlife_block()
+
+    # 최하단: 상품명 생성기(좌) + 번역기(우)
+    botL, botR = st.columns([1, 1])
+    with botL: render_namegen()
+    with botR: render_translate()
 
 if __name__ == "__main__":
     try:

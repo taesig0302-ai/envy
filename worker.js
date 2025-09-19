@@ -1,5 +1,5 @@
 
-// ENVY v11.0 Worker (11st iframe helper)
+// ENVY v11.1 Worker (11st iframe helper, banner killer)
 async function proxyFetch(request) {
   const url = new URL(request.url);
   const target = url.searchParams.get("target");
