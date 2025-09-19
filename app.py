@@ -454,44 +454,116 @@ def render_datalab_block():
         else:
             st.caption("※ 키워드별 클릭 트렌드를 DataLab 엔드포인트에서 직접 조회합니다.")
 # =========================
-# Part 4 — 11번가(모바일) 임베드 (교체용 v11.x, 세션 쓰기 제거)
-# - 기본 URL:  https://m.11st.co.kr/page/main/home
-# - 기본 프록시: https://envy-proxy.taesig0302.workers.dev
+# Part 4 — 11번가(모바일) 임베드 (강화판 · 무알림)
 # =========================
 import streamlit as st
 from urllib.parse import quote
+import re
 
-DEFAULT_11ST_URL = "https://m.11st.co.kr/page/main/home"
-PROXY_DEFAULT = "https://envy-proxy.taesig0302.workers.dev"  # 네 프록시
+# 선택 라이브러리(없어도 동작; 프리뷰만 비활성)
+try:
+    import requests
+    from bs4 import BeautifulSoup  # pip install beautifulsoup4
+except Exception:
+    requests = None
+    BeautifulSoup = None
+
+DEFAULT_11ST_HOME = "https://m.11st.co.kr/page/main/home"
+DEFAULT_11ST_BEST = "https://m.11st.co.kr/MW/store/bestSeller.tmall"
+PROXY_DEFAULT     = "https://envy-proxy.taesig0302.workers.dev"
+
+def _proxy_url() -> str:
+    p = (st.session_state.get("PROXY_URL") or "").strip()
+    return p or PROXY_DEFAULT   # 내부 폴백만, 화면 안내 없음
+
+def _parse_best20(proxy: str) -> list[dict]:
+    """프록시 경유로 11번가 베스트셀러 Top20 간단 파싱(실패 시 빈 리스트)."""
+    if not requests:
+        return []
+    try:
+        u = f"{proxy}?url={quote(DEFAULT_11ST_BEST, safe=':/?&=%')}"
+        r = requests.get(u, timeout=12, headers={
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1"
+        })
+        r.raise_for_status()
+        html = r.text
+        items = []
+        if BeautifulSoup:
+            soup = BeautifulSoup(html, "html.parser")
+            sels = ["a[href*='/products/']", "ul li a[href*='/products/']"]
+            seen = set()
+            for sel in sels:
+                for a in soup.select(sel):
+                    href = a.get("href") or ""
+                    m = re.search(r"/products/(\d+)", href)
+                    if not m: 
+                        continue
+                    pid = m.group(1)
+                    title = (a.get_text(strip=True) or "").replace("\n", " ")
+                    if not title or (pid, title) in seen:
+                        continue
+                    seen.add((pid, title))
+                    items.append({"rank": len(items)+1,
+                                  "title": title,
+                                  "url": f"https://m.11st.co.kr/products/{pid}"})
+                    if len(items) >= 20:
+                        break
+                if len(items) >= 20:
+                    break
+        if not items:
+            for m in re.finditer(
+                r'href="(?:https://m\.11st\.co\.kr)?/products/(\d+)".{0,200}?>([^<]{4,120})<',
+                html, flags=re.S|re.I
+            ):
+                pid = m.group(1)
+                title = re.sub(r"\s+", " ", m.group(2)).strip()
+                items.append({"rank": len(items)+1,
+                              "title": title,
+                              "url": f"https://m.11st.co.kr/products/{pid}"})
+                if len(items) >= 20:
+                    break
+        return items
+    except Exception:
+        return []
 
 def render_11st_block():
     st.markdown("## 11번가 (모바일)")
 
-    # 홈 주소를 기본값으로 고정 입력
-    url = st.text_input(
-        "모바일 URL",
-        value=DEFAULT_11ST_URL,
-        key="t11_url",
-    ).strip()
+    url = st.text_input("모바일 URL", value=DEFAULT_11ST_HOME, key="t11_url").strip()
+    proxy = _proxy_url()
+    proxied = f"{proxy}?url={quote(url, safe=':/?&=%')}"
 
-    # 세션에 값이 없으면 "읽기만" 하고, 기본 프록시로 대체 (세션에 쓰지 않음)
-    user_proxy = (st.session_state.get("PROXY_URL") or "").strip()
-    proxy = user_proxy or PROXY_DEFAULT
+    # 안내 문구/프록시 표시 없이: 새창 열기 버튼만 제공
+    st.link_button("🔗 새창에서 열기", proxied)
 
-    # 안내(사용 중인 프록시가 기본값인지/사용자 값인지 명확히 표시)
-    if user_proxy:
-        st.caption(f"프록시 경유(사용자 설정): **{user_proxy}** → **{url}**")
-    else:
-        st.warning("PROXY_URL이 비어 있어 기본 프록시를 사용합니다.")
-        st.caption(f"프록시 경유(기본): **{PROXY_DEFAULT}** → **{url}**")
-
-    # 프록시로 우회한 최종 URL
-    target = f"{proxy}?url={quote(url, safe=':/?&=%')}"
-
+    # iFrame 임베드
     try:
-        st.components.v1.iframe(src=target, height=980, scrolling=True)
+        st.components.v1.iframe(src=proxied, height=980, scrolling=True)
     except Exception as e:
-        st.error(f"11번가 로드 실패: {e}")
+        st.error(f"iFrame 로드 실패: {e}")
+
+    # 보조 프리뷰(Top20) — 선택 확장
+    with st.expander("🧩 베스트셀러 Top 20 (보조 프리뷰)", expanded=False):
+        if requests is None:
+            st.info("프리뷰 파서를 사용하려면 `requests`, `beautifulsoup4` 설치가 필요합니다.")
+            return
+        rows = _parse_best20(proxy)
+        if not rows:
+            st.warning("베스트 데이터 파싱에 실패했습니다. 상단 '새창에서 열기'로 확인하세요.")
+        else:
+            import pandas as pd
+            df = pd.DataFrame(rows)
+            st.dataframe(
+                df.rename(columns={"title": "상품명"}),
+                hide_index=True,
+                use_container_width=True,
+                height=420,
+                column_config={
+                    "rank": st.column_config.NumberColumn("순위", width="small"),
+                    "상품명": st.column_config.TextColumn("상품명", width="large"),
+                    "url":  st.column_config.LinkColumn("바로가기", display_text="열기", width="small"),
+                }
+            )
 # =========================
 # Part 5 — AI 키워드 레이더 (Rakuten)  [실데이터 우선 + 스크롤/여백/URL 축소]
 # =========================
