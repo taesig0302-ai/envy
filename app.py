@@ -302,7 +302,7 @@ def naver_ads_relkwd(hint_keywords:list[str], max_rows:int=20) -> pd.DataFrame:
     except Exception:
         return pd.DataFrame()
 # =========================
-# Part 3 — 데이터랩 (강화판 전체 교체본)
+# Part 3 — 데이터랩 (강화판 v2 · 전체 교체본)
 #  - 카테고리 → Top20 키워드(20개 고정)
 #  - 선택 키워드(최대 5개) 트렌드 라인
 #  - NAVER_COOKIE: secrets/env/session 자동 인식, 없을 때만 입력
@@ -311,6 +311,7 @@ def naver_ads_relkwd(hint_keywords:list[str], max_rows:int=20) -> pd.DataFrame:
 import os, json, re
 from datetime import date, timedelta
 from typing import List
+from collections import defaultdict
 
 import streamlit as st
 import pandas as pd
@@ -511,7 +512,177 @@ def _fetch_top20(cookie: str, cid: str, start: str, end: str) -> dict:
         for p in pats:
             hits += re.findall(p, html)
 
-        from
+        best = defaultdict(float)
+
+        def _to_float(s):
+            s = str(s).replace(',', '')
+            m = re.search(r'-?\d+(?:\.\d+)?', s)
+            return float(m.group(0)) if m else 0.0
+
+        for kw, sc in hits:
+            kw = kw.strip()
+            v = _to_float(sc)
+            if kw and v > best[kw]:
+                best[kw] = v
+
+        rows = [{"keyword": k, "score": v} for k, v in best.items()]
+        rows.sort(key=lambda x: x["score"], reverse=True)
+        rows = rows[:20]
+        for i, rr in enumerate(rows, 1):
+            rr["rank"] = i
+
+        if rows:
+            return {"ok": True, "rows": rows, "fallback": "html"}
+
+        sample = ""
+        try:
+            if last_json is not None:
+                sample = json.dumps(last_json, ensure_ascii=False)[:800]
+        except Exception:
+            pass
+        return {"ok": False, "reason": last_reason or "응답 파싱 실패", "tried": tried, "sample": sample}
+    except Exception as e:
+        sample = ""
+        try:
+            if last_json is not None:
+                sample = json.dumps(last_json, ensure_ascii=False)[:800]
+        except Exception:
+            pass
+        return {"ok": False, "reason": f"HTML 폴백 실패: {e}", "tried": tried, "sample": sample}
+
+# ── 키워드 트렌드(주간 기준). 빈값이면 샘플 라인 제공
+@st.cache_data(show_spinner=False, ttl=600)
+def _fetch_trend(cookie: str, keywords: List[str], start: str, end: str) -> pd.DataFrame:
+    if not (requests and keywords):
+        return pd.DataFrame()
+
+    url = "https://datalab.naver.com/shoppingInsight/getKeywordTrends.naver"
+    headers = _hdr(cookie, cid='50000000', as_json=True)
+    payload = {
+        "timeUnit": "week",
+        "startDate": start,
+        "endDate": end,
+        "keyword": json.dumps([{"name": k.strip(), "param": [k.strip()]} for k in keywords], ensure_ascii=False),
+        "device": "all",
+        "gender": "all",
+        "age": "all",
+    }
+    try:
+        r = requests.post(url, headers=headers, data=payload, timeout=12, allow_redirects=False)
+        ct = (r.headers.get("content-type") or "").lower()
+        if r.status_code in (301,302,303,307,308) or "text/html" in ct:
+            return pd.DataFrame()
+        r.raise_for_status()
+        data = r.json()
+    except Exception:
+        return pd.DataFrame()
+
+    series = {}
+    def walk(o):
+        if isinstance(o, dict):
+            title = o.get("title") or o.get("name")
+            data_list = o.get("data")
+            if title and isinstance(data_list, list):
+                for i, p in enumerate(data_list):
+                    period = p.get("period") or p.get("date") or f"P{i}"
+                    ratio  = p.get("ratio")  or p.get("value") or 0
+                    series.setdefault("period", []).append(period)
+                    series.setdefault(title, []).append(ratio)
+            for v in o.values():
+                walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+    walk(data)
+
+    if not series:
+        return pd.DataFrame()
+    df = pd.DataFrame(series)
+    if "period" in df.columns:
+        df = df.set_index("period")
+    return df
+
+# ── 화면 렌더러(메인에서 이 함수를 호출)
+def render_datalab_block():
+    st.markdown("## 데이터랩")
+
+    cookie = _naver_cookie()
+    if not cookie:
+        with st.expander("NAVER_COOKIE 입력(최초 1회)", expanded=True):
+            c = st.text_input("쿠키 전체 문자열", type="password",
+                              help="datalab.naver.com 로그인 상태에서 NID_* 포함 전체 쿠키 복사/붙여넣기")
+            if c:
+                st.session_state["__NAVER_COOKIE"] = c.strip()
+                cookie = c.strip()
+                st.success("세션 저장 완료 — 아래에서 바로 조회 가능")
+
+    c1, c2 = st.columns([1.1, 1.4])
+
+    with c1:
+        cat = st.selectbox("카테고리", DATALAB_CATS, key="dl_cat_simple")
+        cid = CID_MAP.get(cat, "50000000")
+
+        today = date.today()
+        start = st.date_input("시작일", value=today - timedelta(days=30), key="dl_start_simple")
+        end   = st.date_input("종료일", value=today, key="dl_end_simple")
+
+        btn = st.button("Top20 불러오기", key="dl_go_simple", use_container_width=True)
+
+        top_df = pd.DataFrame()
+        if btn:
+            if not cookie:
+                st.error("NAVER_COOKIE가 필요합니다. 위에서 한 번만 입력해 주세요.")
+            else:
+                res = _fetch_top20(cookie, cid, str(start), str(end))
+                if not res.get("ok"):
+                    st.error(f"조회 실패: {res.get('reason')}")
+                    if res.get("tried"):
+                        st.caption("시도 조합: " + ", ".join(res["tried"]))
+                    if res.get("sample"):
+                        st.caption("응답 샘플(앞부분):")
+                        st.code(res["sample"])
+                else:
+                    top_df = pd.DataFrame(res["rows"], columns=["rank","keyword","score"])
+                    st.dataframe(
+                        top_df, hide_index=True, use_container_width=True, height=420,
+                        column_config={
+                            "rank": st.column_config.NumberColumn("rank", width="small"),
+                            "keyword": st.column_config.TextColumn("keyword", width="large"),
+                            "score": st.column_config.NumberColumn("score", width="small"),
+                        },
+                    )
+
+        st.session_state.setdefault("_top_keywords", [])
+        if not top_df.empty:
+            st.session_state["_top_keywords"] = top_df["keyword"].tolist()
+
+    with c2:
+        st.markdown("### 선택 키워드 트렌드")
+        kw_source = st.session_state.get("_top_keywords", [])
+        if kw_source:
+            picks = st.multiselect("키워드(최대 5개)", kw_source, default=kw_source[:3],
+                                   max_selections=5, key="dl_kw_picks")
+            if st.button("트렌드 보기", key="dl_trend_simple"):
+                if not cookie:
+                    st.error("NAVER_COOKIE가 필요합니다.")
+                elif not picks:
+                    st.warning("키워드를 선택해 주세요.")
+                else:
+                    df_line = _fetch_trend(cookie, picks,
+                                           str(st.session_state["dl_start_simple"]),
+                                           str(st.session_state["dl_end_simple"]))
+                    if df_line.empty:
+                        x = np.arange(0, 12)
+                        base = 50 + 5*np.sin(x/2)
+                        df_line = pd.DataFrame({
+                            (picks[0] if len(picks)>0 else "kw1"): base,
+                            (picks[1] if len(picks)>1 else "kw2"): base-5 + 3*np.cos(x/3),
+                            (picks[2] if len(picks)>2 else "kw3"): base+3 + 4*np.sin(x/4),
+                        }, index=[f"P{i}" for i in range(len(x))])
+                        st.info("실데이터 조회 실패 — 샘플 라인을 표시합니다.")
+                    st.line_chart(df_line, height=260, use_container_width=True)
+        else:
+            st.caption("좌측에서 Top20을 먼저 불러오면 여기서 트렌드를 볼 수 있습니다.")
 # =========================
 # Part 4 — 11번가(모바일) 임베드 (강화판 · 무알림)
 # =========================
