@@ -203,116 +203,134 @@ def render_sidebar() -> dict:
     })
     return result
 # =========================
-# Part 2 — 공용 유틸 (교체용 v11.x)
+# Part 2 — 공용 유틸 + Naver Searchad API 헬퍼
 # =========================
+import os, time, hmac, hashlib, base64
+import pandas as pd
 import streamlit as st
-from urllib.parse import quote
+from urllib.parse import urlencode
 
-# ── 고정 메모(항상 유지) ──────────────────────────────────────────────
-# Cloudflare Worker 프록시 기본값 (세션/시크릿에 값이 없을 때 사용)
-PROXY_DEFAULT = "https://envy-proxy.taesig0302.workers.dev/"
-# Naver DataLab 엔드포인트
-DATALAB_ENDPOINT_RANK  = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordRank.naver"
-DATALAB_ENDPOINT_TREND = "https://datalab.naver.com/shoppingInsight/getKeywordClickTrend.naver"
+# (선택) requests가 없으면 광고 API는 자동 비활성
+try:
+    import requests
+except Exception:
+    requests = None
 
-# ── 언어 라벨(번역기/드롭다운 공용) ───────────────────────────────────
-if "LANG_LABELS" not in globals():
-    LANG_LABELS = {
-        "auto":"자동 감지",
-        "ko":"한국어",
-        "en":"영어",
-        "ja":"일본어",
-        "zh-CN":"중국어(간체)",
-        "zh-TW":"중국어(번체)",
-        "vi":"베트남어",
-        "th":"태국어",
-        "id":"인도네시아어",
-        "de":"독일어",
-        "fr":"프랑스어",
-        "es":"스페인어",
-        "it":"이탈리아어",
-        "pt":"포르투갈어",
-    }
-
-def lang_label_to_code(label_or_code: str) -> str:
-    """한국어 라벨/언어코드 입력을 모두 ISO 코드로 통일."""
-    rev = {v: k for k, v in LANG_LABELS.items()}
+# ── 언어 라벨 (번역기 드롭다운용)
+LANG_LABELS = {
+    "auto":"자동 감지",
+    "ko":"한국어",
+    "en":"영어",
+    "ja":"일본어",
+    "zh-CN":"중국어(간체)",
+    "zh-TW":"중국어(번체)",
+    "vi":"베트남어",
+    "th":"태국어",
+    "id":"인도네시아어",
+    "de":"독일어",
+    "fr":"프랑스어",
+    "es":"스페인어",
+    "it":"이탈리아어",
+    "pt":"포르투갈어",
+}
+def lang_label_to_code(label_or_code:str) -> str:
+    rev = {v:k for k,v in LANG_LABELS.items()}
     return rev.get(label_or_code, label_or_code)
 
-# ── 토스트 헬퍼 ───────────────────────────────────────────────────────
-def toast_ok(msg: str):   st.toast(f"✅ {msg}")
-def toast_warn(msg: str): st.toast(f"⚠️ {msg}")
-def toast_err(msg: str):  st.toast(f"❌ {msg}")
+# ── 간단 토스트
+def toast_ok(msg:str): st.toast(f"✅ {msg}")
+def toast_warn(msg:str): st.toast(f"⚠️ {msg}")
+def toast_err(msg:str): st.toast(f"❌ {msg}")
 
-# ── 프록시 유틸 (세션→시크릿→기본값) ─────────────────────────────────
-def util_proxy_url() -> str:
-    proxy = (st.session_state.get("PROXY_URL")
-             or getattr(st.secrets, "PROXY_URL", "")
-             or "").strip()
-    return proxy or PROXY_DEFAULT
+# ── Naver Searchad API (relKwdStat) ───────────────────────────────────────────
+def _ads_keys_ok() -> bool:
+    """Secrets → Env 순으로 키 유무 확인."""
+    try:
+        if st.secrets.get("NAVER_ADS_API_KEY","") and st.secrets.get("NAVER_ADS_SECRET","") and st.secrets.get("NAVER_ADS_CUSTOMER_ID",""):
+            return True
+    except Exception:
+        pass
+    return bool(os.getenv("NAVER_ADS_API_KEY") and os.getenv("NAVER_ADS_SECRET") and os.getenv("NAVER_ADS_CUSTOMER_ID"))
 
-def util_proxy_wrap(url: str) -> str:
-    """원본 URL을 프록시로 감싼 최종 URL 생성."""
-    return f"{util_proxy_url()}?url={quote(url, safe=':/?&=%')}"
+def _ads_get_keys():
+    """Secrets 우선, 없으면 Env 사용."""
+    def g(name):
+        try:
+            return st.secrets.get(name, "") or os.getenv(name, "")
+        except Exception:
+            return os.getenv(name, "")
+    return g("NAVER_ADS_API_KEY"), g("NAVER_ADS_SECRET"), g("NAVER_ADS_CUSTOMER_ID")
 
-# ── Naver DataLab 공통 헤더 ───────────────────────────────────────────
-def util_naver_headers(cookie: str) -> dict:
+def _ads_headers(method:str, path:str):
+    api_key, secret, cust = _ads_get_keys()
+    ts = str(int(time.time()*1000))
+    sign_src = f"{ts}.{method}.{path}"
+    sign = base64.b64encode(hmac.new(secret.encode(), sign_src.encode(), hashlib.sha256).digest()).decode()
     return {
-        "User-Agent": "Mozilla/5.0",
-        "Referer": "https://datalab.naver.com/",
-        "Origin": "https://datalab.naver.com",
-        "Accept": "*/*",
-        "Accept-Language": "ko,en-US;q=0.9,en;q=0.8,ja;q=0.7",
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "X-Requested-With": "XMLHttpRequest",
-        "Cookie": cookie or "",
+        "X-Timestamp": ts,
+        "X-API-KEY": api_key,
+        "X-Customer": cust,
+        "X-Signature": sign,
+        "Content-Type": "application/json; charset=UTF-8",
+        "Accept": "application/json",
     }
 
-# ── 삼색 상태/색상 공용 ───────────────────────────────────────────────
-STATUS_COLOR = {"정상": "#2ecc71", "주의": "#f1c40f", "오류": "#e74c3c"}
-
-def util_status_from_score(score) -> str:
-    """표시용 상태 라벨: 70↑ 정상, 40~69 주의, 나머지 오류."""
+def naver_ads_relkwd(hint_keywords:list[str], max_rows:int=20) -> pd.DataFrame:
+    """
+    네이버 광고 Keyword Tool: 힌트 키워드 기반 연관키워드/월간검색수/경쟁지수 반환.
+    columns: relKeyword, monthlyPcQcCnt, monthlyMobileQcCnt, compIdx
+    """
+    if not (_ads_keys_ok() and requests):
+        return pd.DataFrame()
+    base = "https://api.searchad.naver.com"
+    path = "/keywordstool"
+    q = {"hintKeywords": ",".join([k for k in hint_keywords if k][:5]), "showDetail": 1}
+    url = f"{base}{path}?{urlencode(q)}"
     try:
-        s = float(score)
+        r = requests.get(url, headers=_ads_headers("GET", path), timeout=12)
+        r.raise_for_status()
+        js = r.json()
+        kws = js.get("keywordList") or js.get("keywords") or []
+        rows = []
+        for it in kws[:max_rows]:
+            rows.append({
+                "relKeyword": it.get("relKeyword"),
+                "monthlyPcQcCnt": it.get("monthlyPcQcCnt", 0),
+                "monthlyMobileQcCnt": it.get("monthlyMobileQcCnt", 0),
+                "compIdx": it.get("compIdx", 0),
+            })
+        return pd.DataFrame(rows)
     except Exception:
-        return "오류"
-    if s >= 70: return "정상"
-    if s >= 40: return "주의"
-    return "오류"
-
-def util_score_from_rank(rank) -> int | None:
-    """랭크만 있을 때 시각화용 점수(1→100, 20→20) 산출."""
-    try:
-        r = int(rank)
-        return int(round(100 - (r - 1) * (80 / 19)))
-    except Exception:
-        return None
+        return pd.DataFrame()
 # =========================
-# Part 3 — 데이터랩(대분류 12종) + Top20 + 트렌드
-#  - NAVER_COOKIE 소스 우선순위:
-#    secrets -> env -> session_state(입력)  // 비어있으면 즉시 경고
-#  - 20개 고정, 표는 내부 스크롤
-#  - 트렌드(최대 5개) — 실패 시 샘플 폴백
-#  - 삼색 상태 뱃지(정상/주의/오류) + 쿠키 상태 뱃지
+# Part 3 — 데이터랩(간결판)
+#  - 카테고리 선택 → Top20 표 (20개 고정)
+#  - 선택 키워드(최대 5개) 기간별 트렌드 선그래프
+#  - NAVER_COOKIE: secrets/env/session 자동 인식, 없을 때만 입력칸 표시
+#  - (선택) 광고 API 키가 있으면 월간 검색수/경쟁지수 컬럼 자동 덧붙임
 # =========================
-import os
-import json
-import re
-from datetime import date
+import os, json
+from datetime import date, timedelta
 from typing import List, Dict
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 
-# requests가 없을 수도 있으니 가드
+# Part 2에 정의된 광고 헬퍼 사용(없으면 조용히 패스)
+try:
+    from app import naver_ads_relkwd, _ads_keys_ok   # 파일명이 app.py가 아니면 경로에 맞게 수정
+except Exception:
+    def _ads_keys_ok(): return False
+    def naver_ads_relkwd(*args, **kwargs): return pd.DataFrame()
+
+# requests 유무 가드
 try:
     import requests
 except Exception:
     requests = None
 
-# ── 대분류 12종 ↔ CID 기본값
+# ── 대분류 12종 ↔ CID
 DATALAB_CATS = [
     "패션의류","패션잡화","화장품/미용","디지털/가전","가구/인테리어",
     "출산/육아","식품","스포츠/레저","생활/건강","여가/생활편의","면세점","도서"
@@ -323,75 +341,20 @@ CID_MAP = {
     "생활/건강":"50000008","여가/생활편의":"50000009","면세점":"50000010","도서":"50005542",
 }
 
-# ── 공용 스타일(배지)
-_BADGE_CSS = """
-<style>
-  .badge{display:inline-block;padding:.28rem .52rem;border-radius:.45rem;margin-right:.4rem;font-size:.82rem}
-  .bg-g{background:#e6ffcc;border:1px solid #b6f3a4;color:#0b2e13}
-  .bg-y{background:#fff7d6;border:1px solid #f1d27a;color:#4a3b07}
-  .bg-r{background:#ffe6e6;border:1px solid #ffb3b3;color:#5a0a0a}
-  .muted{opacity:.8}
-</style>
-"""
-def _badge_ok():   st.markdown('<span class="badge bg-g">정상</span>', unsafe_allow_html=True)
-def _badge_warn(m):st.markdown(f'<span class="badge bg-y">주의</span> <span class="muted">{m}</span>', unsafe_allow_html=True)
-def _badge_err(m): st.markdown(f'<span class="badge bg-r">오류</span> <span class="muted">{m}</span>', unsafe_allow_html=True)
-
-# ── 쿠키 해석(우선순위: secrets -> env -> session_state 입력)
-def _resolve_cookie() -> str:
+# ── NAVER_COOKIE: secrets → env → session
+def _naver_cookie() -> str:
     sec = ""
-    try:
-        sec = st.secrets.get("NAVER_COOKIE", "")
-    except Exception:
-        sec = ""
-    env = os.getenv("NAVER_COOKIE", "")
-    ses = st.session_state.get("NAVER_COOKIE", "")
-    return (sec or env or ses).strip()
+    try: sec = st.secrets.get("NAVER_COOKIE","")
+    except Exception: sec = ""
+    if sec: return sec.strip()
+    env = os.getenv("NAVER_COOKIE","").strip()
+    if env: return env
+    return st.session_state.get("__NAVER_COOKIE","").strip()
 
-def _cookie_manager_ui() -> str:
-    """쿠키 입력/확인 UI. '적용'을 누르면 세션에 저장되어 리런에도 유지."""
-    st.markdown(_BADGE_CSS, unsafe_allow_html=True)
-
-    # 현재 인식된 값
-    current = _resolve_cookie()
-    src = ("secrets" if st.secrets.get("NAVER_COOKIE", "") else
-           "env" if os.getenv("NAVER_COOKIE", "") else
-           "session" if st.session_state.get("NAVER_COOKIE", "") else "")
-
-    with st.container(border=True):
-        st.caption("NAVER_COOKIE (로그인 상태의 datalab.naver.com에서 복사한 전체 쿠키)")
-
-        # 입력창(마스킹). 기존 세션 값이 있으면 빈칸 유지; 사용자가 원할 때만 갱신
-        cookie_in = st.text_input(
-            "임시 입력 (세션에 저장)",
-            value="",
-            type="password",
-            help="예: NID_AUT=...; NID_SES=...; ...  (붙여넣기 후 '적용' 클릭)",
-            key="__dl_cookie_input"
-        )
-        colA, colB = st.columns([1,1])
-        with colA:
-            if st.button("적용", key="__dl_cookie_apply"):
-                if cookie_in.strip():
-                    st.session_state["NAVER_COOKIE"] = cookie_in.strip()
-                    st.success("NAVER_COOKIE 세션 저장 완료")
-        with colB:
-            # 현재 소스/마스킹 표시
-            if current:
-                tail = current[-10:].replace(";","•")
-                st.markdown(f'<span class="badge bg-g">쿠키 로드됨</span> <span class="muted">source={src} · ...{tail}</span>', unsafe_allow_html=True)
-            else:
-                st.markdown(f'<span class="badge bg-r">쿠키 비어 있음</span> <span class="muted">secrets/env/session 중 어느 곳에도 없음</span>', unsafe_allow_html=True)
-
-    return _resolve_cookie()
-
-# ── 데이터 요청(캐시)
+# ── API 호출 (Top20, Trend)
 @st.cache_data(show_spinner=False, ttl=600)
-def _fetch_top20(cookie: str, cid: str, start: str, end: str,
-                 device: str, gender: str, ages_csv: str) -> Dict:
-    if not requests:
-        return {"ok": False, "reason": "requests 미설치"}
-
+def _fetch_top20(cookie: str, cid: str, start: str, end: str) -> Dict:
+    if not requests: return {"ok": False, "reason": "requests 미설치"}
     url = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordRank.naver"
     headers = {
         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Safari/604.1",
@@ -400,55 +363,45 @@ def _fetch_top20(cookie: str, cid: str, start: str, end: str,
         "Cookie": cookie,
         "Accept": "application/json, text/plain, */*",
     }
-    payload = {
-        "cid": str(cid).strip(),
+    data = {
+        "cid": str(cid),
         "timeUnit": "date",
         "startDate": start,
         "endDate": end,
-        "gender": gender,          # all / m / f
-        "device": device,          # pc / mo / all
-        "age": ages_csv or "all",  # "10,20,30" / "all"
+        "gender": "all",
+        "device": "all",
+        "age": "all",
     }
     try:
-        r = requests.post(url, headers=headers, data=payload, timeout=12, allow_redirects=False)
+        r = requests.post(url, headers=headers, data=data, timeout=12, allow_redirects=False)
         if r.status_code in (301,302,303,307,308):
-            return {"ok": False, "reason": "302 리다이렉트 — 쿠키 확인 필요"}
+            return {"ok": False, "reason": "302 리다이렉트 — 쿠키 만료/부재"}
         r.raise_for_status()
-        data = r.json()
+        js = r.json()
     except Exception as e:
         return {"ok": False, "reason": f"요청 실패: {e}"}
 
     items = []
-    try:
-        # 다양한 키 대응
-        candidates = []
-        if isinstance(data, dict):
-            if "result" in data and isinstance(data["result"], list):
-                candidates = data["result"]
-            else:
-                for v in data.values():
-                    if isinstance(v, list) and v and isinstance(v[0], dict):
-                        candidates = v; break
-        for row in candidates:
-            kw = row.get("keyword") or row.get("key") or row.get("name") or ""
+    cand = js.get("result") if isinstance(js, dict) else None
+    if not isinstance(cand, list):
+        for v in (js.values() if isinstance(js, dict) else []):
+            if isinstance(v, list) and v and isinstance(v[0], dict):
+                cand = v; break
+    if cand:
+        for row in cand:
+            kw = row.get("keyword") or row.get("key") or row.get("name")
             sc = row.get("ratio") or row.get("score") or row.get("value") or 0
             if kw:
-                items.append({"keyword": str(kw), "score": float(sc) if isinstance(sc,(int,float)) else 0.0})
-    except Exception:
-        items = []
+                items.append({"rank":0, "keyword":str(kw), "score": float(sc) if isinstance(sc,(int,float)) else 0.0})
+    if not items: return {"ok": False, "reason":"응답 파싱 실패"}
 
-    if not items:
-        return {"ok": False, "reason": "응답 파싱 실패(쿠키/파라미터 확인)"}
-
-    items = sorted(items, key=lambda x: x.get("score",0), reverse=True)[:20]
-    for i, r in enumerate(items, start=1):
-        r["rank"] = i
+    items = sorted(items, key=lambda x:x["score"], reverse=True)[:20]
+    for i, r in enumerate(items, start=1): r["rank"] = i
     return {"ok": True, "rows": items}
 
 @st.cache_data(show_spinner=False, ttl=600)
-def _fetch_trend(cookie: str, keywords: List[str], start: str, end: str, device: str) -> pd.DataFrame:
-    if not (requests and keywords):
-        return pd.DataFrame()
+def _fetch_trend(cookie: str, keywords: List[str], start: str, end: str) -> pd.DataFrame:
+    if not (requests and keywords): return pd.DataFrame()
     url = "https://datalab.naver.com/shoppingInsight/getKeywordTrends.naver"
     headers = {
         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Safari/604.1",
@@ -461,110 +414,12 @@ def _fetch_trend(cookie: str, keywords: List[str], start: str, end: str, device:
         "timeUnit": "week",
         "startDate": start,
         "endDate": end,
-        "keyword": json.dumps([{"name": k.strip(), "param": [k.strip()]} for k in keywords]),
-        "device": device,  # pc / mo / all
+        "keyword": json.dumps([{"name": k, "param": [k]} for k in keywords]),
+        "device": "all",
         "gender": "all",
         "age": "all",
     }
     try:
-        r = requests.post(url, headers=headers, data=payload, timeout=12, allow_redirects=False)
-        if r.status_code in (301,302,303,307,308):
-            return pd.DataFrame()
-        r.raise_for_status()
-        data = r.json()
-        series = {}
-        results = data.get("results") or data.get("result") or []
-        for s in results:
-            title = s.get("title") or s.get("name") or ""
-            pts = s.get("data") or []
-            for i, p in enumerate(pts):
-                period = p.get("period") or p.get("date") or f"P{i}"
-                ratio = p.get("ratio") or p.get("value") or 0
-                series.setdefault("period", []).append(period)
-                series.setdefault(title, []).append(ratio)
-        if not series:
-            return pd.DataFrame()
-        df = pd.DataFrame(series)
-        if "period" in df.columns:
-            df = df.set_index("period")
-        return df
-    except Exception:
-        return pd.DataFrame()
-
-def render_datalab_block():
-    st.markdown("## 데이터랩 (대분류 12종)")
-    st.markdown(_BADGE_CSS, unsafe_allow_html=True)
-
-    # ── 좌측(설정/조회)
-    c1, c2 = st.columns([1.15, 1.4])
-
-    with c1:
-        # 쿠키 관리(확인/적용)
-        cookie = _cookie_manager_ui()
-
-        cat = st.selectbox("카테고리", DATALAB_CATS, key="dl_cat")
-        cid_default = CID_MAP.get(cat, "50000000")
-        cid = st.text_input("네이버 CID(수정 가능)", value=cid_default, key="dl_cid")
-
-        # 기간
-        start = st.date_input("시작일", value=date.today().replace(month=8, day=20), key="dl_start")
-        end   = st.date_input("종료일", value=date.today().replace(month=9, day=19), key="dl_end")
-
-        # 필터
-        device = st.selectbox("기기", ["pc","mo","all"], index=0, key="dl_device")
-        age_sel = st.multiselect("연령", ["10","20","30","40","50","60"], default=[], key="dl_age")
-        gender = st.selectbox("성별", ["all","m","f"], index=0, key="dl_gender")
-
-        # 조회 버튼
-        if st.button("키워드 20개 불러오기", key="dl_go"):
-            if not cookie:
-                _badge_err("NAVER_COOKIE가 비어 있습니다. 위에 붙여넣고 ‘적용’을 눌러 주세요.")
-            else:
-                res = _fetch_top20(
-                    cookie=cookie,
-                    cid=cid,
-                    start=str(start),
-                    end=str(end),
-                    device=device,
-                    gender=gender,
-                    ages_csv=",".join(age_sel) if age_sel else "all",
-                )
-                if not res.get("ok"):
-                    _badge_err(res.get("reason", "알 수 없는 오류"))
-                else:
-                    _badge_ok()
-                    df = pd.DataFrame(res["rows"], columns=["rank","keyword","score"])
-                    st.dataframe(
-                        df, hide_index=True, use_container_width=True, height=420,
-                        column_config={
-                            "rank": st.column_config.NumberColumn("rank", width="small"),
-                            "keyword": st.column_config.TextColumn("keyword", width="large"),
-                            "score": st.column_config.NumberColumn("score", width="small"),
-                        },
-                    )
-
-    # ── 우측(트렌드)
-    with c2:
-        st.markdown("### 캠프 기간 (키워드 트렌드)")
-        kw_line = st.text_input("키워드(최대 5개, 콤마로 구분)", "가습기, 무선청소기, 복합기", key="dl_kwline")
-        if st.button("트렌드 보기", key="dl_trend"):
-            kws = [k.strip() for k in kw_line.split(",") if k.strip()][:5]
-            if cookie and kws:
-                df_line = _fetch_trend(cookie, kws, str(start), str(end), device=device)
-                if df_line.empty:
-                    _badge_warn("실데이터 조회 실패 — 샘플 라인으로 대체")
-            else:
-                df_line = pd.DataFrame()
-            if df_line.empty:
-                # 샘플 폴백(삼색)
-                x = np.arange(0, 12)
-                base = 50 + 5*np.sin(x/2)
-                df_line = pd.DataFrame({
-                    "가습기": base,
-                    "무선청소기": base-5 + 3*np.cos(x/3),
-                    "복합기": base+3 + 4*np.sin(x/4),
-                }, index=[f"P{i}" for i in range(len(x))])
-            st.line_chart(df_line, height=260, use_container_width=True)
 # =========================
 # Part 4 — 11번가(모바일) 임베드 (강화판 · 무알림)
 # =========================
