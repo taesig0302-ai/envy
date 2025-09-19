@@ -454,46 +454,42 @@ def render_datalab_block():
         else:
             st.caption("※ 키워드별 클릭 트렌드를 DataLab 엔드포인트에서 직접 조회합니다.")
 # =========================
-# Part 4 — 11번가(모바일) 임베드 (교체용 v11.x)
-# - 기본 URL: https://m.11st.co.kr/page/main/home
+# Part 4 — 11번가(모바일) 임베드 (교체용 v11.x, 세션 쓰기 제거)
+# - 기본 URL:  https://m.11st.co.kr/page/main/home
 # - 기본 프록시: https://envy-proxy.taesig0302.workers.dev
-# - PROXY_URL 이 세션에 없으면 기본 프록시로 자동 대입(회귀 방지)
 # =========================
 import streamlit as st
 from urllib.parse import quote
 
 DEFAULT_11ST_URL = "https://m.11st.co.kr/page/main/home"
-PROXY_DEFAULT = "https://envy-proxy.taesig0302.workers.dev"  # ← 네 프록시
-
-def _get_proxy_url() -> str:
-    proxy = (st.session_state.get("PROXY_URL") or "").strip()
-    if not proxy:
-        # 세션 미설정 시 기본 프록시로 보정(화면에 배너 띄우되, 동작은 하게)
-        st.session_state["PROXY_URL"] = PROXY_DEFAULT
-        st.warning("세션에 PROXY_URL이 없어 기본 프록시를 자동 적용했습니다.")
-        proxy = PROXY_DEFAULT
-    return proxy
+PROXY_DEFAULT = "https://envy-proxy.taesig0302.workers.dev"  # 네 프록시
 
 def render_11st_block():
     st.markdown("## 11번가 (모바일)")
 
-    # 반드시 홈 주소 기본값으로
+    # 홈 주소를 기본값으로 고정 입력
     url = st.text_input(
         "모바일 URL",
         value=DEFAULT_11ST_URL,
-        key="t11_url"
-    )
+        key="t11_url",
+    ).strip()
 
-    proxy = _get_proxy_url()
-    encoded = quote(url, safe=":/?&=%")
-    target = f"{proxy}?url={encoded}"
+    # 세션에 값이 없으면 "읽기만" 하고, 기본 프록시로 대체 (세션에 쓰지 않음)
+    user_proxy = (st.session_state.get("PROXY_URL") or "").strip()
+    proxy = user_proxy or PROXY_DEFAULT
 
-    # 상태 표시
-    st.caption(f"프록시 경유: **{proxy}** → **{url}**")
+    # 안내(사용 중인 프록시가 기본값인지/사용자 값인지 명확히 표시)
+    if user_proxy:
+        st.caption(f"프록시 경유(사용자 설정): **{user_proxy}** → **{url}**")
+    else:
+        st.warning("PROXY_URL이 비어 있어 기본 프록시를 사용합니다.")
+        st.caption(f"프록시 경유(기본): **{PROXY_DEFAULT}** → **{url}**")
+
+    # 프록시로 우회한 최종 URL
+    target = f"{proxy}?url={quote(url, safe=':/?&=%')}"
 
     try:
-        # 높이는 필요에 따라 조절
-        st.components.v1.iframe(target, height=980, scrolling=True)
+        st.components.v1.iframe(src=target, height=980, scrolling=True)
     except Exception as e:
         st.error(f"11번가 로드 실패: {e}")
 # =========================
