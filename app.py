@@ -642,27 +642,57 @@ def render_item_tools_embed():
     with tab2:
         st.components.v1.iframe(p2, height=680, scrolling=True)
 # =========================
-# Part 4 — 11번가(모바일) 임베드
+# Part 4 — 11번가(모바일) 임베드  (교체)
 # =========================
+import urllib.parse as _url
+
+_11ST_PRESETS = {
+    "모바일 홈": "https://m.11st.co.kr/page/main/home",
+    "베스트셀러": "https://m.11st.co.kr/MW/store/bestSeller.tmall",
+    # 아래 2개는 URL을 직접 입력해서 사용 (예: 아마존베스트의 실제 모바일 URL)
+    "아마존베스트(직접입력)": "",
+    "사용자 지정": "",
+}
+
+def _proxy_wrap(url:str) -> str:
+    """PROXY_URL이 있으면 ?url= 래핑, 없으면 원본 반환"""
+    proxy = st.session_state.get("PROXY_URL", "").strip().rstrip("/")
+    if proxy:
+        return f"{proxy}/?url={_url.quote(url, safe='')}"
+    return url
+
 def render_11st_block():
     st.markdown("## 11번가 (모바일)")
-    url_default = "https://m.11st.co.kr/page/main/home"
-    url = st.text_input("모바일 URL", url_default, key="t11_url")
-    proxy = (st.session_state.get("PROXY_URL") or "").strip().rstrip("/")
-    if not proxy:
-        st.info("PROXY_URL 미설정: 직접 iFrame은 차단될 수 있습니다.")
-        try:
-            st.components.v1.iframe(url, height=560, scrolling=True)
-        except Exception as e:
-            toast_err(f"11번가 로드 실패: {e}")
-        return
-    embed = f"{proxy}/?url={quote(url, safe=':/?&=%')}"
+
+    # 1) 프리셋 + 직접 URL
+    col1, col2 = st.columns([1,2])
+    with col1:
+        preset = st.selectbox("페이지 프리셋", list(_11ST_PRESETS.keys()), index=0, key="t11_preset")
+    with col2:
+        if _11ST_PRESETS[preset]:
+            # 프리셋이 URL을 내장하고 있으면 그것 사용
+            url = _11ST_PRESETS[preset]
+            st.text_input("모바일 URL", value=url, key="t11_url_view", disabled=True)
+        else:
+            # 직접 입력 모드 — '아마존베스트(직접입력)' / '사용자 지정'
+            url = st.text_input(
+                "모바일 URL (예: 아마존베스트 탭의 모바일 주소 붙여넣기)",
+                value=st.session_state.get("t11_url", "https://m.11st.co.kr/page/main/home"),
+                key="t11_url",
+                placeholder="https://m.11st.co.kr/...."
+            )
+
+    # 2) 프록시 안내
+    if not st.session_state.get("PROXY_URL", "").strip():
+        st.info("PROXY_URL 미설정: 11번가는 iFrame 제한이 있어 **Cloudflare Worker** 경유가 필요합니다. 사이드바 하단에 Worker 주소를 입력해 주세요.")
+
+    # 3) 로드
     try:
-        st.components.v1.iframe(embed, height=800, scrolling=True)
+        target = _proxy_wrap(url)
+        st.components.v1.iframe(target, height=720, scrolling=True)
+        st.caption("※ 아마존베스트는 **모바일 전용 URL**을 붙여넣어야 바로 해당 탭이 열립니다.")
     except Exception as e:
-        toast_err(f"프록시 임베드 실패: {e}")
-
-
+        toast_err(f"11번가 로드 실패: {e}")
 # =========================
 # Part 5 — AI 키워드 레이더 (Rakuten)
 # =========================
