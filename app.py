@@ -493,83 +493,72 @@ def render_11st_block():
     except Exception as e:
         st.error(f"11번가 로드 실패: {e}")
 # =========================
-# Part 5 — AI 키워드 레이더 (Rakuten)  [교체용 v11.x]
-# - 네가 준 키를 코드 기본값으로 포함(필요시 st.secrets 값이 우선)
-# - 라쿠텐 IchibaItem Ranking API 사용: genreId 기반 랭킹 → 상품명으로 키워드 리스트 구성
+# Part 5 — AI 키워드 레이더 (Rakuten)  [교체용 v11.x — 스크롤/여백/URL 축소]
 # =========================
 import streamlit as st
 import pandas as pd
-from urllib.parse import urlencode
 import requests
 
-# ── 기본 키 (네가 준 값) ──────────────────────────────────────────────────────
-RAKUTEN_APP_ID_DEFAULT      = "1043271015809337425"
-RAKUTEN_APP_SECRET_DEFAULT  = "2772a28b2226bb18dfe36296faea89f3a6039528"   # 비공개 필요없지만 보관
-RAKUTEN_AFFILIATE_ID_DEFAULT= "4c723498.cbfeca46.4c723499.1deb6f77"        # 있으면 수익링크 생성
+# 기본 키 (secrets가 있으면 secrets 우선)
+RAKUTEN_APP_ID_DEFAULT       = "1043271015809337425"
+RAKUTEN_AFFILIATE_ID_DEFAULT = "4c723498.cbfeca46.4c723499.1deb6f77"
 
-# UI용 카테고리 프리셋(원하는대로 이어서 추가 가능)
 RAKUTEN_CATS = [
-    "전체(샘플)","뷰티/코스메틱","의류/패션","가전/디지털","가구/인테리어","식품",
-    "생활/건강","스포츠/레저","문구/취미"
+    "전체(샘플)","뷰티/코스메틱","의류/패션","가전/디지털","가구/인테리어",
+    "식품","생활/건강","스포츠/레저","문구/취미"
 ]
 
 def _get_rakuten_keys():
-    """st.secrets 우선, 없으면 기본값 사용"""
-    app_id     = (st.secrets.get("RAKUTEN_APP_ID") or
-                  st.secrets.get("RAKUTEN_APPLICATION_ID") or
-                  RAKUTEN_APP_ID_DEFAULT).strip()
-    affiliate  = (st.secrets.get("RAKUTEN_AFFILIATE_ID") or
-                  st.secrets.get("RAKUTEN_AFFILIATE") or
-                  RAKUTEN_AFFILIATE_ID_DEFAULT).strip()
-    secret     = (st.secrets.get("RAKUTEN_APP_SECRET") or
-                  st.secrets.get("RAKUTEN_SECRET") or
-                  RAKUTEN_APP_SECRET_DEFAULT).strip()
-    return app_id, affiliate, secret
+    app_id = (st.secrets.get("RAKUTEN_APP_ID")
+              or st.secrets.get("RAKUTEN_APPLICATION_ID")
+              or RAKUTEN_APP_ID_DEFAULT).strip()
+    affiliate = (st.secrets.get("RAKUTEN_AFFILIATE_ID")
+                 or st.secrets.get("RAKUTEN_AFFILIATE")
+                 or RAKUTEN_AFFILIATE_ID_DEFAULT).strip()
+    return app_id, affiliate
 
-def _fetch_rank(genre_id: str, page: int = 1, hits: int = 30) -> pd.DataFrame:
-    """
-    Rakuten IchibaItem Ranking API
-    https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628
-    """
-    app_id, affiliate, _secret = _get_rakuten_keys()
-    base = "https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628"
-    params = {
-        "applicationId": app_id,
-        "genreId": str(genre_id).strip(),
-        "page": page,
-        "carrier": 0,       # PC
-    }
-    if affiliate:
-        params["affiliateId"] = affiliate
+def _fetch_rank(genre_id: str, hits: int = 20) -> pd.DataFrame:
+    """Rakuten IchibaItem Ranking API → Top N"""
+    app_id, affiliate = _get_rakuten_keys()
+    url = "https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628"
+    params = {"applicationId": app_id, "genreId": str(genre_id).strip(), "carrier": 0}
+    if affiliate: params["affiliateId"] = affiliate
 
-    r = requests.get(base, params=params, timeout=12)
-    if r.status_code != 200:
-        raise RuntimeError(f"Rakuten API {r.status_code}: {r.text[:200]}")
-
-    data = r.json()
-    items = data.get("Items", [])
+    r = requests.get(url, params=params, timeout=12)
+    r.raise_for_status()
+    items = r.json().get("Items", [])
     rows = []
     for it in items[:hits]:
         node = it.get("Item", {})
-        name = node.get("itemName") or ""
-        shop = node.get("shopName") or ""
-        url  = node.get("itemUrl") or ""
-        rank = node.get("rank") or None
         rows.append({
-            "rank": rank,
-            "keyword": name,     # 상품명을 키워드 후보로 사용
-            "shop": shop,
-            "url": url,
-            "source": "Rakuten"
+            "rank": node.get("rank"),
+            "keyword": node.get("itemName") or "",
+            "shop": node.get("shopName") or "",
+            "url": node.get("itemUrl") or "",
         })
     return pd.DataFrame(rows)
 
-def _mock_rakuten_rows(n=30):
-    return pd.DataFrame([{"rank": i+1, "keyword": f"[샘플] 키워드 {i+1} ハロウィン 秋 🍂",
-                          "shop":"샘플샵", "url":"", "source":"Rakuten"} for i in range(n)])
+def _mock_rows(n=20) -> pd.DataFrame:
+    return pd.DataFrame([{
+        "rank": i+1,
+        "keyword": f"[샘플] 키워드 {i+1} ハロウィン 秋 🍂",
+        "shop": "샘플샵",
+        "url": "https://example.com"
+    } for i in range(n)])
 
 def render_rakuten_block():
     st.markdown("## AI 키워드 레이더 (Rakuten)")
+
+    # 섹션 여백 다이어트 + 표 폰트/URL 폰트 1단계 축소
+    st.markdown("""
+    <style>
+      .rk-wrap [data-testid="stVerticalBlock"] { gap: .4rem !important; }          /* 카드 내부 간격 축소 */
+      .rk-wrap .stMarkdown { margin: .25rem 0 !important; }
+      .rk-wrap .stDataFrame { margin-top: .2rem !important; }
+      .rk-wrap .stDataFrame [role="grid"] { font-size: 0.90rem !important; }       /* 표 전체 1단계 축소 */
+      .rk-wrap .stDataFrame a { font-size: 0.86rem !important; }                   /* URL(링크)만 더 작게 */
+    </style>
+    """, unsafe_allow_html=True)
 
     colA, colB, colC = st.columns([1,1,1])
     with colA:
@@ -579,32 +568,40 @@ def render_rakuten_block():
     with colC:
         genreid = st.text_input("GenreID(직접 입력)", "100283", key="rk_genre")
 
-    app_id, affiliate, _secret = _get_rakuten_keys()
-    app_state = "✅" if app_id else "❌"
-    aff_state = "✅" if affiliate else "—"
+    app_id, affiliate = _get_rakuten_keys()
+    st.caption(f"APP_ID: {('✅ ' + app_id) if app_id else '❌'}  |  Affiliate: {('✅ ' + affiliate) if affiliate else '—'}")
 
-    st.caption(f"APP_ID {app_state}: {app_id}  |  Affiliate: {aff_state}  "
-               f"| scope: {scope} (글로벌은 라쿠텐 글로벌 API 종료로 국내 API 동일 사용)")
-
-    st.markdown("""
-    <style>
-      .rk table { font-size: 0.92rem !important; }
-    </style>
-    """, unsafe_allow_html=True)
-
+    # 데이터 로드 (Top 20 고정)
     try:
-        if genreid.strip().lower() == "전체" or cat == "전체(샘플)":
-            df = _mock_rakuten_rows(30)
-        else:
-            df = _fetch_rank(genreid, page=1, hits=30)
-        with st.container():
-            st.markdown('<div class="rk">', unsafe_allow_html=True)
-            st.dataframe(df, hide_index=True, use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+        df = _mock_rows(20) if (cat == "전체(샘플)" or not genreid.strip()) else _fetch_rank(genreid, hits=20)
     except Exception as e:
         st.error(f"Rakuten API 호출 실패: {e}")
-        df = _mock_rakuten_rows(30)
-        st.dataframe(df, hide_index=True, use_container_width=True)
+        df = _mock_rows(20)
+
+    # URL을 '열기' 링크로 바꿔서 폭/가독성 개선
+    if not df.empty:
+        df = df[["rank","keyword","shop","url"]]
+        # st.dataframe의 LinkColumn 활용
+        colcfg = {
+            "rank":    st.column_config.NumberColumn("rank", width="small"),
+            "keyword": st.column_config.TextColumn("keyword", width="large"),
+            "shop":    st.column_config.TextColumn("shop", width="medium"),
+            "url":     st.column_config.LinkColumn("url", display_text="열기", width="small"),
+        }
+    else:
+        colcfg = None
+
+    with st.container():
+        st.markdown('<div class="rk-wrap">', unsafe_allow_html=True)
+        # 고정 높이 → 내부 스크롤바(표만 스크롤)
+        st.dataframe(
+            df,
+            hide_index=True,
+            use_container_width=True,
+            height=420,                    # ← 내부 스크롤
+            column_config=colcfg
+        )
+        st.markdown('</div>', unsafe_allow_html=True)
 # =========================
 # Part 6 — 구글 번역 (입력/출력 + 한국어 확인용) (교체용 v11.x)
 # =========================
