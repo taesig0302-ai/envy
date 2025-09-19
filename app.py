@@ -1,10 +1,11 @@
 # =========================
-# Part 1 — 사이드바 (교체용 v11.x, API Key 보관 복원)
+# Part 1 — 사이드바 (교체용 v11.x / secrets 자동 주입·프리필)
 # =========================
 import streamlit as st
 import base64
 from pathlib import Path
 
+# ── 통화/환율은 그대로 ────────────────────────────────────────────────────────
 CURRENCIES = {
     "USD": {"kr": "미국 달러", "symbol": "$", "unit": "USD"},
     "EUR": {"kr": "유로",     "symbol": "€", "unit": "EUR"},
@@ -13,10 +14,36 @@ CURRENCIES = {
 }
 FX_DEFAULT = {"USD": 1400.0, "EUR": 1500.0, "JPY": 10.0, "CNY": 200.0}
 
+# ── secrets 헬퍼 ──────────────────────────────────────────────────────────────
+def _sec(*keys, default=""):
+    for k in keys:
+        v = st.secrets.get(k, "")
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return default
+
+def _sec_cookie():
+    # NAVER_COOKIE_B64 지원(줄바꿈/세미콜론 문제 회피)
+    b64 = st.secrets.get("NAVER_COOKIE_B64", "")
+    if b64:
+        try:
+            return base64.b64decode(b64).decode("utf-8").strip()
+        except Exception:
+            pass
+    return _sec("NAVER_COOKIE", default="")
+
+# ── 세션 기본값 + secrets 자동 주입 ───────────────────────────────────────────
 def _ensure_session_defaults():
     ss = st.session_state
     ss.setdefault("theme", "light")
-    ss.setdefault("PROXY_URL", "")
+
+    # 👉 여기서 secrets를 세션으로 끌어와 *초기값*으로 박아둔다
+    ss.setdefault("PROXY_URL", _sec("PROXY_URL", "ENVY_PROXY_URL"))
+    ss.setdefault("ITEMSCOUT_API_KEY", _sec("ITEMSCOUT_API_KEY", "ITEMSCOUT_KEY"))
+    # 표기 혼용 대비: SELLERLIFE / SELLERLY 모두 지원
+    ss.setdefault("SELLERLY_API_KEY", _sec("SELLERLIFE_API_KEY", "SELLERLY_API_KEY", "SELLERLIFE_KEY"))
+
+    # 환율/마진 계산기 기본값(변경 금지)
     ss.setdefault("fx_base", "USD")
     ss.setdefault("sale_foreign", 1.00)
     ss.setdefault("m_base", "USD")
@@ -27,9 +54,6 @@ def _ensure_session_defaults():
     ss.setdefault("margin_mode", "퍼센트")
     ss.setdefault("margin_pct", 10.00)
     ss.setdefault("margin_won", 10000.0)
-    # 외부 API Key (복원)
-    ss.setdefault("ITEMSCOUT_API_KEY", "")
-    ss.setdefault("SELLERLY_API_KEY", "")
 
 def _toggle_theme():
     st.session_state["theme"] = "dark" if st.session_state.get("theme","light")=="light" else "light"
@@ -41,10 +65,17 @@ def _inject_sidebar_css():
     <style>
       html, body, [data-testid="stAppViewContainer"] {{ background-color:{bg} !important; color:{fg} !important; }}
       .block-container {{ padding-top:.8rem !important; padding-bottom:.35rem !important; }}
-      [data-testid="stSidebar"] {{ overflow:hidden !important; }}
-      [data-testid="stSidebar"] section {{ height: 100vh !important; overflow-y: auto !important; padding-top:.25rem !important; padding-bottom:.5rem !important; }}
+      /* 사이드바: 부모는 hidden, 내부 section만 스크롤(이중스크롤 방지) */
+      [data-testid="stSidebar"] {{ height:100vh !important; overflow:hidden !important; }}
+      [data-testid="stSidebar"] > div:first-child {{ height:100vh !important; overflow:hidden !important; }}
+      [data-testid="stSidebar"] section {{
+        height:100vh !important; overflow-y:auto !important;
+        padding-top:.25rem !important; padding-bottom:.5rem !important;
+      }}
       [data-testid="stSidebar"] ::-webkit-scrollbar {{ display:block !important; width:8px; }}
-      .logo-circle {{ width:95px; height:95px; border-radius:50%; overflow:hidden; margin:.15rem auto .35rem auto; box-shadow:0 2px 8px rgba(0,0,0,.12); border:1px solid rgba(0,0,0,.06); }}
+      .logo-circle {{ width:95px; height:95px; border-radius:50%; overflow:hidden;
+                      margin:.15rem auto .35rem auto; box-shadow:0 2px 8px rgba(0,0,0,.12);
+                      border:1px solid rgba(0,0,0,.06); }}
       .logo-circle img {{ width:100%; height:100%; object-fit:cover; }}
       .badge-green  {{ background:#e6ffcc; border:1px solid #b6f3a4; padding:6px 10px; border-radius:6px; color:#0b2e13; font-size:.86rem; }}
       .badge-blue   {{ background:#eef4ff; border:1px solid #bcd0ff; padding:6px 10px; border-radius:6px; color:#0a235a; font-size:.86rem; }}
@@ -55,8 +86,11 @@ def _inject_sidebar_css():
     """, unsafe_allow_html=True)
 
 def render_sidebar() -> dict:
+    """사이드바 UI (계산기는 그대로, secrets 값 자동 프리필)."""
     _ensure_session_defaults()
     _inject_sidebar_css()
+
+    result = {}
     with st.sidebar:
         # 로고
         lp = Path(__file__).parent / "logo.png"
@@ -65,27 +99,40 @@ def render_sidebar() -> dict:
             st.markdown(f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>', unsafe_allow_html=True)
         else:
             st.caption("logo.png 를 앱 파일과 같은 폴더에 두면 로고가 표시됩니다.")
-        # 테마 토글
-        st.toggle("🌓 다크 모드", value=(st.session_state.get("theme","light")=="dark"), on_change=_toggle_theme, key="__theme_toggle")
 
-        # ① 환율 계산기
+        # 다크모드
+        st.toggle("🌓 다크 모드", value=(st.session_state.get("theme","light")=="dark"),
+                  on_change=_toggle_theme, key="__theme_toggle")
+
+        # ── ① 환율 계산기 ───────────────────────────────────────────────────
         st.markdown("### ① 환율 계산기")
-        base = st.selectbox("기준 통화", list(CURRENCIES.keys()), index=list(CURRENCIES.keys()).index(st.session_state["fx_base"]), key="fx_base")
-        sale_foreign = st.number_input("판매금액 (외화)", value=float(st.session_state["sale_foreign"]), step=0.01, format="%.2f", key="sale_foreign")
+        base = st.selectbox("기준 통화", list(CURRENCIES.keys()),
+                            index=list(CURRENCIES.keys()).index(st.session_state["fx_base"]), key="fx_base")
+        sale_foreign = st.number_input("판매금액 (외화)", value=float(st.session_state["sale_foreign"]),
+                                       step=0.01, format="%.2f", key="sale_foreign")
         won = FX_DEFAULT[base] * sale_foreign
-        st.markdown(f'<div class="badge-green">환산 금액: <b>{won:,.2f} 원</b> <span class="muted">({CURRENCIES[base]["kr"]} • {CURRENCIES[base]["symbol"]})</span></div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="badge-green">환산 금액: <b>{won:,.2f} 원</b> '
+            f'<span class="muted">({CURRENCIES[base]["kr"]} • {CURRENCIES[base]["symbol"]})</span></div>',
+            unsafe_allow_html=True
+        )
         st.caption(f"환율 기준: {FX_DEFAULT[base]:,.2f} ₩/{CURRENCIES[base]['unit']}")
 
-        # ② 마진 계산기
+        # ── ② 마진 계산기 ───────────────────────────────────────────────────
         st.markdown("### ② 마진 계산기")
-        m_base = st.selectbox("매입 통화", list(CURRENCIES.keys()), index=list(CURRENCIES.keys()).index(st.session_state["m_base"]), key="m_base")
-        purchase_foreign = st.number_input("매입금액 (외화)", value=float(st.session_state["purchase_foreign"]), step=0.01, format="%.2f", key="purchase_foreign")
+        m_base = st.selectbox("매입 통화", list(CURRENCIES.keys()),
+                              index=list(CURRENCORIES.keys()).index(st.session_state["m_base"]) if 'CURRENCORIES' in globals() else list(CURRENCIES.keys()).index(st.session_state["m_base"]),
+                              key="m_base")
+        purchase_foreign = st.number_input("매입금액 (외화)", value=float(st.session_state["purchase_foreign"]),
+                                           step=0.01, format="%.2f", key="purchase_foreign")
         base_cost_won = FX_DEFAULT[m_base] * purchase_foreign if purchase_foreign>0 else won
         st.markdown(f'<div class="badge-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
 
         colf1, colf2 = st.columns(2)
-        with colf1: card_fee = st.number_input("카드수수료(%)", value=float(st.session_state["card_fee_pct"]), step=0.01, format="%.2f", key="card_fee_pct")
-        with colf2: market_fee = st.number_input("마켓수수료(%)", value=float(st.session_state["market_fee_pct"]), step=0.01, format="%.2f", key="market_fee_pct")
+        with colf1:
+            card_fee = st.number_input("카드수수료(%)", value=float(st.session_state["card_fee_pct"]), step=0.01, format="%.2f", key="card_fee_pct")
+        with colf2:
+            market_fee = st.number_input("마켓수수료(%)", value=float(st.session_state["market_fee_pct"]), step=0.01, format="%.2f", key="market_fee_pct")
         shipping_won = st.number_input("배송비(₩)", value=float(st.session_state["shipping_won"]), step=100.0, format="%.0f", key="shipping_won")
 
         mode = st.radio("마진 방식", ["퍼센트","플러스"], horizontal=True, key="margin_mode")
@@ -103,32 +150,46 @@ def render_sidebar() -> dict:
         st.markdown(f'<div class="badge-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
         st.markdown(f'<div class="badge-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {margin_desc}</div>', unsafe_allow_html=True)
 
-        # 하단: 외부 API Key 보관 + PROXY_URL
+        # ── ③ 외부 API Key 보관(자동 프리필) ─────────────────────────────────
         st.divider()
         st.markdown("##### 외부 API Key 보관")
-        st.text_input("아이템스카우트 API Key", value=st.session_state.get("ITEMSCOUT_API_KEY",""), key="ITEMSCOUT_API_KEY", type="password")
-        st.text_input("셀러라이프 API Key", value=st.session_state.get("SELLERLY_API_KEY",""), key="SELLERLY_API_KEY", type="password")
+        st.text_input("아이템스카우트 API Key", value=st.session_state.get("ITEMSCOUT_API_KEY",""),
+                      key="ITEMSCOUT_API_KEY", type="password", help="secrets: ITEMSCOUT_API_KEY / ITEMSCOUT_KEY")
+        st.text_input("셀러라이프 API Key", value=st.session_state.get("SELLERLY_API_KEY",""),
+                      key="SELLERLY_API_KEY", type="password", help="secrets: SELLERLIFE_API_KEY / SELLERLY_API_KEY")
 
+        # ── ④ 프록시/환경 (자동 프리필) ─────────────────────────────────────
         st.markdown("##### 프록시/환경")
-        st.text_input("PROXY_URL (Cloudflare Worker 등)", value=st.session_state.get("PROXY_URL",""), key="PROXY_URL", help="예: https://envy-proxy.taesig0302.workers.dev/")
+        st.text_input("PROXY_URL (Cloudflare Worker 등)",
+                      value=st.session_state.get("PROXY_URL",""),
+                      key="PROXY_URL",
+                      help="예: https://envy-proxy.<계정>.workers.dev")
+
+        # NAVER_COOKIE 상태도 사이드바에서 한 번 더 보여줌(Part3에서 사용)
+        _cookie = _sec_cookie()
+        st.caption(f"DataLab 쿠키 상태: {'✅ 설정됨' if _cookie else '❌ 비어 있음'}")
+
         st.markdown("""
         <div class="info-box">
           <b>ENVY</b> 사이드바 정보는 고정입니다.<br/>
-          · PROXY_URL: 11번가 iFrame 제한 회피용(필수) — 프록시 경유 강제 로직 적용됨<br/>
+          · 11번가 iFrame 제한 회피용: <b>PROXY_URL</b> (필수)<br/>
+          · DataLab 접근: <b>NAVER_COOKIE 또는 NAVER_COOKIE_B64</b> (secrets, 자동 인식)<br/>
           · 다크/라이트 모드는 상단 토글
         </div>
         """, unsafe_allow_html=True)
 
-    return {
+    result.update({
         "fx_base": base, "sale_foreign": sale_foreign, "converted_won": won,
         "purchase_base": m_base, "purchase_foreign": purchase_foreign,
         "base_cost_won": base_cost_won, "card_fee_pct": card_fee,
         "market_fee_pct": market_fee, "shipping_won": shipping_won,
         "margin_mode": mode, "target_price": target_price, "margin_value": margin_value,
-        "ITEMSCOUT_API_KEY": st.session_state["ITEMSCOUT_API_KEY"],
-        "SELLERLY_API_KEY": st.session_state["SELLERLY_API_KEY"],
-        "PROXY_URL": st.session_state["PROXY_URL"],
-    }
+        # 외부 값 반환 (다른 파트에서 필요시 사용)
+        "ITEMSCOUT_API_KEY": st.session_state.get("ITEMSCOUT_API_KEY",""),
+        "SELLERLY_API_KEY": st.session_state.get("SELLERLY_API_KEY",""),
+        "PROXY_URL": st.session_state.get("PROXY_URL",""),
+    })
+    return result
 # =========================
 # Part 2 — 공용 유틸 (교체용 v11.x)
 # =========================
@@ -472,57 +533,99 @@ def render_translator_block():
 # =========================
 # Part 7 — 메인 조립 (교체용 v11.x / 이중 스크롤 제거 & 공란 축소)
 # =========================
-import streamlit as st, requests
-from urllib.parse import quote
-PROXY_DEFAULT="https://envy-proxy.taesig0302.workers.dev/"
+
+import streamlit as st
 
 def inject_layout_css():
+    """
+    사이드바는 고정, 'section'만 스크롤.
+    본문은 기본 페이지 스크롤만 사용(중첩 스크롤 제거).
+    여백 과도하게 생기던 요소들 최소화.
+    """
     st.markdown("""
     <style>
+      /* 본문 폭 살짝 확대 */
       .block-container { max-width: 1480px !important; padding-bottom: 1rem !important; }
+
+      /* 페이지 기본 스크롤만 사용: 상위 컨테이너의 인위적 height/overflow 제거 */
       html, body, .stApp { height: auto !important; overflow: visible !important; }
-      [data-testid="stAppViewContainer"], [data-testid="stMain"] { height: auto !important; overflow: visible !important; }
-      [data-testid="stSidebar"], [data-testid="stSidebar"] > div:first-child { height: 100vh !important; overflow: hidden !important; }
-      [data-testid="stSidebar"] section { height: 100vh !important; overflow-y: auto !important; padding-top:.25rem !important; padding-bottom:.5rem !important; }
-      [data-testid="stSidebar"] ::-webkit-scrollbar { display:block !important; width:8px !important; }
-      [data-testid="stVerticalBlock"] > div:empty { display:none !important; }
-      h1, h2, h3 { margin:.2rem 0 .6rem 0 !important; } p { margin:.25rem 0 !important; }
+      [data-testid="stAppViewContainer"] { height: auto !important; overflow: visible !important; }
+      [data-testid="stMain"] { overflow: visible !important; }
+
+      /* ── 사이드바: 부모는 숨김, 내부 section만 스크롤 → 이중 스크롤 방지 */
+      [data-testid="stSidebar"] { height: 100vh !important; overflow: hidden !important; }
+      [data-testid="stSidebar"] > div:first-child { height: 100vh !important; overflow: hidden !important; }
+      [data-testid="stSidebar"] section {
+        height: 100vh !important;
+        overflow-y: auto !important;
+        padding-top: .25rem !important;
+        padding-bottom: .5rem !important;
+      }
+      /* 과거에 숨겨둔 스크롤바 복구 */
+      [data-testid="stSidebar"] ::-webkit-scrollbar { display: block !important; width: 8px !important; }
+
+      /* ── 메인 영역의 불필요한 세로 공백 정리 */
+      /* 빈 블록 제거(간헐적으로 생기는 빈 div) */
+      [data-testid="stVerticalBlock"] > div:empty { display: none !important; }
+      /* 헤딩/문단 기본 마진 완만하게 */
+      h1, h2, h3 { margin: .2rem 0 .6rem 0 !important; }
+      p { margin: .25rem 0 !important; }
     </style>
     """, unsafe_allow_html=True)
 
-def _proxy_url()->str:
-    proxy=(st.session_state.get("PROXY_URL") or getattr(st.secrets,"PROXY_URL","") or "").strip()
-    return proxy or PROXY_DEFAULT
-
 def _proxy_healthcheck():
-    proxy=_proxy_url()
-    target=f"{proxy}?url={quote('https://m.11st.co.kr/MW/store/bestSeller.tmall', safe=':/?&=%')}"
+    """프록시가 HTML을 반환하는지만 빠르게 확인(배너 안내). 실패해도 앱은 계속."""
+    import requests
+    from urllib.parse import quote
+
+    proxy = st.session_state.get("PROXY_URL", "").strip()
+    if not proxy:
+        st.error("PROXY_URL 없음 — 11번가 섹션이 동작하지 않습니다. 사이드바 하단에 Cloudflare Worker 주소를 입력하세요.")
+        return False
+
+    test_url = "https://m.11st.co.kr/MW/store/bestSeller.tmall"
+    target = f"{proxy}?url={quote(test_url, safe=':/?&=%')}"
     try:
-        r=requests.get(target, timeout=8)
-        ctype=(r.headers.get("content-type") or "").lower()
-        html_like=("text/html" in ctype) or ("<html" in r.text[:400].lower())
-        if r.status_code==200 and html_like: st.caption(f"프록시 헬스체크: 정상 ✅  ({proxy} → 11번가)")
-        else: st.warning("프록시 응답 비정상. Worker 코드/도메인/라우팅 점검.")
+        r = requests.get(target, timeout=8)
+        ctype = (r.headers.get("content-type") or "").lower()
+        html_like = ("text/html" in ctype) or ("<html" in r.text[:500].lower())
+        if r.status_code == 200 and html_like:
+            st.caption(f"프록시 헬스체크: 정상 ✅  ({proxy} → 11번가)")
+            return True
+        st.warning("프록시 응답 비정상. Worker 코드/도메인/라우팅을 점검하세요.")
+        return False
     except Exception as e:
         st.error(f"프록시 헬스체크 실패: {e}")
+        return False
 
 def main():
-    sidebar_vals=render_sidebar()
+    # 1) 사이드바 (수정 금지)
+    sidebar_vals = render_sidebar()
+
+    # 2) 레이아웃 CSS (이중 스크롤 제거 + 공란 축소)
     inject_layout_css()
+
+    # 3) 프록시 헬스체크 배너
     _proxy_healthcheck()
 
+    # 4) 본문
     st.title("ENVY — v11.x (stable)")
     st.caption("사이드바 고정, 본문 카드는 큼직하고 시안성 위주 배치")
 
+    # 데이터랩
     render_datalab_block()
     st.divider()
 
-    colL,colR=st.columns([1,1])
-    with colL: render_11st_block()
-    with colR: render_rakuten_block()
+    # 11번가 + 레이더
+    colL, colR = st.columns([1, 1])
+    with colL:
+        render_11st_block()
+    with colR:
+        render_rakuten_block()
     st.divider()
 
+    # 번역기
     render_translator_block()
 
-if __name__=="__main__":
+if __name__ == "__main__":
     main()
