@@ -642,19 +642,14 @@ def render_item_tools_embed():
     with tab2:
         st.components.v1.iframe(p2, height=680, scrolling=True)
 # =========================
-# Part 4 — 11번가(모바일) 임베드  (교체)
+# Part 4 — 11번가(모바일) 임베드 (아마존베스트 '고정')
 # =========================
 import urllib.parse as _url
+import streamlit as st
 
-_11ST_PRESETS = {
-    "모바일 홈": "https://m.11st.co.kr/page/main/home",
-    "베스트셀러": "https://m.11st.co.kr/MW/store/bestSeller.tmall",
-    # 아래 2개는 URL을 직접 입력해서 사용 (예: 아마존베스트의 실제 모바일 URL)
-    "아마존베스트(직접입력)": "",
-    "사용자 지정": "",
-}
+AMAZON_BEST_URL = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
 
-def _proxy_wrap(url:str) -> str:
+def _proxy_wrap(url: str) -> str:
     """PROXY_URL이 있으면 ?url= 래핑, 없으면 원본 반환"""
     proxy = st.session_state.get("PROXY_URL", "").strip().rstrip("/")
     if proxy:
@@ -662,100 +657,176 @@ def _proxy_wrap(url:str) -> str:
     return url
 
 def render_11st_block():
-    st.markdown("## 11번가 (모바일)")
+    st.markdown("## 11번가 (모바일) — 아마존베스트 (고정)")
 
-    # 1) 프리셋 + 직접 URL
-    col1, col2 = st.columns([1,2])
-    with col1:
-        preset = st.selectbox("페이지 프리셋", list(_11ST_PRESETS.keys()), index=0, key="t11_preset")
-    with col2:
-        if _11ST_PRESETS[preset]:
-            # 프리셋이 URL을 내장하고 있으면 그것 사용
-            url = _11ST_PRESETS[preset]
-            st.text_input("모바일 URL", value=url, key="t11_url_view", disabled=True)
-        else:
-            # 직접 입력 모드 — '아마존베스트(직접입력)' / '사용자 지정'
-            url = st.text_input(
-                "모바일 URL (예: 아마존베스트 탭의 모바일 주소 붙여넣기)",
-                value=st.session_state.get("t11_url", "https://m.11st.co.kr/page/main/home"),
-                key="t11_url",
-                placeholder="https://m.11st.co.kr/...."
-            )
-
-    # 2) 프록시 안내
     if not st.session_state.get("PROXY_URL", "").strip():
-        st.info("PROXY_URL 미설정: 11번가는 iFrame 제한이 있어 **Cloudflare Worker** 경유가 필요합니다. 사이드바 하단에 Worker 주소를 입력해 주세요.")
+        st.warning("PROXY_URL이 비어 있습니다. 11번가는 iFrame 차단이 있어 Cloudflare Worker 경유가 필요할 수 있습니다. "
+                   "사이드바 하단에 Worker 주소를 입력해 주세요.")
 
-    # 3) 로드
     try:
-        target = _proxy_wrap(url)
-        st.components.v1.iframe(target, height=720, scrolling=True)
-        st.caption("※ 아마존베스트는 **모바일 전용 URL**을 붙여넣어야 바로 해당 탭이 열립니다.")
+        st.components.v1.iframe(_proxy_wrap(AMAZON_BEST_URL), height=780, scrolling=True)
+        st.caption("모바일 탭: 아마존베스트(고정)")
     except Exception as e:
-        toast_err(f"11번가 로드 실패: {e}")
+        st.error(f"11번가 임베드 실패: {e}")
+        st.code(AMAZON_BEST_URL, language="text")
 # =========================
-# Part 5 — AI 키워드 레이더 (Rakuten)
+# Part 5 — AI 키워드 레이더 (Rakuten)  [교체]
 # =========================
-def _rakuten_app_id() -> str:
-    app_id = ""
+import streamlit as st
+import pandas as pd
+import requests
+
+# 너가 준 값(없으면 secrets→session 순으로 찾음)
+DEFAULT_RAKUTEN_APP_ID = "1043271015809337425"
+# secret(개발자용)는 Ranking API에 필요 없음. affiliateId는 선택이지만 있으면 수익링크가 됨.
+DEFAULT_RAKUTEN_AFFILIATE_ID = "4c723498.cbfeca46.4c723499.1debf6f7"
+
+RAKUTEN_ENDPOINT_RANKING = "https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628"
+
+RAKUTEN_CATS = [
+    "전체(샘플)",
+    "뷰티/코스메틱",
+    "의류/패션",
+    "가전/디지털",
+    "가구/인테리어",
+    "식품",
+    "생활/건강",
+    "스포츠/레저",
+    "문구/취미",
+]
+
+# 실사용: genreId만 정확하면 됨. (예: 100283 = 코스메틱 계열 샘플)
+DEFAULT_GENRE_ID = "100283"
+
+
+def _get_rakuten_keys():
+    """secrets → session → 기본값 순서로 APP_ID/affiliateId 확보"""
+    app_id = None
+    aff_id = None
     try:
-        app_id = st.secrets.get("rakuten", {}).get("APP_ID", "")
+        app_id = st.secrets.get("RAKUTEN_APP_ID", None)
+        aff_id = st.secrets.get("RAKUTEN_AFFILIATE_ID", None)
     except Exception:
-        app_id = ""
+        pass
     if not app_id:
-        app_id = os.getenv("RAKUTEN_APP_ID", "")
-    if not app_id:
-        app_id = st.session_state.get("__RAKUTEN_APP_ID", "")
-    return app_id.strip()
+        app_id = st.session_state.get("RAKUTEN_APP_ID") or DEFAULT_RAKUTEN_APP_ID
+    if not aff_id:
+        aff_id = st.session_state.get("RAKUTEN_AFFILIATE_ID") or DEFAULT_RAKUTEN_AFFILIATE_ID
+    return app_id, aff_id
+
+
+def _save_rakuten_keys_ui():
+    """앱ID/어필리에이트 입력 저장 UI(없을 때만 펼쳐짐)"""
+    app_id, aff_id = _get_rakuten_keys()
+    need = not bool(app_id)
+
+    with st.expander("Rakuten APP_ID 설정", expanded=need):
+        i1, i2, i3 = st.columns([1,1,0.4])
+        with i1:
+            app_in = st.text_input("APP_ID", value=app_id or "", key="rk_app_in", type="password")
+        with i2:
+            aff_in = st.text_input("Affiliate ID (선택)", value=aff_id or "", key="rk_aff_in")
+        with i3:
+            if st.button("저장", key="rk_save_btn", use_container_width=True):
+                if app_in:
+                    st.session_state["RAKUTEN_APP_ID"] = app_in
+                if aff_in:
+                    st.session_state["RAKUTEN_AFFILIATE_ID"] = aff_in
+                st.success("저장 완료")
+
+
+def _fetch_rakuten_ranking(genre_id: str, app_id: str, affiliate_id: str | None = None, page: int = 1):
+    """Rakuten Ichiba Item Ranking API 호출 → rows(list[dict]) 반환"""
+    params = {
+        "format": "json",
+        "applicationId": app_id,
+        "genreId": str(genre_id),
+        "page": page,
+    }
+    if affiliate_id:
+        params["affiliateId"] = affiliate_id
+
+    r = requests.get(RAKUTEN_ENDPOINT_RANKING, params=params, timeout=12)
+    r.raise_for_status()
+    data = r.json()
+
+    items = data.get("Items", [])
+    rows = []
+    for i, wrap in enumerate(items, start=1 + (page-1)*len(items)):
+        it = wrap.get("Item", {})
+        rows.append({
+            "rank": i,
+            "keyword": it.get("itemName", ""),
+            "shop": it.get("shopName", ""),
+            "price": it.get("itemPrice", 0),
+            "url": it.get("itemUrl", ""),
+        })
+    return rows
+
 
 def render_rakuten_block():
     st.markdown("## AI 키워드 레이더 (Rakuten)")
+    _save_rakuten_keys_ui()
+    app_id, aff_id = _get_rakuten_keys()
+
     colA, colB, colC = st.columns([1,1,1])
     with colA:
-        scope = st.radio("범위", ["국내","글로벌"], horizontal=True, key="rk_scope")
+        scope = st.radio("범위", ["국내", "글로벌"], horizontal=True, key="rk_scope")
     with colB:
-        cat = st.selectbox("라쿠텐 카테고리", ["전체","뷰티/코스메틱","의류/패션","가전/디지털","가구/인테리어","식품","생활/건강","스포츠/레저","문구/취미"], key="rk_cat")
+        cat = st.selectbox("라쿠텐 카테고리", RAKUTEN_CATS, key="rk_cat")
     with colC:
-        genreid = st.text_input("GenreID", "100283", key="rk_genre")
+        genreid = st.text_input("GenreID", value=st.session_state.get("rk_genre", DEFAULT_GENRE_ID), key="rk_genre")
 
-    st.markdown("""<style>.rk table { font-size: 0.92rem !important; }</style>""", unsafe_allow_html=True)
+    # 주석: Rakuten Ranking API는 일본(국내) 쪽 API라 '글로벌' 토글은 UI 레이블만 제공
+    if scope == "글로벌":
+        st.info("Rakuten Ranking API는 JP 기준입니다. ‘글로벌’ 토글은 UI 레이블만 적용됩니다.")
 
-    app_id = _rakuten_app_id()
-    rows = []
-    if not app_id:
-        with st.expander("Rakuten APP_ID 설정", expanded=True):
-            tmp = st.text_input("APP_ID", type="password", help="라쿠텐 개발자 콘솔의 Application ID")
-            if tmp:
-                st.session_state["__RAKUTEN_APP_ID"] = tmp.strip()
-                st.success("세션 저장 완료 — 아래 조회 가능")
-    else:
-        if not requests:
-            st.warning("requests 미설치")
-        else:
-            try:
-                api = "https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628"
-                params = {"applicationId": app_id, "genreId": genreid}
-                r = requests.get(api, params=params, timeout=12)
-                r.raise_for_status()
-                data = r.json()
-                items = (data.get("Items") or [])[:20]
-                for i, it in enumerate(items, 1):
-                    name = it.get("Item", {}).get("itemName", "")
-                    rows.append({"rank": i, "keyword": name, "source": "Rakuten"})
-            except Exception:
-                pass
+    # 표 폰트/행 높이 조정
+    st.markdown("""
+    <style>
+      .rk-wrap table { font-size: 0.92rem !important; }
+      .rk-wrap [data-testid="stDataFrame"] div[role="gridcell"] { line-height: 1.2rem !important; }
+    </style>
+    """, unsafe_allow_html=True)
 
-    if not rows:
-        for i in range(1, 21):
-            rows.append({"rank": i, "keyword": f"[샘플] 키워드 {i}", "source": "sample"})
+    # 데이터 로드 버튼
+    bcols = st.columns([0.2, 0.8])
+    with bcols[0]:
+        go = st.button("키워드 20개 불러오기", key="rk_fetch")
+    with bcols[1]:
+        st.caption("※ Ranking API 기반 — itemName을 키워드로 노출. 필요시 후처리 규칙으로 정제 가능.")
 
-    df = pd.DataFrame(rows)
     with st.container():
-        st.markdown('<div class="rk">', unsafe_allow_html=True)
-        st.dataframe(df, hide_index=True, use_container_width=True, height=420)
+        st.markdown('<div class="rk-wrap">', unsafe_allow_html=True)
+
+        if not app_id:
+            st.warning("APP_ID가 비어 있습니다. 위의 ‘Rakuten APP_ID 설정’에서 입력/저장하거나 st.secrets에 등록해 주세요.")
+            st.markdown("</div>", unsafe_allow_html=True)
+            return
+
+        rows = []
+        if go:
+            try:
+                # 1페이지만 20개 근처. 더 원하면 page 루프를 추가해 누적하면 됨.
+                rows = _fetch_rakuten_ranking(genreid, app_id, affiliate_id=aff_id, page=1)
+                if not rows:
+                    st.warning("응답은 정상이나 결과가 없습니다. GenreID를 확인해 주세요.")
+            except requests.HTTPError as he:
+                st.error(f"HTTP 오류: {he}")
+            except Exception as e:
+                st.error(f"라쿠텐 조회 실패: {e}")
+
+        if not rows:
+            # 버튼 전/실패 시 샘플 테이블
+            sample = [{"rank": i, "keyword": f"[샘플] 키워드 {i}", "shop": "sample", "price": 0, "url": ""} for i in range(1, 21)]
+            df = pd.DataFrame(sample)
+            st.dataframe(df, hide_index=True, use_container_width=True, height=420)
+        else:
+            df = pd.DataFrame(rows)
+            # URL은 클릭 가능하도록 텍스트만 그대로 노출
+            st.dataframe(df, hide_index=True, use_container_width=True, height=560)
+
         st.markdown('</div>', unsafe_allow_html=True)
-
-
 # =========================
 # Part 6 — 구글 번역 (텍스트 입력/출력 + 한국어 확인용)
 # =========================
