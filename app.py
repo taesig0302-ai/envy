@@ -1,11 +1,10 @@
 # =========================
-# Part 1 — 사이드바 (로고 + 환율/마진 계산기 + 프록시 입력)
+# Part 1 — 사이드바 (교체용 v11.x, API Key 보관 복원)
 # =========================
 import streamlit as st
 import base64
 from pathlib import Path
 
-# ── 전역 기본값 (다른 파트에서 재사용) ─────────────────────────────────────────────
 CURRENCIES = {
     "USD": {"kr": "미국 달러", "symbol": "$", "unit": "USD"},
     "EUR": {"kr": "유로",     "symbol": "€", "unit": "EUR"},
@@ -15,11 +14,9 @@ CURRENCIES = {
 FX_DEFAULT = {"USD": 1400.0, "EUR": 1500.0, "JPY": 10.0, "CNY": 200.0}
 
 def _ensure_session_defaults():
-    """새 세션에 필요한 기본 상태 세팅."""
     ss = st.session_state
     ss.setdefault("theme", "light")
     ss.setdefault("PROXY_URL", "")
-    # 환율/마진 계산기 기본값
     ss.setdefault("fx_base", "USD")
     ss.setdefault("sale_foreign", 1.00)
     ss.setdefault("m_base", "USD")
@@ -27,9 +24,12 @@ def _ensure_session_defaults():
     ss.setdefault("card_fee_pct", 4.00)
     ss.setdefault("market_fee_pct", 14.00)
     ss.setdefault("shipping_won", 0.0)
-    ss.setdefault("margin_mode", "퍼센트")  # or "플러스"
+    ss.setdefault("margin_mode", "퍼센트")
     ss.setdefault("margin_pct", 10.00)
     ss.setdefault("margin_won", 10000.0)
+    # API Key (복원)
+    ss.setdefault("ITEMSCOUT_API_KEY", "")
+    ss.setdefault("SELLERLY_API_KEY", "")
 
 def _toggle_theme():
     st.session_state["theme"] = "dark" if st.session_state.get("theme","light")=="light" else "light"
@@ -39,115 +39,55 @@ def _inject_sidebar_css():
     bg, fg = ("#0e1117", "#e6edf3") if theme=="dark" else ("#ffffff","#111111")
     st.markdown(f"""
     <style>
-      html, body, [data-testid="stAppViewContainer"] {{
-        background-color:{bg} !important; color:{fg} !important;
-      }}
-      /* 본문 여백 살짝 조정 */
+      html, body, [data-testid="stAppViewContainer"] {{ background-color:{bg} !important; color:{fg} !important; }}
       .block-container {{ padding-top:.8rem !important; padding-bottom:.35rem !important; }}
-      /* 사이드바 고정 + 스크롤락 */
-      [data-testid="stSidebar"],
-      [data-testid="stSidebar"] > div:first-child,
-      [data-testid="stSidebar"] section {{
-        height: 100vh !important; overflow: hidden !important;
-        padding-top:.25rem !important; padding-bottom:.25rem !important;
-      }}
-      [data-testid="stSidebar"] ::-webkit-scrollbar {{ display:none !important; }}
-      /* 컴포넌트 간격 압축 */
-      [data-testid="stSidebar"] .stSelectbox,
-      [data-testid="stSidebar"] .stNumberInput,
-      [data-testid="stSidebar"] .stRadio,
-      [data-testid="stSidebar"] .stMarkdown,
-      [data-testid="stSidebar"] .stTextInput,
-      [data-testid="stSidebar"] .stButton {{ margin:.14rem 0 !important; }}
-      /* 입력 높이/폰트 경량화 */
-      [data-baseweb="input"] input,
-      .stNumberInput input,
-      [data-baseweb="select"] div[role="combobox"] {{
-        height:1.55rem !important; padding:.12rem !important; font-size:.92rem !important;
-      }}
-      /* 로고 (원형, 그림자) */
-      .logo-circle {{
-        width:95px; height:95px; border-radius:50%; overflow:hidden;
-        margin:.15rem auto .35rem auto; box-shadow:0 2px 8px rgba(0,0,0,.12);
-        border:1px solid rgba(0,0,0,.06);
-      }}
+      [data-testid="stSidebar"] section {{ height: 100vh !important; overflow-y: auto !important; padding-top:.25rem !important; padding-bottom:.25rem !important; }}
+      [data-testid="stSidebar"] ::-webkit-scrollbar {{ display:block !important; width:8px; }}
+      .logo-circle {{ width:95px; height:95px; border-radius:50%; overflow:hidden; margin:.15rem auto .35rem auto; box-shadow:0 2px 8px rgba(0,0,0,.12); border:1px solid rgba(0,0,0,.06); }}
       .logo-circle img {{ width:100%; height:100%; object-fit:cover; }}
-      /* 배지 */
       .badge-green  {{ background:#e6ffcc; border:1px solid #b6f3a4; padding:6px 10px; border-radius:6px; color:#0b2e13; font-size:.86rem; }}
       .badge-blue   {{ background:#eef4ff; border:1px solid #bcd0ff; padding:6px 10px; border-radius:6px; color:#0a235a; font-size:.86rem; }}
       .badge-yellow {{ background:#fff7d6; border:1px solid #f1d27a; padding:6px 10px; border-radius:6px; color:#4a3b07; font-size:.86rem; }}
       .muted        {{ opacity:.8; font-size:.8rem; }}
-      /* 사이드바 하단 정보박스(프록시/버전) */
-      .info-box {{ background:rgba(0,0,0,.03); border:1px dashed rgba(0,0,0,.08); padding:.6rem; border-radius:.5rem; }}
+      .info-box     {{ background:rgba(0,0,0,.03); border:1px dashed rgba(0,0,0,.08); padding:.6rem; border-radius:.5rem; }}
     </style>
     """, unsafe_allow_html=True)
 
 def render_sidebar() -> dict:
-    """
-    사이드바 전체 UI 렌더링.
-    - 로고
-    - 테마 토글
-    - 환율/마진 계산기 (컬러 배지 3종)
-    - 하단: PROXY_URL 입력칸 + 프로그램 정보
-    반환: 계산 결과 딕셔너리(다른 파트에서 사용 가능)
-    """
     _ensure_session_defaults()
     _inject_sidebar_css()
-
-    result = {}
     with st.sidebar:
-        # ── 로고 ─────────────────────────────────────────────────────────────
+        # 로고
         lp = Path(__file__).parent / "logo.png"
         if lp.exists():
             b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
             st.markdown(f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>', unsafe_allow_html=True)
         else:
             st.caption("logo.png 를 앱 파일과 같은 폴더에 두면 로고가 표시됩니다.")
-
         # 테마 토글
         st.toggle("🌓 다크 모드", value=(st.session_state.get("theme","light")=="dark"), on_change=_toggle_theme, key="__theme_toggle")
 
-        # ── ① 환율 계산기 ───────────────────────────────────────────────────
+        # ① 환율 계산기
         st.markdown("### ① 환율 계산기")
-        base = st.selectbox(
-            "기준 통화",
-            list(CURRENCIES.keys()),
-            index=list(CURRENCIES.keys()).index(st.session_state["fx_base"]),
-            key="fx_base"
-        )
+        base = st.selectbox("기준 통화", list(CURRENCIES.keys()), index=list(CURRENCIES.keys()).index(st.session_state["fx_base"]), key="fx_base")
         sale_foreign = st.number_input("판매금액 (외화)", value=float(st.session_state["sale_foreign"]), step=0.01, format="%.2f", key="sale_foreign")
         won = FX_DEFAULT[base] * sale_foreign
-        st.markdown(
-            f'<div class="badge-green">환산 금액: <b>{won:,.2f} 원</b> '
-            f'<span class="muted">({CURRENCIES[base]["kr"]} • {CURRENCIES[base]["symbol"]})</span></div>',
-            unsafe_allow_html=True
-        )
+        st.markdown(f'<div class="badge-green">환산 금액: <b>{won:,.2f} 원</b> <span class="muted">({CURRENCIES[base]["kr"]} • {CURRENCIES[base]["symbol"]})</span></div>', unsafe_allow_html=True)
         st.caption(f"환율 기준: {FX_DEFAULT[base]:,.2f} ₩/{CURRENCIES[base]['unit']}")
 
-        # ── ② 마진 계산기 ───────────────────────────────────────────────────
+        # ② 마진 계산기
         st.markdown("### ② 마진 계산기")
-        m_base = st.selectbox(
-            "매입 통화",
-            list(CURRENCIES.keys()),
-            index=list(CURRENCIES.keys()).index(st.session_state["m_base"]),
-            key="m_base"
-        )
+        m_base = st.selectbox("매입 통화", list(CURRENCIES.keys()), index=list(CURRENCIES.keys()).index(st.session_state["m_base"]), key="m_base")
         purchase_foreign = st.number_input("매입금액 (외화)", value=float(st.session_state["purchase_foreign"]), step=0.01, format="%.2f", key="purchase_foreign")
-
         base_cost_won = FX_DEFAULT[m_base] * purchase_foreign if purchase_foreign>0 else won
         st.markdown(f'<div class="badge-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
 
-        # 수수료/배송비
         colf1, colf2 = st.columns(2)
-        with colf1:
-            card_fee = st.number_input("카드수수료(%)", value=float(st.session_state["card_fee_pct"]), step=0.01, format="%.2f", key="card_fee_pct")
-        with colf2:
-            market_fee = st.number_input("마켓수수료(%)", value=float(st.session_state["market_fee_pct"]), step=0.01, format="%.2f", key="market_fee_pct")
+        with colf1: card_fee = st.number_input("카드수수료(%)", value=float(st.session_state["card_fee_pct"]), step=0.01, format="%.2f", key="card_fee_pct")
+        with colf2: market_fee = st.number_input("마켓수수료(%)", value=float(st.session_state["market_fee_pct"]), step=0.01, format="%.2f", key="market_fee_pct")
         shipping_won = st.number_input("배송비(₩)", value=float(st.session_state["shipping_won"]), step=100.0, format="%.0f", key="shipping_won")
 
-        # 마진 방식
         mode = st.radio("마진 방식", ["퍼센트","플러스"], horizontal=True, key="margin_mode")
-
         if mode == "퍼센트":
             margin_pct = st.number_input("마진율 (%)", value=float(st.session_state["margin_pct"]), step=0.01, format="%.2f", key="margin_pct")
             target_price = base_cost_won * (1 + card_fee/100) * (1 + market_fee/100) * (1 + margin_pct/100) + shipping_won
@@ -162,37 +102,32 @@ def render_sidebar() -> dict:
         st.markdown(f'<div class="badge-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
         st.markdown(f'<div class="badge-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {margin_desc}</div>', unsafe_allow_html=True)
 
-        # ── 하단: PROXY_URL + 프로그램 정보 ────────────────────────────────
+        # ── 하단: API Key 보관(복원) + PROXY_URL ───────────────────────────
         st.divider()
+        st.markdown("##### 외부 API Key 보관")
+        st.text_input("아이템스카우트 API Key", value=st.session_state.get("ITEMSCOUT_API_KEY",""), key="ITEMSCOUT_API_KEY", type="password")
+        st.text_input("셀러라이프 API Key", value=st.session_state.get("SELLERLY_API_KEY",""), key="SELLERLY_API_KEY", type="password")
+
         st.markdown("##### 프록시/환경")
         st.text_input("PROXY_URL (Cloudflare Worker 등)", value=st.session_state.get("PROXY_URL",""), key="PROXY_URL", help="예: https://envy-proxy.example.workers.dev/")
-        st.markdown(
-            """
-            <div class="info-box">
-              <b>ENVY</b> 사이드바 정보는 고정입니다. 이 아래는 숨김/고정 권장.<br/>
-              · 로고/환율/마진 계산기: 변경 금지<br/>
-              · PROXY_URL: 11번가 등 iFrame 제한 회피용(옵션)<br/>
-              · 다크/라이트 모드는 상단 토글
-            </div>
-            """, unsafe_allow_html=True
-        )
+        st.markdown("""
+        <div class="info-box">
+          <b>ENVY</b> 사이드바 정보는 고정입니다.<br/>
+          · PROXY_URL: 11번가 iFrame 제한 회피용(필수) — 프록시 경유 강제 로직 적용됨<br/>
+          · 다크/라이트 모드는 상단 토글
+        </div>
+        """, unsafe_allow_html=True)
 
-    # 다른 파트에서 쓸 수 있게 결과 반환
-    result.update({
-        "fx_base": base,
-        "sale_foreign": sale_foreign,
-        "converted_won": won,
-        "purchase_base": m_base,
-        "purchase_foreign": purchase_foreign,
-        "base_cost_won": base_cost_won,
-        "card_fee_pct": card_fee,
-        "market_fee_pct": market_fee,
-        "shipping_won": shipping_won,
-        "margin_mode": mode,
-        "target_price": target_price,
-        "margin_value": margin_value,
-    })
-    return result
+    return {
+        "fx_base": base, "sale_foreign": sale_foreign, "converted_won": won,
+        "purchase_base": m_base, "purchase_foreign": purchase_foreign,
+        "base_cost_won": base_cost_won, "card_fee_pct": card_fee,
+        "market_fee_pct": market_fee, "shipping_won": shipping_won,
+        "margin_mode": mode, "target_price": target_price, "margin_value": margin_value,
+        "ITEMSCOUT_API_KEY": st.session_state["ITEMSCOUT_API_KEY"],
+        "SELLERLY_API_KEY": st.session_state["SELLERLY_API_KEY"],
+        "PROXY_URL": st.session_state["PROXY_URL"],
+    }
 # =========================
 # Part 2 — 공용 유틸
 # =========================
@@ -226,10 +161,13 @@ def toast_ok(msg:str): st.toast(f"✅ {msg}")
 def toast_warn(msg:str): st.toast(f"⚠️ {msg}")
 def toast_err(msg:str): st.toast(f"❌ {msg}")
 # =========================
-# Part 3 — 데이터랩(실데이터 20개 + 삼색 바차트) (교체)
+# Part 3 — 데이터랩 (교체용 v11.x, matplotlib 의존 제거)
 # =========================
 import datetime as _dt
-import pandas as pd, requests, matplotlib.pyplot as plt, streamlit as st
+import requests
+import pandas as pd
+import streamlit as st
+import numpy as np
 
 STATUS_COLOR = {"정상":"#2ecc71","주의":"#f1c40f","오류":"#e74c3c"}
 
@@ -239,7 +177,7 @@ def _status(score: float) -> str:
     if score >= 40:   return "주의"
     return "오류"
 
-# ① 카테고리 CID 실시간 시도 → 실패 시 하드코딩 폴백
+# 대분류 CID 폴백 맵
 _FALLBACK_CID = {
     "패션의류":"50000000","패션잡화":"50000001","화장품/미용":"50000002","디지털/가전":"50000003",
     "가구/인테리어":"50000004","출산/육아":"50000005","식품":"50000006","스포츠/레저":"50000007",
@@ -248,8 +186,8 @@ _FALLBACK_CID = {
 
 @st.cache_data(ttl=3600)
 def _load_category_map() -> dict:
+    """가능하면 DataLab에서 실시간 카테고리 맵을 가져오고, 실패 시 폴백."""
     try:
-        # 알려진 엔드포인트 (변경될 수 있음) — 실패 시 폴백
         resp = requests.get(
             "https://datalab.naver.com/shoppingInsight/getCategory.naver",
             headers={
@@ -262,17 +200,16 @@ def _load_category_map() -> dict:
         if resp.status_code != 200:
             raise RuntimeError("getCategory 응답 비정상")
         j = resp.json()
-        # 필요한 레벨만 평탄화 (대분류만 사용)
         m = {}
         for c in j.get("category", []):
             name = c.get("name"); cid = c.get("cid")
             if name and cid: m[name] = cid
-        # 대분류만 덜 수 있으면 사용, 아니면 폴백
         return m if len(m) >= 8 else _FALLBACK_CID
     except Exception:
         return _FALLBACK_CID
 
 def _fetch_keywords_20(cid: str, start: str, end: str) -> pd.DataFrame:
+    """카테고리 키워드 Top20 (쿠키/리퍼러/오리진 필수). 302/HTML 응답 즉시 에러."""
     cookie = st.secrets.get("NAVER_COOKIE","")
     sess = requests.Session()
     sess.headers.update({
@@ -300,20 +237,48 @@ def _fetch_keywords_20(cid: str, start: str, end: str) -> pd.DataFrame:
     rows = [{"rank":i+1, "keyword":k.get("keyword"), "score":k.get("score",0)} for i,k in enumerate(kws[:20])]
     return pd.DataFrame(rows)
 
+def _render_status_bars(df: pd.DataFrame):
+    """Altair로 삼색 바차트 렌더. Altair 불가 시 st.bar_chart 폴백."""
+    try:
+        import altair as alt
+        chart = (
+            alt.Chart(df)
+            .mark_bar()
+            .encode(
+                x=alt.X("keyword:N", sort=None, title=""),
+                y=alt.Y("score:Q", title="score"),
+                color=alt.Color("status:N",
+                    scale=alt.Scale(
+                        domain=["정상","주의","오류"],
+                        range=[STATUS_COLOR["정상"], STATUS_COLOR["주의"], STATUS_COLOR["오류"]]
+                    ),
+                    legend=alt.Legend(title=None, orient="top")
+                ),
+                tooltip=["rank","keyword","score","status"]
+            )
+            .properties(height=260)
+        )
+        st.altair_chart(chart, use_container_width=True)
+        return
+    except Exception:
+        pass
+    # 최후 폴백
+    st.bar_chart(df.set_index("keyword")["score"])
+
 def render_datalab_block():
     st.markdown("## 데이터랩 (대분류 12종)")
     cats = _load_category_map()
-    c1, c2 = st.columns([1.25, 1.25])   # 넓이 확장
+
+    c1, c2 = st.columns([1.25, 1.25])  # 섹션 폭 확장(Part7 CSS와 합쳐 시인성 개선)
 
     with c1:
         cat = st.selectbox("카테고리", list(cats.keys()), key="dl_cat")
         cid = st.text_input("네이버 CID(수정 가능)", value=cats[cat], key="dl_cid")
-
         today = _dt.date.today()
         start_d = st.date_input("시작일", value=today - _dt.timedelta(days=30), key="dl_start")
         end_d   = st.date_input("종료일", value=today, key="dl_end")
 
-        st.caption(f"쿠키 상태: {'✅' if st.secrets.get('NAVER_COOKIE') else '❌ 비어 있음'}")
+        st.caption(f"쿠키 상태: {'✅ 설정됨' if st.secrets.get('NAVER_COOKIE') else '❌ 비어 있음'}")
 
         if st.button("키워드 20개 불러오기", key="dl_go"):
             try:
@@ -327,13 +292,7 @@ def render_datalab_block():
                     return
                 df["status"] = df["score"].apply(_status)
                 st.dataframe(df, hide_index=True, use_container_width=True)
-
-                # 삼색 바차트
-                fig, ax = plt.subplots(figsize=(10.5, 3.2))
-                ax.bar(df["keyword"], df["score"], color=df["status"].map(STATUS_COLOR))
-                ax.set_xticklabels(df["keyword"], rotation=45, ha="right")
-                ax.set_ylabel("score"); ax.set_title("카테고리 키워드 (상위 20)")
-                st.pyplot(fig, clear_figure=True)
+                _render_status_bars(df)
             except Exception as e:
                 st.error(f"키워드 불러오기 실패: {e}")
         else:
@@ -341,7 +300,6 @@ def render_datalab_block():
 
     with c2:
         st.markdown("### 캠프 기간 (데모 라인)")
-        import numpy as np
         xx = np.arange(0, 12)
         base = 50 + 5*np.sin(xx/2)
         df_line = pd.DataFrame({
