@@ -1,5 +1,5 @@
-streamlit==1.37.1
-requests
+streamlit==1.37.0
 pandas
 beautifulsoup4
+requests
 deep-translator

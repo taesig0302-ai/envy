@@ -1,12 +1,6 @@
-
-# ENVY v11.1 (UI = v10.5-style)
-
-## 실행
-```bash
-pip install -r requirements.txt
-streamlit run app.py
-```
-
-## 11번가 프록시
-- Cloudflare Workers에 worker.js 배포 후 사이드바에 PROXY_URL 입력
-- 사용 경로: https://<worker>/iframe?target=<ENCODED_URL>
+# ENVY v11.2b
+- 번역기: 언어 셀렉트 한국어 표기(한국어/영어/일본어/중국어(간체)/(번체)), 결과 칸에 '번역 + (한국어 확인)' 한 줄로 표기
+- 데이터랩: 20개 고정, 세션/Referer 보강
+- 라쿠텐 표 폰트 컴팩트
+- 사이드바 로고/스크롤락 유지
+- 11번가 iFrame 프록시 경유
