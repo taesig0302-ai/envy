@@ -1,11 +1,11 @@
 # =========================
-# Part 1 — 사이드바 (교체용 v11.x / secrets 자동 주입·프리필)
+# Part 1 — 사이드바 (교체용 v11.x / secrets 자동 주입, 카드 항상 노출)
 # =========================
 import streamlit as st
 import base64
 from pathlib import Path
 
-# ── 통화/환율은 그대로 ────────────────────────────────────────────────────────
+# ── 통화/환율 (수정 금지) ─────────────────────────────────────────────────────
 CURRENCIES = {
     "USD": {"kr": "미국 달러", "symbol": "$", "unit": "USD"},
     "EUR": {"kr": "유로",     "symbol": "€", "unit": "EUR"},
@@ -14,7 +14,7 @@ CURRENCIES = {
 }
 FX_DEFAULT = {"USD": 1400.0, "EUR": 1500.0, "JPY": 10.0, "CNY": 200.0}
 
-# ── secrets 헬퍼 ──────────────────────────────────────────────────────────────
+# ── secrets 헬퍼: 여러 키 이름 지원(혼용 대비) ────────────────────────────────
 def _sec(*keys, default=""):
     for k in keys:
         v = st.secrets.get(k, "")
@@ -23,27 +23,25 @@ def _sec(*keys, default=""):
     return default
 
 def _sec_cookie():
-    # NAVER_COOKIE_B64 지원(줄바꿈/세미콜론 문제 회피)
     b64 = st.secrets.get("NAVER_COOKIE_B64", "")
     if b64:
         try:
             return base64.b64decode(b64).decode("utf-8").strip()
         except Exception:
             pass
-    return _sec("NAVER_COOKIE", default="")
+    return _sec("NAVER_COOKIE")
 
-# ── 세션 기본값 + secrets 자동 주입 ───────────────────────────────────────────
+# ── 세션 기본값 + secrets 프리필 ──────────────────────────────────────────────
 def _ensure_session_defaults():
     ss = st.session_state
     ss.setdefault("theme", "light")
 
-    # 👉 여기서 secrets를 세션으로 끌어와 *초기값*으로 박아둔다
+    # ➜ secrets 값 자동 주입(있으면 세션에 박아둠)
     ss.setdefault("PROXY_URL", _sec("PROXY_URL", "ENVY_PROXY_URL"))
     ss.setdefault("ITEMSCOUT_API_KEY", _sec("ITEMSCOUT_API_KEY", "ITEMSCOUT_KEY"))
-    # 표기 혼용 대비: SELLERLIFE / SELLERLY 모두 지원
     ss.setdefault("SELLERLY_API_KEY", _sec("SELLERLIFE_API_KEY", "SELLERLY_API_KEY", "SELLERLIFE_KEY"))
 
-    # 환율/마진 계산기 기본값(변경 금지)
+    # 계산기 기본값(변경 금지)
     ss.setdefault("fx_base", "USD")
     ss.setdefault("sale_foreign", 1.00)
     ss.setdefault("m_base", "USD")
@@ -65,7 +63,7 @@ def _inject_sidebar_css():
     <style>
       html, body, [data-testid="stAppViewContainer"] {{ background-color:{bg} !important; color:{fg} !important; }}
       .block-container {{ padding-top:.8rem !important; padding-bottom:.35rem !important; }}
-      /* 사이드바: 부모는 hidden, 내부 section만 스크롤(이중스크롤 방지) */
+      /* 사이드바: 부모는 hidden, 내부 section만 스크롤(이중 스크롤 방지) */
       [data-testid="stSidebar"] {{ height:100vh !important; overflow:hidden !important; }}
       [data-testid="stSidebar"] > div:first-child {{ height:100vh !important; overflow:hidden !important; }}
       [data-testid="stSidebar"] section {{
@@ -73,6 +71,12 @@ def _inject_sidebar_css():
         padding-top:.25rem !important; padding-bottom:.5rem !important;
       }}
       [data-testid="stSidebar"] ::-webkit-scrollbar {{ display:block !important; width:8px; }}
+
+      /* 카드간 공백 다이어트 */
+      [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] .stSelectbox,
+      [data-testid="stSidebar"] .stNumberInput, [data-testid="stSidebar"] .stRadio,
+      [data-testid="stSidebar"] .stTextInput, [data-testid="stSidebar"] .stButton {{ margin:.18rem 0 !important; }}
+
       .logo-circle {{ width:95px; height:95px; border-radius:50%; overflow:hidden;
                       margin:.15rem auto .35rem auto; box-shadow:0 2px 8px rgba(0,0,0,.12);
                       border:1px solid rgba(0,0,0,.06); }}
@@ -86,13 +90,13 @@ def _inject_sidebar_css():
     """, unsafe_allow_html=True)
 
 def render_sidebar() -> dict:
-    """사이드바 UI (계산기는 그대로, secrets 값 자동 프리필)."""
+    """사이드바 UI: 계산기 유지 + API Key/Proxy 섹션 항상 노출 + secrets 프리필."""
     _ensure_session_defaults()
     _inject_sidebar_css()
 
     result = {}
     with st.sidebar:
-        # 로고
+        # ── 로고 ─────────────────────────────────────────────────────────────
         lp = Path(__file__).parent / "logo.png"
         if lp.exists():
             b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
@@ -100,7 +104,7 @@ def render_sidebar() -> dict:
         else:
             st.caption("logo.png 를 앱 파일과 같은 폴더에 두면 로고가 표시됩니다.")
 
-        # 다크모드
+        # 테마 토글
         st.toggle("🌓 다크 모드", value=(st.session_state.get("theme","light")=="dark"),
                   on_change=_toggle_theme, key="__theme_toggle")
 
@@ -121,8 +125,7 @@ def render_sidebar() -> dict:
         # ── ② 마진 계산기 ───────────────────────────────────────────────────
         st.markdown("### ② 마진 계산기")
         m_base = st.selectbox("매입 통화", list(CURRENCIES.keys()),
-                              index=list(CURRENCORIES.keys()).index(st.session_state["m_base"]) if 'CURRENCORIES' in globals() else list(CURRENCIES.keys()).index(st.session_state["m_base"]),
-                              key="m_base")
+                              index=list(CURRENCIES.keys()).index(st.session_state["m_base"]), key="m_base")
         purchase_foreign = st.number_input("매입금액 (외화)", value=float(st.session_state["purchase_foreign"]),
                                            step=0.01, format="%.2f", key="purchase_foreign")
         base_cost_won = FX_DEFAULT[m_base] * purchase_foreign if purchase_foreign>0 else won
@@ -130,51 +133,61 @@ def render_sidebar() -> dict:
 
         colf1, colf2 = st.columns(2)
         with colf1:
-            card_fee = st.number_input("카드수수료(%)", value=float(st.session_state["card_fee_pct"]), step=0.01, format="%.2f", key="card_fee_pct")
+            card_fee = st.number_input("카드수수료(%)", value=float(st.session_state["card_fee_pct"]),
+                                       step=0.01, format="%.2f", key="card_fee_pct")
         with colf2:
-            market_fee = st.number_input("마켓수수료(%)", value=float(st.session_state["market_fee_pct"]), step=0.01, format="%.2f", key="market_fee_pct")
-        shipping_won = st.number_input("배송비(₩)", value=float(st.session_state["shipping_won"]), step=100.0, format="%.0f", key="shipping_won")
+            market_fee = st.number_input("마켓수수료(%)", value=float(st.session_state["market_fee_pct"]),
+                                         step=0.01, format="%.2f", key="market_fee_pct")
+        shipping_won = st.number_input("배송비(₩)", value=float(st.session_state["shipping_won"]),
+                                       step=100.0, format="%.0f", key="shipping_won")
 
         mode = st.radio("마진 방식", ["퍼센트","플러스"], horizontal=True, key="margin_mode")
         if mode == "퍼센트":
-            margin_pct = st.number_input("마진율 (%)", value=float(st.session_state["margin_pct"]), step=0.01, format="%.2f", key="margin_pct")
+            margin_pct = st.number_input("마진율 (%)", value=float(st.session_state["margin_pct"]),
+                                         step=0.01, format="%.2f", key="margin_pct")
             target_price = base_cost_won * (1 + card_fee/100) * (1 + market_fee/100) * (1 + margin_pct/100) + shipping_won
             margin_value = target_price - base_cost_won
             margin_desc = f"{margin_pct:.2f}%"
         else:
-            margin_won = st.number_input("마진액 (₩)", value=float(st.session_state["margin_won"]), step=100.0, format="%.0f", key="margin_won")
+            margin_won = st.number_input("마진액 (₩)", value=float(st.session_state["margin_won"]),
+                                         step=100.0, format="%.0f", key="margin_won")
             target_price = base_cost_won * (1 + card_fee/100) * (1 + market_fee/100) + margin_won + shipping_won
             margin_value = margin_won
             margin_desc = f"+{margin_won:,.0f}"
 
         st.markdown(f'<div class="badge-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="badge-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {margin_desc}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="badge-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {margin_desc}</div>',
+                    unsafe_allow_html=True)
 
-        # ── ③ 외부 API Key 보관(자동 프리필) ─────────────────────────────────
+        # ── ③ 외부 API Key 보관 (항상 노출) ──────────────────────────────────
         st.divider()
         st.markdown("##### 외부 API Key 보관")
-        st.text_input("아이템스카우트 API Key", value=st.session_state.get("ITEMSCOUT_API_KEY",""),
-                      key="ITEMSCOUT_API_KEY", type="password", help="secrets: ITEMSCOUT_API_KEY / ITEMSCOUT_KEY")
-        st.text_input("셀러라이프 API Key", value=st.session_state.get("SELLERLY_API_KEY",""),
-                      key="SELLERLY_API_KEY", type="password", help="secrets: SELLERLIFE_API_KEY / SELLERLY_API_KEY")
+        st.text_input("아이템스카우트 API Key",
+                      value=st.session_state.get("ITEMSCOUT_API_KEY",""),
+                      key="ITEMSCOUT_API_KEY", type="password",
+                      help="secrets: ITEMSCOUT_API_KEY / ITEMSCOUT_KEY")
+        st.text_input("셀러라이프 API Key",
+                      value=st.session_state.get("SELLERLY_API_KEY",""),
+                      key="SELLERLY_API_KEY", type="password",
+                      help="secrets: SELLERLIFE_API_KEY / SELLERLY_API_KEY / SELLERLIFE_KEY")
 
-        # ── ④ 프록시/환경 (자동 프리필) ─────────────────────────────────────
+        # ── ④ 프록시/환경 (항상 노출) ────────────────────────────────────────
         st.markdown("##### 프록시/환경")
         st.text_input("PROXY_URL (Cloudflare Worker 등)",
                       value=st.session_state.get("PROXY_URL",""),
                       key="PROXY_URL",
                       help="예: https://envy-proxy.<계정>.workers.dev")
 
-        # NAVER_COOKIE 상태도 사이드바에서 한 번 더 보여줌(Part3에서 사용)
-        _cookie = _sec_cookie()
-        st.caption(f"DataLab 쿠키 상태: {'✅ 설정됨' if _cookie else '❌ 비어 있음'}")
+        # DataLab 쿠키 상태(참고 표시: Part3에서 사용)
+        cookie_ok = bool(_sec_cookie())
+        st.caption(f"DataLab 쿠키 상태: {'✅ 설정됨' if cookie_ok else '❌ 비어 있음'}")
 
         st.markdown("""
         <div class="info-box">
           <b>ENVY</b> 사이드바 정보는 고정입니다.<br/>
-          · 11번가 iFrame 제한 회피용: <b>PROXY_URL</b> (필수)<br/>
-          · DataLab 접근: <b>NAVER_COOKIE 또는 NAVER_COOKIE_B64</b> (secrets, 자동 인식)<br/>
-          · 다크/라이트 모드는 상단 토글
+          · PROXY_URL: 11번가 iFrame 제한 회피(필수)<br/>
+          · NAVER_COOKIE(_B64): 데이터랩 접근(필수) — secrets에서 자동 인식<br/>
+          · 다크/라이트 모드: 상단 토글
         </div>
         """, unsafe_allow_html=True)
 
@@ -184,7 +197,6 @@ def render_sidebar() -> dict:
         "base_cost_won": base_cost_won, "card_fee_pct": card_fee,
         "market_fee_pct": market_fee, "shipping_won": shipping_won,
         "margin_mode": mode, "target_price": target_price, "margin_value": margin_value,
-        # 외부 값 반환 (다른 파트에서 필요시 사용)
         "ITEMSCOUT_API_KEY": st.session_state.get("ITEMSCOUT_API_KEY",""),
         "SELLERLY_API_KEY": st.session_state.get("SELLERLY_API_KEY",""),
         "PROXY_URL": st.session_state.get("PROXY_URL",""),
