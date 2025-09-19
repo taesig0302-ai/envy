@@ -161,7 +161,7 @@ def toast_ok(msg:str): st.toast(f"✅ {msg}")
 def toast_warn(msg:str): st.toast(f"⚠️ {msg}")
 def toast_err(msg:str): st.toast(f"❌ {msg}")
 # =========================
-# Part 3 — 데이터랩 (교체용 v11.x, matplotlib 의존 제거)
+# Part 3 — 데이터랩 (교체용 v11.x)
 # =========================
 import datetime as _dt
 import requests
@@ -195,7 +195,7 @@ def _load_category_map() -> dict:
                 "Referer":"https://datalab.naver.com/",
                 "Cookie": st.secrets.get("NAVER_COOKIE",""),
             },
-            timeout=15,
+            timeout=12,
         )
         if resp.status_code != 200:
             raise RuntimeError("getCategory 응답 비정상")
@@ -208,9 +208,13 @@ def _load_category_map() -> dict:
     except Exception:
         return _FALLBACK_CID
 
-def _fetch_keywords_20(cid: str, start: str, end: str) -> pd.DataFrame:
+def _cookie_source(tmp_cookie_ui: str) -> str:
+    """secrets 우선, 없으면 UI 입력값 사용(세션 한정)."""
+    sec = st.secrets.get("NAVER_COOKIE", "")
+    return sec.strip() or tmp_cookie_ui.strip()
+
+def _fetch_keywords_20(cid: str, start: str, end: str, cookie: str) -> pd.DataFrame:
     """카테고리 키워드 Top20 (쿠키/리퍼러/오리진 필수). 302/HTML 응답 즉시 에러."""
-    cookie = st.secrets.get("NAVER_COOKIE","")
     sess = requests.Session()
     sess.headers.update({
         "User-Agent":"Mozilla/5.0",
@@ -227,7 +231,7 @@ def _fetch_keywords_20(cid: str, start: str, end: str) -> pd.DataFrame:
         "startDate": start, "endDate": end,
         "device":"pc", "gender":"all", "ages":["all"],
     }
-    r = sess.post(url, data=payload, timeout=20, allow_redirects=False)
+    r = sess.post(url, data=payload, timeout=18, allow_redirects=False)
     if r.status_code in (301,302):
         raise RuntimeError("302 리다이렉트 → 로그인 필요 또는 쿠키 스코프 불일치")
     if "application/json" not in (r.headers.get("content-type","").lower()):
@@ -238,7 +242,7 @@ def _fetch_keywords_20(cid: str, start: str, end: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 def _render_status_bars(df: pd.DataFrame):
-    """Altair로 삼색 바차트 렌더. Altair 불가 시 st.bar_chart 폴백."""
+    """Altair 사용, 실패 시 st.bar_chart 폴백."""
     try:
         import altair as alt
         chart = (
@@ -261,15 +265,13 @@ def _render_status_bars(df: pd.DataFrame):
         st.altair_chart(chart, use_container_width=True)
         return
     except Exception:
-        pass
-    # 최후 폴백
-    st.bar_chart(df.set_index("keyword")["score"])
+        st.bar_chart(df.set_index("keyword")["score"])
 
 def render_datalab_block():
     st.markdown("## 데이터랩 (대분류 12종)")
     cats = _load_category_map()
 
-    c1, c2 = st.columns([1.25, 1.25])  # 섹션 폭 확장(Part7 CSS와 합쳐 시인성 개선)
+    c1, c2 = st.columns([1.25, 1.25])
 
     with c1:
         cat = st.selectbox("카테고리", list(cats.keys()), key="dl_cat")
@@ -278,17 +280,25 @@ def render_datalab_block():
         start_d = st.date_input("시작일", value=today - _dt.timedelta(days=30), key="dl_start")
         end_d   = st.date_input("종료일", value=today, key="dl_end")
 
-        st.caption(f"쿠키 상태: {'✅ 설정됨' if st.secrets.get('NAVER_COOKIE') else '❌ 비어 있음'}")
+        # 임시 쿠키 입력(테스트용) — secrets 없을 때만 의미 있음
+        tmp_cookie = st.text_input("임시 NAVER_COOKIE (세션 한정)", value="", type="password",
+                                   help="secrets에 NAVER_COOKIE 없을 때만 사용. DevTools>Network에서 datalab 요청 Cookie 전체 문자열.")
+        cookie = _cookie_source(tmp_cookie)
+        st.caption(f"쿠키 상태: {'✅ 설정됨' if cookie else '❌ 비어 있음'}")
 
         if st.button("키워드 20개 불러오기", key="dl_go"):
             try:
+                if not cookie:
+                    st.error("NAVER_COOKIE가 비어 있습니다. secrets 또는 임시 쿠키 입력이 필요합니다.")
+                    return
                 df = _fetch_keywords_20(
                     st.session_state["dl_cid"],
                     start_d.strftime("%Y-%m-%d"),
                     end_d.strftime("%Y-%m-%d"),
+                    cookie=cookie
                 )
                 if df.empty:
-                    st.warning("데이터 없음: NAVER_COOKIE/권한 확인")
+                    st.warning("데이터 없음: 쿠키/권한 확인")
                     return
                 df["status"] = df["score"].apply(_status)
                 st.dataframe(df, hide_index=True, use_container_width=True)
@@ -296,7 +306,7 @@ def render_datalab_block():
             except Exception as e:
                 st.error(f"키워드 불러오기 실패: {e}")
         else:
-            st.info("카테고리 선택 후 ‘키워드 20개 불러오기’를 눌러주세요.")
+            st.info("카테고리 선택 → 쿠키 확인 → ‘키워드 20개 불러오기’ 버튼을 클릭하세요.")
 
     with c2:
         st.markdown("### 캠프 기간 (데모 라인)")
@@ -422,36 +432,40 @@ def render_translator_block():
             except Exception as e:
                 st.error(f"번역 실패: {e}")
 # =========================
-# Part 7 — 메인 조립 (교체용: 섹션 폭 확대 + 스크롤 보정 + 프록시 헬스체크 포함)
+# Part 7 — 메인 조립 (교체용 v11.x)
+# PATCH BANNER:
+# - 본 패치는 Part 7만 교체합니다. 다른 파트는 손대지 않습니다.
+# - 11번가(모바일)는 프록시(Cloudflare Worker) 경유가 필수입니다.
 # =========================
 
+import streamlit as st
+
 def inject_global_css():
-    """섹션카드 폭 확대, 과거 스크롤 막힘 CSS 강제 무효화"""
+    """섹션 폭 확대 + 과거 스크롤 막힘 CSS 완전 무력화"""
     st.markdown("""
     <style>
-      /* 본문 폭 확장 */
-      .block-container { max-width: 1500px !important; }
+      /* 본문 폭/여백 */
+      .block-container { max-width: 1500px !important; padding-bottom: 2rem !important; }
 
-      /* 메인/사이드 스크롤 보장 */
-      html, body, .stApp { overflow: auto !important; }
-      [data-testid="stAppViewContainer"] { overflow: auto !important; }
+      /* 메인 스크롤 보장 */
+      html, body, .stApp { height: auto !important; overflow: auto !important; }
+      [data-testid="stAppViewContainer"] { height: auto !important; overflow: auto !important; }
 
-      /* 사이드바 내부 스크롤 허용 (과거 hidden 무력화) */
+      /* 사이드바 내부 스크롤 보장 (과거 hidden 강제 무효화) */
+      [data-testid="stSidebar"] { height: 100vh !important; }
+      [data-testid="stSidebar"] > div:first-child { height: 100vh !important; }
       [data-testid="stSidebar"] section {
         height: 100vh !important;
         overflow-y: auto !important;
         padding-top: .25rem !important;
         padding-bottom: .25rem !important;
       }
-
-      /* 과거에 숨겨둔 스크롤바를 복구 */
-      [data-testid="stSidebar"] ::-webkit-scrollbar { display: block !important; width: 8px; }
+      [data-testid="stSidebar"] ::-webkit-scrollbar { display: block !important; width: 8px !important; }
     </style>
     """, unsafe_allow_html=True)
 
-
 def _proxy_healthcheck():
-    """PROXY_URL이 실제 HTML을 반환하는지 빠른 자가진단 (회귀 방지)"""
+    """PROXY_URL이 실제 HTML을 반환하는지 빠른 자가진단(회귀 방지)"""
     import requests
     from urllib.parse import quote
 
@@ -463,30 +477,29 @@ def _proxy_healthcheck():
     test_url = "https://m.11st.co.kr/MW/store/bestSeller.tmall"
     target = f"{proxy}?url={quote(test_url, safe=':/?&=%')}"
     try:
-        r = requests.get(target, timeout=10)
+        r = requests.get(target, timeout=8)
         ctype = (r.headers.get("content-type") or "").lower()
         html_like = ("text/html" in ctype) or ("<html" in r.text[:500].lower())
         if r.status_code == 200 and html_like:
             st.caption(f"프록시 헬스체크: 정상 ✅  ({proxy} → 11번가)")
             return True
-        st.warning("프록시 응답이 HTML이 아니거나 상태코드가 비정상입니다. Worker 코드/도메인/라우팅을 점검하세요.")
+        st.warning("프록시 응답이 HTML이 아니거나 상태코드 비정상. Worker 코드/도메인/라우팅을 점검하세요.")
         return False
     except Exception as e:
         st.error(f"프록시 헬스체크 실패: {e}")
         return False
 
-
 def main():
     # 1) 사이드바 (수정 금지)
     sidebar_vals = render_sidebar()
 
-    # 2) 전역 CSS 적용 (섹션 폭/스크롤 보정 + 과거 CSS 무력화)
+    # 2) 전역 CSS: 폭 확장 + 스크롤 강제 복구
     inject_global_css()
 
-    # 3) 프록시 헬스체크 (회귀 방지)
+    # 3) 프록시 헬스체크(배너 안내)
     _proxy_healthcheck()
 
-    # 4) 본문 섹션
+    # 4) 본문
     st.title("ENVY — v11.x (stable)")
     st.caption("사이드바 고정, 본문 카드는 큼직하고 시안성 위주 배치")
 
@@ -494,7 +507,7 @@ def main():
     render_datalab_block()
     st.divider()
 
-    # 11번가 + 라쿠텐
+    # 11번가 + 레이더
     colL, colR = st.columns([1, 1])
     with colL:
         render_11st_block()
@@ -504,7 +517,6 @@ def main():
 
     # 번역기
     render_translator_block()
-
 
 if __name__ == "__main__":
     main()
