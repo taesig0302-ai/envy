@@ -493,13 +493,13 @@ def render_11st_block():
     except Exception as e:
         st.error(f"11번가 로드 실패: {e}")
 # =========================
-# Part 5 — AI 키워드 레이더 (Rakuten)  [교체용 v11.x — 스크롤/여백/URL 축소]
+# Part 5 — AI 키워드 레이더 (Rakuten)  [실데이터 우선 + 스크롤/여백/URL 축소]
 # =========================
 import streamlit as st
 import pandas as pd
 import requests
 
-# 기본 키 (secrets가 있으면 secrets 우선)
+# 네가 준 키를 기본값으로 “박음” (secrets가 있으면 secrets가 우선)
 RAKUTEN_APP_ID_DEFAULT       = "1043271015809337425"
 RAKUTEN_AFFILIATE_ID_DEFAULT = "4c723498.cbfeca46.4c723499.1deb6f77"
 
@@ -517,18 +517,19 @@ def _get_rakuten_keys():
                  or RAKUTEN_AFFILIATE_ID_DEFAULT).strip()
     return app_id, affiliate
 
-def _fetch_rank(genre_id: str, hits: int = 20) -> pd.DataFrame:
+def _fetch_rank(genre_id: str, topn: int = 20) -> pd.DataFrame:
     """Rakuten IchibaItem Ranking API → Top N"""
     app_id, affiliate = _get_rakuten_keys()
     url = "https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628"
     params = {"applicationId": app_id, "genreId": str(genre_id).strip(), "carrier": 0}
-    if affiliate: params["affiliateId"] = affiliate
+    if affiliate:
+        params["affiliateId"] = affiliate
 
     r = requests.get(url, params=params, timeout=12)
     r.raise_for_status()
     items = r.json().get("Items", [])
     rows = []
-    for it in items[:hits]:
+    for it in items[:topn]:
         node = it.get("Item", {})
         rows.append({
             "rank": node.get("rank"),
@@ -540,67 +541,62 @@ def _fetch_rank(genre_id: str, hits: int = 20) -> pd.DataFrame:
 
 def _mock_rows(n=20) -> pd.DataFrame:
     return pd.DataFrame([{
-        "rank": i+1,
-        "keyword": f"[샘플] 키워드 {i+1} ハロウィン 秋 🍂",
-        "shop": "샘플샵",
-        "url": "https://example.com"
+        "rank": i+1, "keyword": f"[샘플] 키워드 {i+1} ハロウィン 秋 🍂", "shop": "샘플샵", "url": "https://example.com"
     } for i in range(n)])
 
 def render_rakuten_block():
     st.markdown("## AI 키워드 레이더 (Rakuten)")
 
-    # 섹션 여백 다이어트 + 표 폰트/URL 폰트 1단계 축소
+    # 섹션 여백/폰트 정리 + 표 내부 스크롤
     st.markdown("""
     <style>
-      .rk-wrap [data-testid="stVerticalBlock"] { gap: .4rem !important; }          /* 카드 내부 간격 축소 */
+      .rk-wrap [data-testid="stVerticalBlock"] { gap: .4rem !important; }
       .rk-wrap .stMarkdown { margin: .25rem 0 !important; }
       .rk-wrap .stDataFrame { margin-top: .2rem !important; }
-      .rk-wrap .stDataFrame [role="grid"] { font-size: 0.90rem !important; }       /* 표 전체 1단계 축소 */
-      .rk-wrap .stDataFrame a { font-size: 0.86rem !important; }                   /* URL(링크)만 더 작게 */
+      .rk-wrap .stDataFrame [role="grid"] { font-size: 0.90rem !important; }
+      .rk-wrap .stDataFrame a { font-size: 0.86rem !important; }
     </style>
     """, unsafe_allow_html=True)
 
-    colA, colB, colC = st.columns([1,1,1])
+    colA, colB, colC, colD = st.columns([1,1,1,1])
     with colA:
         scope = st.radio("범위", ["국내","글로벌"], horizontal=True, key="rk_scope")
     with colB:
         cat = st.selectbox("라쿠텐 카테고리", RAKUTEN_CATS, key="rk_cat")
     with colC:
-        genreid = st.text_input("GenreID(직접 입력)", "100283", key="rk_genre")
+        genreid = st.text_input("GenreID", "100283", key="rk_genre")
+    with colD:
+        sample_only = st.checkbox("샘플 보기", value=False, help="체크 시 샘플 데이터로 표시")
 
     app_id, affiliate = _get_rakuten_keys()
-    st.caption(f"APP_ID: {('✅ ' + app_id) if app_id else '❌'}  |  Affiliate: {('✅ ' + affiliate) if affiliate else '—'}")
+    st.caption(f"APP_ID: {('✅ ' + app_id) if app_id else '❌ 없음'}  |  Affiliate: {('✅ ' + affiliate) if affiliate else '—'}")
 
-    # 데이터 로드 (Top 20 고정)
-    try:
-        df = _mock_rows(20) if (cat == "전체(샘플)" or not genreid.strip()) else _fetch_rank(genreid, hits=20)
-    except Exception as e:
-        st.error(f"Rakuten API 호출 실패: {e}")
+    # ▶ 실데이터 강제: 샘플 체크 안 했으면 항상 API 먼저 시도
+    df = pd.DataFrame()
+    err = None
+    if not sample_only:
+        try:
+            df = _fetch_rank(genreid or "100283", topn=20)
+        except Exception as e:
+            err = str(e)
+
+    if df.empty:
+        if err:
+            st.warning(f"Rakuten API 실패 → 샘플로 대체: {err[:200]}")
         df = _mock_rows(20)
 
-    # URL을 '열기' 링크로 바꿔서 폭/가독성 개선
-    if not df.empty:
-        df = df[["rank","keyword","shop","url"]]
-        # st.dataframe의 LinkColumn 활용
-        colcfg = {
-            "rank":    st.column_config.NumberColumn("rank", width="small"),
-            "keyword": st.column_config.TextColumn("keyword", width="large"),
-            "shop":    st.column_config.TextColumn("shop", width="medium"),
-            "url":     st.column_config.LinkColumn("url", display_text="열기", width="small"),
-        }
-    else:
-        colcfg = None
+    # URL → '열기' 링크 (폭 축소)
+    df = df[["rank","keyword","shop","url"]]
+    colcfg = {
+        "rank":    st.column_config.NumberColumn("rank", width="small"),
+        "keyword": st.column_config.TextColumn("keyword", width="large"),
+        "shop":    st.column_config.TextColumn("shop", width="medium"),
+        "url":     st.column_config.LinkColumn("url", display_text="열기", width="small"),
+    }
 
     with st.container():
         st.markdown('<div class="rk-wrap">', unsafe_allow_html=True)
-        # 고정 높이 → 내부 스크롤바(표만 스크롤)
-        st.dataframe(
-            df,
-            hide_index=True,
-            use_container_width=True,
-            height=420,                    # ← 내부 스크롤
-            column_config=colcfg
-        )
+        st.dataframe(df, hide_index=True, use_container_width=True, height=420, column_config=colcfg)
         st.markdown('</div>', unsafe_allow_html=True)
 # =========================
 # Part 6 — 구글 번역 (입력/출력 + 한국어 확인용) (교체용 v11.x)
@@ -639,101 +635,46 @@ def render_translator_block():
             except Exception as e:
                 st.error(f"번역 실패: {e}")
 # =========================
-# Part 7 — 메인 조립 (교체용 v11.x / 이중 스크롤 제거 & 공란 축소)
+# Part 7 — 메인 조립 (번역 섹션 위로 이동)
 # =========================
-
 import streamlit as st
 
 def inject_layout_css():
-    """
-    사이드바는 고정, 'section'만 스크롤.
-    본문은 기본 페이지 스크롤만 사용(중첩 스크롤 제거).
-    여백 과도하게 생기던 요소들 최소화.
-    """
     st.markdown("""
     <style>
-      /* 본문 폭 살짝 확대 */
       .block-container { max-width: 1480px !important; padding-bottom: 1rem !important; }
-
-      /* 페이지 기본 스크롤만 사용: 상위 컨테이너의 인위적 height/overflow 제거 */
-      html, body, .stApp { height: auto !important; overflow: visible !important; }
-      [data-testid="stAppViewContainer"] { height: auto !important; overflow: visible !important; }
-      [data-testid="stMain"] { overflow: visible !important; }
-
-      /* ── 사이드바: 부모는 숨김, 내부 section만 스크롤 → 이중 스크롤 방지 */
-      [data-testid="stSidebar"] { height: 100vh !important; overflow: hidden !important; }
-      [data-testid="stSidebar"] > div:first-child { height: 100vh !important; overflow: hidden !important; }
-      [data-testid="stSidebar"] section {
-        height: 100vh !important;
-        overflow-y: auto !important;
-        padding-top: .25rem !important;
-        padding-bottom: .5rem !important;
-      }
-      /* 과거에 숨겨둔 스크롤바 복구 */
-      [data-testid="stSidebar"] ::-webkit-scrollbar { display: block !important; width: 8px !important; }
-
-      /* ── 메인 영역의 불필요한 세로 공백 정리 */
-      /* 빈 블록 제거(간헐적으로 생기는 빈 div) */
-      [data-testid="stVerticalBlock"] > div:empty { display: none !important; }
-      /* 헤딩/문단 기본 마진 완만하게 */
-      h1, h2, h3 { margin: .2rem 0 .6rem 0 !important; }
-      p { margin: .25rem 0 !important; }
+      html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"] { height:auto !important; overflow:visible !important; }
+      [data-testid="stSidebar"], [data-testid="stSidebar"] > div:first-child { height:100vh !important; overflow:hidden !important; }
+      [data-testid="stSidebar"] section { height:100vh !important; overflow-y:auto !important; padding-top:.25rem !important; padding-bottom:.5rem !important; }
+      [data-testid="stSidebar"] ::-webkit-scrollbar { display:block !important; width:8px !important; }
     </style>
     """, unsafe_allow_html=True)
-
-def _proxy_healthcheck():
-    """프록시가 HTML을 반환하는지만 빠르게 확인(배너 안내). 실패해도 앱은 계속."""
-    import requests
-    from urllib.parse import quote
-
-    proxy = st.session_state.get("PROXY_URL", "").strip()
-    if not proxy:
-        st.error("PROXY_URL 없음 — 11번가 섹션이 동작하지 않습니다. 사이드바 하단에 Cloudflare Worker 주소를 입력하세요.")
-        return False
-
-    test_url = "https://m.11st.co.kr/MW/store/bestSeller.tmall"
-    target = f"{proxy}?url={quote(test_url, safe=':/?&=%')}"
-    try:
-        r = requests.get(target, timeout=8)
-        ctype = (r.headers.get("content-type") or "").lower()
-        html_like = ("text/html" in ctype) or ("<html" in r.text[:500].lower())
-        if r.status_code == 200 and html_like:
-            st.caption(f"프록시 헬스체크: 정상 ✅  ({proxy} → 11번가)")
-            return True
-        st.warning("프록시 응답 비정상. Worker 코드/도메인/라우팅을 점검하세요.")
-        return False
-    except Exception as e:
-        st.error(f"프록시 헬스체크 실패: {e}")
-        return False
 
 def main():
     # 1) 사이드바 (수정 금지)
     sidebar_vals = render_sidebar()
 
-    # 2) 레이아웃 CSS (이중 스크롤 제거 + 공란 축소)
+    # 2) 전역 레이아웃
     inject_layout_css()
 
-    # 3) 프록시 헬스체크 배너
-    _proxy_healthcheck()
-
-    # 4) 본문
     st.title("ENVY — v11.x (stable)")
     st.caption("사이드바 고정, 본문 카드는 큼직하고 시안성 위주 배치")
 
-    # 데이터랩
+    # 3) 데이터랩
     render_datalab_block()
     st.divider()
 
-    # 11번가 + 레이더
-    colL, colR = st.columns([1, 1])
+    # 4) 🔼 번역기를 위로(데이터랩 바로 아래)
+    render_translator_block()
+    st.divider()
+
+    # 5) 11번가 + 라쿠텐
+    colL, colR = st.columns([1,1])
     with colL:
         render_11st_block()
     with colR:
         render_rakuten_block()
     st.divider()
-
-    # 번역기
-    render_translator_block()
 
 if __name__ == "__main__":
     main()
