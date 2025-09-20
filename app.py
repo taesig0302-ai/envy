@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-# ENVY — Season 1 (Dual Proxy Edition, Wide UI, Darker Pills)
-import os, base64, json
+# ENVY — Season 1 (Dual Proxy Edition, Wide UI, Darker Pills)  // full version w/ latest patches
+import os, base64
 from pathlib import Path
 from urllib.parse import quote
 import streamlit as st
@@ -56,6 +56,18 @@ def _ensure_session_defaults():
     ss.setdefault("margin_mode","퍼센트")
     ss.setdefault("margin_pct",10.00)
     ss.setdefault("margin_won",10000.0)
+    # 라쿠텐: 카테고리→GenreID 매핑(초기값은 100283, 화면에는 비노출)
+    ss.setdefault("rk_genre_map", {
+        "전체(샘플)": "100283",
+        "뷰티/코스메틱": "100283",
+        "의류/패션": "100283",
+        "가전/디지털": "100283",
+        "가구/인테리어": "100283",
+        "식품": "100283",
+        "생활/건강": "100283",
+        "스포츠/레저": "100283",
+        "문구/취미": "100283",
+    })
 
 def _toggle_theme():
     st.session_state["theme"]="dark" if st.session_state.get("theme","light")=="light" else "light"
@@ -75,26 +87,17 @@ def _inject_css():
       [data-testid="stSidebar"] section{{overflow-y:auto!important}}
       [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none!important}}
 
-      /* ▼ 여백 더 줄임: 입력/라디오/버튼/마크다운 전부 */
+      /* 사이드바 입력/출력 상하 여백 더 축소 */
       [data-testid="stSidebar"] .stSelectbox,
       [data-testid="stSidebar"] .stNumberInput,
       [data-testid="stSidebar"] .stRadio,
       [data-testid="stSidebar"] .stMarkdown,
       [data-testid="stSidebar"] .stTextInput,
-      [data-testid="stSidebar"] .stButton{{margin:.04rem 0!important}}
-
-      /* 사이드바 텍스트 마크다운 기본 P 마진 축소 (pill 위아래 간격 최소화) */
-      [data-testid="stSidebar"] div[data-testid="stMarkdown"] p{{margin:.10rem 0!important}}
+      [data-testid="stSidebar"] .stButton{{margin:.06rem 0!important}}
 
       [data-baseweb="input"] input,.stNumberInput input,[data-baseweb="select"] div[role="combobox"]{{
         height:1.55rem!important;padding:.12rem .6rem!important;font-size:.96rem!important;border-radius:12px!important}}
-
-      .logo-circle{{width:95px;height:95px;border-radius:50%;overflow:hidden;margin:.2rem auto .5rem auto;
-                   box-shadow:0 2px 8px rgba(0,0,0,.12);border:1px solid rgba(0,0,0,.06)}}
-      .logo-circle img{{width:100%;height:100%;object-fit:cover}}
-
-      /* Darker Pills */
-      .pill{{border-radius:9999px;padding:.46rem .9rem;font-weight:800;display:inline-block;margin:.10rem 0!important}}
+      .pill{{border-radius:9999px;padding:.40rem .9rem;font-weight:800;display:inline-block;margin:.10rem 0!important}}
       .pill-green{{background:#b8f06c;border:1px solid #76c02a;color:#083500}}
       .pill-blue{{background:#dbe6ff;border:1px solid #88a8ff;color:#09245e}}
       .pill-yellow{{background:#ffe29b;border:1px solid #d2a12c;color:#3e2a00}}
@@ -103,6 +106,10 @@ def _inject_css():
       .card-title{{font-size:1.18rem;font-weight:900;margin:.1rem 0 .55rem 0}}
       .card iframe{{border:0;width:100%;border-radius:10px}}
       .row-gap{{height:16px}}
+
+      .logo-circle{{width:95px;height:95px;border-radius:50%;overflow:hidden;margin:.2rem auto .5rem auto;
+                   box-shadow:0 2px 8px rgba(0,0,0,.12);border:1px solid rgba(0,0,0,.06)}}
+      .logo-circle img{{width:100%;height:100%;object-fit:cover}}
     </style>
     """, unsafe_allow_html=True)
 
@@ -117,12 +124,16 @@ def _sidebar():
                   on_change=_toggle_theme, key="__theme_toggle")
 
         st.markdown("### ① 환율 계산기")
-        base = st.selectbox("기준 통화", list(CURRENCIES.keys()),
-                            index=list(CURRENCRIES.keys()).index(st.session_state["fx_base"]) if 'CURRENCRIES' in globals() else list(CURRENCIES.keys()).index(st.session_state["fx_base"]),
-                            key="fx_base")
+        base = st.selectbox(
+            "기준 통화",
+            list(CURRENCIES.keys()),
+            index=list(CURRENCRIES.keys()).index(st.session_state["fx_base"]) if 'CURRENCRIES' in globals() else list(CURRENCIES.keys()).index(st.session_state["fx_base"]),
+            key="fx_base"
+        )
         sale_foreign = st.number_input("판매금액 (외화)", value=float(st.session_state["sale_foreign"]),
                                        step=0.01, format="%.2f", key="sale_foreign")
         won = FX_DEFAULT[base] * sale_foreign
+        # (패치) 쓸데없는 '(미국 달러)' 텍스트 제거, 통화 기호만 표시
         st.markdown(
             f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b>'
             f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[base]["symbol"]})</span></div>',
@@ -214,7 +225,7 @@ def section_sellerlife():
 
 def section_11st():
     st.markdown('<div class="card"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>', unsafe_allow_html=True)
-    # ▼ 높이 상향: AI 키워드 레이더 표 최대 높이에 맞춰 확장
+    # (패치) 11번가 카드 높이 = 레이더 영역 최대 높이에 맞춰 상향
     _proxy_iframe(ELEVENST_PROXY, _11st_abest_url(), height=900, scroll=True, key="abest")
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -257,30 +268,56 @@ def _rk_fetch_rank(genre_id: str, topn: int = 20) -> pd.DataFrame:
 
 def section_rakuten():
     st.markdown('<div class="card"><div class="card-title">AI 키워드 레이더 (Rakuten)</div>', unsafe_allow_html=True)
-    colA, colB, colC, colD = st.columns([1,1,1,1])
+
+    # 상단 컨트롤 (GenreID 비노출)
+    colA, colB, colC = st.columns([1, 1, 1])
     with colA:
         scope = st.radio("범위", ["국내","글로벌"], horizontal=True, key="rk_scope")
     with colB:
-        cat = st.selectbox("라쿠텐 카테고리", ["전체(샘플)","뷰티/코스메틱","의류/패션","가전/디지털","가구/인테리어","식품","생활/건강","스포츠/레저","문구/취미"], key="rk_cat")
-    # ▼ GenreID 입력칸 화면에서 가림(내부 기본값 사용)
+        cat = st.selectbox("라쿠텐 카테고리",
+                           ["전체(샘플)","뷰티/코스메틱","의류/패션","가전/디지털",
+                            "가구/인테리어","식품","생활/건강","스포츠/레저","문구/취미"],
+                           key="rk_cat")
     with colC:
-        _hidden_gid_default = "100283"
-        st.session_state.setdefault("rk_genre", _hidden_gid_default)
-        gid = st.session_state.get("rk_genre", _hidden_gid_default)
-        st.markdown("<div style='height:0;overflow:hidden'></div>", unsafe_allow_html=True)
-    with colD:
-        sample_only = st.checkbox("샘플 보기", value=False)
+        sample_only = st.checkbox("샘플 보기", value=False, key="rk_sample")
 
-    df = _rk_fetch_rank(gid or "100283", topn=20) if not sample_only else pd.DataFrame(
-        [{"rank":i+1,"keyword":f"[샘플] 키워드 {i+1}","shop":"샘플샵","url":"https://example.com"} for i in range(20)]
-    )
+    # 카테고리→GenreID 매핑 사용(화면에는 숨김)
+    genre_map = st.session_state.get("rk_genre_map", {})
+    genre_id = (genre_map.get(cat) or "100283").strip()
+
+    # 매핑 편집(필요시에만)
+    with st.expander("🔧 장르 매핑 편집 (GenreID는 여기서만 관리 — 화면에는 숨김)", expanded=False):
+        new_map = {}
+        cols = st.columns(3)
+        cats = ["전체(샘플)","뷰티/코스메틱","의류/패션","가전/디지털",
+                "가구/인테리어","식품","생활/건강","스포츠/레저","문구/취미"]
+        for i, c in enumerate(cats):
+            with cols[i % 3]:
+                val = st.text_input(f"{c} → GenreID", value=genre_map.get(c, "100283"), key=f"rk_map_{c}")
+                new_map[c] = val.strip()
+        if st.button("매핑 저장", use_container_width=False, key="rk_save_map"):
+            st.session_state["rk_genre_map"] = new_map
+            st.success("장르 매핑을 저장했습니다.")
+
+    # 데이터 불러오기
+    if sample_only:
+        df = pd.DataFrame(
+            [{"rank": i+1, "keyword": f"[샘플] 키워드 {i+1}", "shop": "샘플샵", "url": "https://example.com"} for i in range(20)]
+        )
+    else:
+        df = _rk_fetch_rank(genre_id or "100283", topn=20)
+
+    # (패치) rank 칼럼을 1단계 더 줄임 → 라벨을 "#"로 바꿔 폭을 더 최소화
+    df_display = df.rename(columns={"rank":"#"})
     colcfg = {
-        "rank": st.column_config.NumberColumn("rank", width=50),  # 2단계 축소
+        "#": st.column_config.NumberColumn("#", width="small", format="%d"),
         "keyword": st.column_config.TextColumn("keyword", width="large"),
         "shop": st.column_config.TextColumn("shop", width="medium"),
         "url": st.column_config.LinkColumn("url", display_text="열기", width="small"),
     }
-    st.dataframe(df[["rank","keyword","shop","url"]], hide_index=True, use_container_width=True, height=420, column_config=colcfg)
+    st.dataframe(df_display[["#","keyword","shop","url"]], hide_index=True,
+                 use_container_width=True, height=420, column_config=colcfg)
+
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
@@ -358,6 +395,7 @@ _ = _sidebar()
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
 # 1줄: 데이터랩 / 아이템스카우트 / 셀러라이프
+# (패치) 데이터랩은 2단계 넓게, 나머지 2개는 각 1단계 좁게
 top1, top2, top3 = st.columns([5,2,2], gap="medium")
 with top1: section_datalab_home()
 with top2: section_itemscout()
