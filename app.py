@@ -781,20 +781,27 @@ def render_product_name_generator():
             st.write("\n".join(titles))
 
 # -----------------------------
-# Part 7 — 메인 조립 (가로 4×2 그리드)
+# Part 7 — 메인 조립 (초와이드 2×N 그리드)
 # -----------------------------
 def _inject_global_css():
     st.markdown("""
     <style>
-      .block-container { max-width: 1500px !important; padding-top:.8rem !important; padding-bottom:1rem !important; }
+      /* 본문 가로폭을 크게 */
+      .block-container { max-width: 2200px !important; padding-top:.8rem !important; padding-bottom:1rem !important; }
       html, body { overflow: auto !important; }
-      /* 사이드바 내부 스크롤 허용 (사이드바 구조는 그대로) */
+      /* 사이드바 스크롤만 허용(사이드바 구조는 그대로) */
       [data-testid="stSidebar"] section { overflow-y: auto !important; }
 
-      .envy-card { background:rgba(0,0,0,.02); border:1px solid rgba(0,0,0,.09);
-        border-radius:16px; padding:18px; box-shadow:0 6px 18px rgba(0,0,0,.05);}
-      .envy-card h3, .envy-card h2 { margin:0 0 .35rem 0 !important; }
-      .envy-sub { font-size:.86rem; opacity:.75; margin-bottom:.35rem; }
+      /* 큼직한 카드 */
+      .envy-card {
+        background:rgba(0,0,0,.02);
+        border:1px solid rgba(0,0,0,.09);
+        border-radius:18px;
+        padding:22px;
+        box-shadow:0 8px 22px rgba(0,0,0,.06);
+      }
+      .envy-card h3, .envy-card h2 { margin:0 0 .45rem 0 !important; }
+      .envy-sub { font-size:.9rem; opacity:.75; margin-bottom:.45rem; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -820,23 +827,33 @@ def main():
     _inject_global_css()
 
     st.title("ENVY — Season 1 (stable)")
-    st.caption("임베드 기본 + 분석 보조. 프록시/쿠키는 Worker 비밀값으로 관리. (PROXY_URL 예: https://envy-proxy.taesig0302.workers.dev/)")
+    st.caption("임베드 기본 + 분석 보조. 프록시/쿠키는 Worker 비밀값으로 관리.")
 
-    # Row 1 — 데이터랩(원본) · 데이터랩(분석) · 11번가 · 상품명 생성기
-    r1c1, r1c2, r1c3, r1c4 = st.columns([1.3, 1.3, 1.3, 1.3], gap="large")
-    with r1c1: _safe_call("render_datalab_embed_block", "데이터랩 (원본 임베드)", "프록시 경유 · 쿠키 앱 비저장")
-    with r1c2: _safe_call("render_datalab_block", "데이터랩 (분석 보조)", "Top20 + 트렌드")
-    with r1c3: _safe_call("render_11st_block", "11번가 (모바일) — 아마존베스트", "프록시 권장")
-    with r1c4: _safe_call("render_product_name_generator", "상품명 생성기 (규칙 기반)", "브랜드/속성/키워드 조합")
+    # ===== Row 1 (2열) =====
+    c11, c12 = st.columns([1, 1], gap="large")
+    with c11: _safe_call("render_datalab_embed_block", "데이터랩 (원본 임베드)", "프록시 경유 · 쿠키 앱 비저장")
+    with c12: _safe_call("render_datalab_block", "데이터랩 (분석 보조)", "Top20 + 트렌드")
 
-    st.markdown('<div style="height:15px;"></div>', unsafe_allow_html=True)
+    st.markdown('<div style="height:16px;"></div>', unsafe_allow_html=True)
 
-    # Row 2 — AI 레이더 · 구글 번역 · 아이템스카우트 · 셀러라이프
-    r2c1, r2c2, r2c3, r2c4 = st.columns([1.3, 1.3, 1.3, 1.3], gap="large")
-    with r2c1: _safe_call("render_rakuten_block", "AI 키워드 레이더 (Rakuten)", "실데이터 우선 · URL ‘열기’")
-    with r2c2: _safe_call("render_translator_block", "구글 번역", "한국어 확인 라인 포함")
-    with r2c3: _safe_call("render_itemscout_embed", "아이템스카우트 (임베드)", "로그인 필요 시 Worker Secrets")
-    with r2c4: _safe_call("render_sellerlife_embed", "셀러라이프 (임베드)", "로그인 필요 시 Worker Secrets")
+    # ===== Row 2 (2열) =====
+    c21, c22 = st.columns([1, 1], gap="large")
+    with c21: _safe_call("render_11st_block", "11번가 (모바일) — 아마존베스트", "프록시 권장")
+    with c22: _safe_call("render_product_name_generator", "상품명 생성기 (규칙 기반)", "브랜드/속성/키워드 조합")
+
+    st.markdown('<div style="height:16px;"></div>', unsafe_allow_html=True)
+
+    # ===== Row 3 (2열) =====
+    c31, c32 = st.columns([1, 1], gap="large")
+    with c31: _safe_call("render_rakuten_block", "AI 키워드 레이더 (Rakuten)", "실데이터 우선 · URL ‘열기’")
+    with c32: _safe_call("render_translator_block", "구글 번역", "한국어 확인 라인 포함")
+
+    st.markdown('<div style="height:16px;"></div>', unsafe_allow_html=True)
+
+    # ===== Row 4 (2열) =====
+    c41, c42 = st.columns([1, 1], gap="large")
+    with c41: _safe_call("render_itemscout_embed", "아이템스카우트 (임베드)", "로그인 필요 시 Worker Secrets")
+    with c42: _safe_call("render_sellerlife_embed", "셀러라이프 (임베드)", "로그인 필요 시 Worker Secrets")
 
 if __name__ == "__main__":
     main()
