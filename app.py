@@ -113,7 +113,7 @@ def _sidebar():
 
         st.markdown("### ① 환율 계산기")
         base = st.selectbox("기준 통화", list(CURRENCIES.keys()),
-                            index=list(CURRENCIES.keys()).index(st.session_state["fx_base"]),
+                            index=list(CURRENCRIES.keys()).index(st.session_state["fx_base"]) if 'CURRENCRIES' in globals() else list(CURRENCIES.keys()).index(st.session_state["fx_base"]),
                             key="fx_base")
         sale_foreign = st.number_input("판매금액 (외화)", value=float(st.session_state["sale_foreign"]),
                                        step=0.01, format="%.2f", key="sale_foreign")
@@ -165,10 +165,35 @@ def _sidebar():
 # =========================
 # 2. Embeds
 # =========================
+# PATCH: 안전 임베더 (_proxy_iframe)
 def _proxy_iframe(proxy_base: str, target_url: str, height: int = 860, scroll=True, key=None):
-    proxy = proxy_base.strip().rstrip("/")
+    """
+    - st.iframe → (실패 시) components.v1.iframe → (실패 시) HTML 폴백
+    - components.v1.iframe 는 key 인자를 지원하지 않으므로 무시
+    - scroll 인자는 components 경로에서만 사용
+    """
+    proxy = (proxy_base or "").strip().rstrip("/")
     url   = f"{proxy}/?url={quote(target_url, safe=':/?&=%')}"
-    st.components.v1.iframe(url, height=height, scrolling=scroll, key=key)
+    h     = int(height) if isinstance(height, (int, float, str)) else 860
+
+    # 1) 최신 Streamlit: st.iframe (key 없음)
+    try:
+        st.iframe(url, height=h)
+        return
+    except Exception:
+        pass
+    # 2) 구버전 경로: components.v1.iframe (key 미지원)
+    try:
+        st.components.v1.iframe(url, height=h, scrolling=bool(scroll))
+        return
+    except Exception:
+        pass
+    # 3) 최후 폴백
+    st.markdown(
+        f'<iframe src="{url}" style="width:100%;height:{h}px;border:0;border-radius:10px;" '
+        f'allow="clipboard-read; clipboard-write"></iframe>',
+        unsafe_allow_html=True,
+    )
 
 def _11st_abest_url():
     import time
