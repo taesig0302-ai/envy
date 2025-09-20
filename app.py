@@ -679,7 +679,11 @@ def render_product_name_generator():
 def _inject_global_css():
     st.markdown("""
     <style>
-      .block-container { max-width: 1680px !important; padding-top:.8rem !important; padding-bottom:1rem !important; }
+      .block-container { 
+        max-width: 3360px !important;   /* ← 여기서 수정 */
+        padding-top:.8rem !important; 
+        padding-bottom:1rem !important; 
+      }
       .section-spacer { height: 2.4vh; }
       h3, h4, h5, h6 { margin-top:.2rem !important; }
     </style>
