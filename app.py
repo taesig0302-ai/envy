@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# ENVY — Season 1 (Dual Proxy Edition, Wide UI, Darker Pills)  // full version w/ latest patches
+# ENVY — Season 1 (Dual Proxy Edition, Wide UI, Darker Pills) + DataLab 탭제목 라벨 수신
 import os, base64
 from pathlib import Path
 from urllib.parse import quote
@@ -23,7 +23,7 @@ st.set_page_config(page_title="ENVY — Season 1 (Dual Proxy Edition)", layout="
 SHOW_ADMIN_BOX = False
 
 # Proxies (배포한 워커 주소)
-NAVER_PROXY      = "https://envy-proxy.taesig0302.workers.dev"
+NAVER_PROXY      = "https://envy-proxy.taesig0302.workers.dev"          # ← 워커에서 TitleReporter 주입 필요
 ELEVENST_PROXY   = "https://worker-11stjs.taesig0302.workers.dev"
 ITEMSCOUT_PROXY  = "https://worker-itemscoutjs.taesig0302.workers.dev"
 SELLERLIFE_PROXY = "https://worker-sellerlifejs.taesig0302.workers.dev"
@@ -56,7 +56,7 @@ def _ensure_session_defaults():
     ss.setdefault("margin_mode","퍼센트")
     ss.setdefault("margin_pct",10.00)
     ss.setdefault("margin_won",10000.0)
-    # 라쿠텐: 카테고리→GenreID 매핑(초기값은 100283, 화면에는 비노출)
+    # 라쿠텐: 카테고리→GenreID 매핑(초기값 100283, 화면 비노출)
     ss.setdefault("rk_genre_map", {
         "전체(샘플)": "100283",
         "뷰티/코스메틱": "100283",
@@ -87,7 +87,7 @@ def _inject_css():
       [data-testid="stSidebar"] section{{overflow-y:auto!important}}
       [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none!important}}
 
-      /* 사이드바 입력/출력 상하 여백 더 축소 */
+      /* 사이드바 입력/출력 상하 여백 축소 */
       [data-testid="stSidebar"] .stSelectbox,
       [data-testid="stSidebar"] .stNumberInput,
       [data-testid="stSidebar"] .stRadio,
@@ -97,6 +97,7 @@ def _inject_css():
 
       [data-baseweb="input"] input,.stNumberInput input,[data-baseweb="select"] div[role="combobox"]{{
         height:1.55rem!important;padding:.12rem .6rem!important;font-size:.96rem!important;border-radius:12px!important}}
+
       .pill{{border-radius:9999px;padding:.40rem .9rem;font-weight:800;display:inline-block;margin:.10rem 0!important}}
       .pill-green{{background:#b8f06c;border:1px solid #76c02a;color:#083500}}
       .pill-blue{{background:#dbe6ff;border:1px solid #88a8ff;color:#09245e}}
@@ -127,13 +128,13 @@ def _sidebar():
         base = st.selectbox(
             "기준 통화",
             list(CURRENCIES.keys()),
-            index=list(CURRENCRIES.keys()).index(st.session_state["fx_base"]) if 'CURRENCRIES' in globals() else list(CURRENCIES.keys()).index(st.session_state["fx_base"]),
+            index=list(CURRENCIES.keys()).index(st.session_state["fx_base"]),
             key="fx_base"
         )
         sale_foreign = st.number_input("판매금액 (외화)", value=float(st.session_state["sale_foreign"]),
                                        step=0.01, format="%.2f", key="sale_foreign")
         won = FX_DEFAULT[base] * sale_foreign
-        # (패치) 쓸데없는 '(미국 달러)' 텍스트 제거, 통화 기호만 표시
+        # (패치) '(미국 달러)' 같은 지역명 텍스트 제거 → 기호만
         st.markdown(
             f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b>'
             f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[base]["symbol"]})</span></div>',
@@ -183,6 +184,7 @@ def _sidebar():
 # =========================
 # 2. Embeds
 # =========================
+# 기본 프록시 임베더
 def _proxy_iframe(proxy_base: str, target_url: str, height: int = 860, scroll=True, key=None):
     proxy = (proxy_base or "").strip().rstrip("/")
     url   = f"{proxy}/?url={quote(target_url, safe=':/?&=%')}"
@@ -203,6 +205,38 @@ def _proxy_iframe(proxy_base: str, target_url: str, height: int = 860, scroll=Tr
         unsafe_allow_html=True,
     )
 
+# ★ DataLab 전용: postMessage로 전달된 "현재 탭 제목"을 상단 pill에 표시
+def _proxy_iframe_with_title(proxy_base: str, target_url: str, height: int = 860, key: str = "naver_home"):
+    proxy = (proxy_base or "").strip().rstrip("/")
+    url   = f"{proxy}/?url={quote(target_url, safe=':/?&=%')}"
+    h     = int(height) if isinstance(height, (int, float, str)) else 860
+    html = f"""
+    <div id="{key}-wrap" style="width:100%;">
+      <div id="{key}-title"
+           style="display:inline-block;border-radius:9999px;padding:.40rem .9rem;
+                  font-weight:800;background:#dbe6ff;border:1px solid #88a8ff;color:#09245e;
+                  margin:0 0 .5rem 0;">
+        DataLab
+      </div>
+      <iframe src="{url}" style="width:100%;height:{h}px;border:0;border-radius:10px;"></iframe>
+    </div>
+    <script>
+      (function(){{
+        const titleEl = document.getElementById("{key}-title");
+        window.addEventListener("message", function(e){{
+          try {{
+            const d = e.data || {{}};
+            if (d.__envy && d.kind === "title" && d.title) {{
+              titleEl.textContent = d.title;
+            }}
+          }} catch(_){{
+          }}
+        }}, false);
+      }})();
+    </script>
+    """
+    st.components.v1.html(html, height=h+56, scrolling=True)
+
 def _11st_abest_url():
     import time
     return ("https://m.11st.co.kr/page/main/abest"
@@ -210,7 +244,8 @@ def _11st_abest_url():
 
 def section_datalab_home():
     st.markdown('<div class="card"><div class="card-title">데이터랩</div>', unsafe_allow_html=True)
-    _proxy_iframe(NAVER_PROXY, "https://datalab.naver.com/", height=860, scroll=True, key="naver_home")
+    # ▶ DataLab은 탭 제목 라벨 수신 버전으로 호출
+    _proxy_iframe_with_title(NAVER_PROXY, "https://datalab.naver.com/", height=860, key="naver_home")
     st.markdown('</div>', unsafe_allow_html=True)
 
 def section_itemscout():
@@ -225,7 +260,7 @@ def section_sellerlife():
 
 def section_11st():
     st.markdown('<div class="card"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>', unsafe_allow_html=True)
-    # (패치) 11번가 카드 높이 = 레이더 영역 최대 높이에 맞춰 상향
+    # 11번가 카드 높이 상향(레이더 표 높이와 균형)
     _proxy_iframe(ELEVENST_PROXY, _11st_abest_url(), height=900, scroll=True, key="abest")
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -269,28 +304,27 @@ def _rk_fetch_rank(genre_id: str, topn: int = 20) -> pd.DataFrame:
 def section_rakuten():
     st.markdown('<div class="card"><div class="card-title">AI 키워드 레이더 (Rakuten)</div>', unsafe_allow_html=True)
 
-    # 상단 컨트롤 (GenreID 비노출)
     colA, colB, colC = st.columns([1, 1, 1])
     with colA:
         scope = st.radio("범위", ["국내","글로벌"], horizontal=True, key="rk_scope")
     with colB:
-        cat = st.selectbox("라쿠텐 카테고리",
-                           ["전체(샘플)","뷰티/코스메틱","의류/패션","가전/디지털",
-                            "가구/인테리어","식품","생활/건강","스포츠/레저","문구/취미"],
-                           key="rk_cat")
+        cat = st.selectbox(
+            "라쿠텐 카테고리",
+            ["전체(샘플)","뷰티/코스메틱","의류/패션","가전/디지털","가구/인테리어","식품","생활/건강","스포츠/레저","문구/취미"],
+            key="rk_cat"
+        )
     with colC:
         sample_only = st.checkbox("샘플 보기", value=False, key="rk_sample")
 
-    # 카테고리→GenreID 매핑 사용(화면에는 숨김)
+    # 카테고리→GenreID 매핑 (세션에 저장, 기본 100283)
     genre_map = st.session_state.get("rk_genre_map", {})
     genre_id = (genre_map.get(cat) or "100283").strip()
 
-    # 매핑 편집(필요시에만)
+    # 장르 매핑 편집(원할 때만 열기)
     with st.expander("🔧 장르 매핑 편집 (GenreID는 여기서만 관리 — 화면에는 숨김)", expanded=False):
         new_map = {}
         cols = st.columns(3)
-        cats = ["전체(샘플)","뷰티/코스메틱","의류/패션","가전/디지털",
-                "가구/인테리어","식품","생활/건강","스포츠/레저","문구/취미"]
+        cats = ["전체(샘플)","뷰티/코스메틱","의류/패션","가전/디지털","가구/인테리어","식품","생활/건강","스포츠/레저","문구/취미"]
         for i, c in enumerate(cats):
             with cols[i % 3]:
                 val = st.text_input(f"{c} → GenreID", value=genre_map.get(c, "100283"), key=f"rk_map_{c}")
@@ -299,7 +333,7 @@ def section_rakuten():
             st.session_state["rk_genre_map"] = new_map
             st.success("장르 매핑을 저장했습니다.")
 
-    # 데이터 불러오기
+    # 데이터 로드
     if sample_only:
         df = pd.DataFrame(
             [{"rank": i+1, "keyword": f"[샘플] 키워드 {i+1}", "shop": "샘플샵", "url": "https://example.com"} for i in range(20)]
@@ -307,17 +341,20 @@ def section_rakuten():
     else:
         df = _rk_fetch_rank(genre_id or "100283", topn=20)
 
-    # (패치) rank 칼럼을 1단계 더 줄임 → 라벨을 "#"로 바꿔 폭을 더 최소화
-    df_display = df.rename(columns={"rank":"#"})
+    # 랭크 칼럼 2단계 축소(= small)
     colcfg = {
-        "#": st.column_config.NumberColumn("#", width="small", format="%d"),
+        "rank": st.column_config.NumberColumn("rank", width="small"),
         "keyword": st.column_config.TextColumn("keyword", width="large"),
         "shop": st.column_config.TextColumn("shop", width="medium"),
         "url": st.column_config.LinkColumn("url", display_text="열기", width="small"),
     }
-    st.dataframe(df_display[["#","keyword","shop","url"]], hide_index=True,
-                 use_container_width=True, height=420, column_config=colcfg)
-
+    st.dataframe(
+        df[["rank","keyword","shop","url"]],
+        hide_index=True,
+        use_container_width=True,
+        height=420,
+        column_config=colcfg
+    )
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
@@ -380,7 +417,7 @@ def section_title_generator():
                     if order=="브랜드-키워드-속성": seq=[brand, k]+at_list
                     elif order=="키워드-브랜드-속성": seq=[k,brand]+at_list
                     else: seq=[brand]+at_list+[k]
-                    title = joiner.join([p for p in seq if p])
+                    title = " ".join([p for p in seq if p]) if joiner==" " else joiner.join([p for p in seq if p])
                     if len(title)>max_len:
                         title = title[:max_len-1]+"…"
                     titles.append(title)
@@ -395,7 +432,7 @@ _ = _sidebar()
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
 # 1줄: 데이터랩 / 아이템스카우트 / 셀러라이프
-# (패치) 데이터랩은 2단계 넓게, 나머지 2개는 각 1단계 좁게
+# 데이터랩 2단계 넓게, 나머지 각 1단계 좁게
 top1, top2, top3 = st.columns([5,2,2], gap="medium")
 with top1: section_datalab_home()
 with top2: section_itemscout()
