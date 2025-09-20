@@ -1,10 +1,15 @@
 # -*- coding: utf-8 -*-
-import os, json
+import os
 from urllib.parse import quote
 
 import streamlit as st
 import pandas as pd
-import numpy as np
+
+# requests가 없을 수도 있어서 안전 가드
+try:
+    import requests
+except Exception:
+    requests = None
 
 # =========================
 # 고정 프록시 (서비스별 분리)
@@ -41,7 +46,6 @@ st.set_page_config(page_title="ENVY — Season 1 (Dual Proxy Edition)", layout="
 
 st.markdown("""
 <style>
-/* 카드 여백/그리드 간격 */
 .block-container { max-width: 1680px !important; padding-top:.6rem !important; }
 
 /* 내부 섹션 헤더 간소화 */
@@ -59,24 +63,25 @@ st.markdown("""
 /* iFrame 높이/스타일 공통 */
 .card iframe { border:0; width:100%; border-radius: 8px; }
 
-/* 첫줄 3개, 둘째줄 4개 — 폭 체감↑ (3배 느낌을 위해 내부 컨텐츠 넓힘) */
+/* 첫줄 3개, 둘째줄 4개 — “넓게” 보이도록 그리드 */
 .row { display: grid; grid-gap: 16px; }
 .row.row-3 { grid-template-columns: 1fr 1fr 1fr; }
 .row.row-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
 
-/* 스크롤 표시(임베드 내부만 스크롤) */
-.embed-wrap { height: 720px; overflow: auto; }
+/* 임베드 컨테이너 스크롤 */
+.embed-wrap { height: 710px; overflow: auto; }
 .embed-wrap-short { height: 640px; overflow: auto; }
 
-/* Rakuten 표 폰트 2단계 축소 */
+/* Rakuten 표 폰트 축소 */
 .rk-table { font-size: .88rem; }
 .rk-table a { font-size: .86rem; }
 
-/* 버튼/인풋 살짝 컴팩트 */
+/* 사이드바 자체 스크롤 유지 */
+[data-testid="stSidebar"] section { height: 100vh; overflow: auto; }
+
 .stButton>button { padding: .3rem .6rem; border-radius: 8px; }
 .stTextInput>div>div>input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] { font-size: .92rem !important; }
 
-/* 하단 여백 */
 .footer-space { height: 12px; }
 </style>
 """, unsafe_allow_html=True)
@@ -84,15 +89,49 @@ st.markdown("""
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
 # =========================
+# Sidebar
+# =========================
+def sidebar():
+    with st.sidebar:
+        st.header("ENVY Sidebar")
+        st.caption("프록시는 코드에 고정되어 있습니다 · 참고용")
+
+        st.text_input("NAVER_PROXY", NAVER_PROXY, disabled=True)
+        st.text_input("11번가_PROXY", ELEVENST_PROXY, disabled=True)
+        st.text_input("Itemscout_PROXY", ITEMSCOUT_PROXY, disabled=True)
+        st.text_input("SellerLife_PROXY", SELLERLIFE_PROXY, disabled=True)
+
+        st.divider()
+        st.caption("Rakuten 키(세션 오버라이드 · 비워두면 기본키 사용)")
+        st.text_input("Rakuten APP_ID (선택)", value=_rk_keys()[0], key="rk_app_override")
+        st.text_input("Rakuten Affiliate (선택)", value=_rk_keys()[1], key="rk_aff_override")
+
+        st.divider()
+        lock = st.toggle("페이지 스크롤 잠금", value=False, key="page_lock")
+        st.caption("사이드바는 스크롤 유지, 본문은 잠금")
+
+    # 페이지 스크롤 잠금 적용
+    if st.session_state.get("page_lock"):
+        st.markdown("<style>html, body { overflow:hidden !important; }</style>", unsafe_allow_html=True)
+
+sidebar()
+
+# =========================
 # 작은 유틸
 # =========================
-def _proxy_embed(proxy_base: str, target_url: str, height: int = 720, scroll=True, key=None):
+def _proxy_embed(proxy_base: str, target_url: str, height: int = 710, scroll=True):
+    """Streamlit iframe: key 파라미터 미지원 → 넘기지 말 것"""
     proxy = proxy_base.strip().rstrip("/")
     url   = f"{proxy}/?url={quote(target_url, safe=':/?&=%')}"
-    st.components.v1.iframe(url, height=height, scrolling=scroll, key=key)
+    st.components.v1.iframe(url, height=height, scrolling=scroll)
 
 def _rk_fetch_rank(genreid: str, app_id: str, affiliate: str, topn:int=20) -> pd.DataFrame:
-    import requests
+    if not requests:
+        # requests 미설치 시 샘플
+        return pd.DataFrame([{
+            "rank": i+1, "keyword": f"[샘플] 키워드 {i+1} ハロウィン 秋 🍂", "shop": "샘플샵", "url": "https://example.com"
+        } for i in range(20)])
+
     api = "https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628"
     params = {"applicationId": app_id, "genreId": str(genreid or "100283")}
     if affiliate: params["affiliateId"] = affiliate
@@ -111,7 +150,6 @@ def _rk_fetch_rank(genreid: str, app_id: str, affiliate: str, topn:int=20) -> pd
             })
         return pd.DataFrame(rows)
     except Exception:
-        # 샘플 폴백
         return pd.DataFrame([{
             "rank": i+1, "keyword": f"[샘플] 키워드 {i+1} ハロウィン 秋 🍂", "shop": "샘플샵", "url": "https://example.com"
         } for i in range(20)])
@@ -121,53 +159,50 @@ def _rk_fetch_rank(genreid: str, app_id: str, affiliate: str, topn:int=20) -> pd
 # =========================
 def section_datalab_embed():
     st.markdown('<div class="card-title">데이터랩</div>', unsafe_allow_html=True)
-    with st.container():
-        with st.container():
-            st.markdown('<div class="card embed-wrap">', unsafe_allow_html=True)
-            # 데스크톱 쇼핑인사이트(디지털/가전) 주간/모두
-            target = ("https://datalab.naver.com/shoppingInsight/sCategory.naver"
-                      "?cid=50000003&timeUnit=week&device=all&gender=all&ages=all")
-            _proxy_embed(NAVER_PROXY, target, height=710, scroll=True, key="dl_embed")
-            st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('<div class="card embed-wrap">', unsafe_allow_html=True)
+    # 데스크톱 쇼핑인사이트(디지털/가전) 주간/모두
+    target = ("https://datalab.naver.com/shoppingInsight/sCategory.naver"
+              "?cid=50000003&timeUnit=week&device=all&gender=all&ages=all")
+    _proxy_embed(NAVER_PROXY, target, height=710, scroll=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
 # 섹션: 아이템스카우트(임베드)
 # =========================
 def section_itemscout_embed():
     st.markdown('<div class="card-title">아이템스카우트</div>', unsafe_allow_html=True)
-    with st.container():
-        st.markdown('<div class="card embed-wrap-short">', unsafe_allow_html=True)
-        target = "https://app.itemscout.io/market/keyword"
-        _proxy_embed(ITEMSCOUT_PROXY, target, height=640, scroll=True, key="itemscout")
-        st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('<div class="card embed-wrap-short">', unsafe_allow_html=True)
+    target = "https://app.itemscout.io/market/keyword"
+    _proxy_embed(ITEMSCOUT_PROXY, target, height=640, scroll=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
 # 섹션: 셀러라이프(임베드)
 # =========================
 def section_sellerlife_embed():
     st.markdown('<div class="card-title">셀러라이프</div>', unsafe_allow_html=True)
-    with st.container():
-        st.markdown('<div class="card embed-wrap-short">', unsafe_allow_html=True)
-        target = "https://sellerlife.co.kr/dashboard"
-        _proxy_embed(SELLERLIFE_PROXY, target, height=640, scroll=True, key="sellerlife")
-        st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('<div class="card embed-wrap-short">', unsafe_allow_html=True)
+    target = "https://sellerlife.co.kr/dashboard"
+    _proxy_embed(SELLERLIFE_PROXY, target, height=640, scroll=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
 # 섹션: 11번가(모바일) — 아마존베스트 고정
 # =========================
 def section_11st():
     st.markdown('<div class="card-title">11번가 (모바일)</div>', unsafe_allow_html=True)
-    with st.container():
-        st.markdown('<div class="card embed-wrap-short">', unsafe_allow_html=True)
-        _proxy_embed(ELEVENST_PROXY, AMAZON_BEST_URL, height=640, scroll=True, key="11st")
-        st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('<div class="card embed-wrap-short">', unsafe_allow_html=True)
+    _proxy_embed(ELEVENST_PROXY, AMAZON_BEST_URL, height=640, scroll=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
 # 섹션: AI 키워드 레이더 (Rakuten)
 # =========================
 def section_rakuten():
     st.markdown('<div class="card-title">AI 키워드 레이더 (Rakuten)</div>', unsafe_allow_html=True)
-    app_id, aff = _rk_keys()
+    # 오버라이드 우선 사용
+    app_id = (st.session_state.get("rk_app_override") or _rk_keys()[0]).strip()
+    aff    = (st.session_state.get("rk_aff_override") or _rk_keys()[1]).strip()
     genreid = st.text_input("GenreID", "100283", key="rk_gid", label_visibility="collapsed")
     df = _rk_fetch_rank(genreid, app_id, aff, topn=20)
     df = df[["rank","keyword","shop","url"]]
@@ -177,10 +212,9 @@ def section_rakuten():
         "shop":    st.column_config.TextColumn("shop", width="medium"),
         "url":     st.column_config.LinkColumn("url", display_text="열기", width="small"),
     }
-    with st.container():
-        st.markdown('<div class="card rk-table">', unsafe_allow_html=True)
-        st.dataframe(df, hide_index=True, use_container_width=True, height=640, column_config=colcfg)
-        st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('<div class="card rk-table">', unsafe_allow_html=True)
+    st.dataframe(df, hide_index=True, use_container_width=True, height=640, column_config=colcfg)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
 # 섹션: 구글 번역(간단)
