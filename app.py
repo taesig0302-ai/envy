@@ -118,9 +118,12 @@ def _sidebar():
         sale_foreign = st.number_input("판매금액 (외화)", value=float(st.session_state["sale_foreign"]),
                                        step=0.01, format="%.2f", key="sale_foreign")
         won = FX_DEFAULT[base] * sale_foreign
-        st.markdown(f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b>'
-                    f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[base]["kr"]} • {CURRENCIES[base]["symbol"]})</span></div>',
-                    unsafe_allow_html=True)
+        # ▼ 변경: 괄호 내 한국어 통화명 제거, 심볼만 표기
+        st.markdown(
+            f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b>'
+            f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[base]["symbol"]})</span></div>',
+            unsafe_allow_html=True
+        )
         st.caption(f"환율 기준: {FX_DEFAULT[base]:,.2f} ₩/{CURRENCIES[base]['unit']}")
 
         st.markdown("### ② 마진 계산기")
@@ -272,8 +275,9 @@ def section_rakuten():
     df = _rk_fetch_rank(gid or "100283", topn=20) if not sample_only else pd.DataFrame(
         [{"rank":i+1,"keyword":f"[샘플] 키워드 {i+1}","shop":"샘플샵","url":"https://example.com"} for i in range(20)]
     )
+    # ▼ 변경: rank 열 너비를 2단계 더 축소(픽셀 고정)
     colcfg = {
-        "rank": st.column_config.NumberColumn("rank", width="small"),
+        "rank": st.column_config.NumberColumn("rank", width=50),
         "keyword": st.column_config.TextColumn("keyword", width="large"),
         "shop": st.column_config.TextColumn("shop", width="medium"),
         "url": st.column_config.LinkColumn("url", display_text="열기", width="small"),
@@ -356,7 +360,8 @@ _ = _sidebar()
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
 # 1줄: 데이터랩 / 아이템스카우트 / 셀러라이프
-top1, top2, top3 = st.columns([3,3,3], gap="medium")
+# ▼ 변경: 비율 [5,2,2]로 조정 (데이터랩 +2, 나머지 각 -1)
+top1, top2, top3 = st.columns([5,2,2], gap="medium")
 with top1: section_datalab_home()
 with top2: section_itemscout()
 with top3: section_sellerlife()
