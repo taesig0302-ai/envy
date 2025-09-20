@@ -175,21 +175,22 @@ def main():
 
     st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
-    # 첫 줄
+    # ── 1행: 데이터랩(6) · 아이템스카우트(3) · 셀러라이프(3)
     cols1 = st.columns([6,3,3])
     with cols1[0]: render_datalab_block()
     with cols1[1]: render_itemscout_block()
     with cols1[2]: render_sellerlife_block()
 
-    # 두 번째 줄
-    cols2 = st.columns([3,3,3])
+    # ── 2행: 11번가(3) · AI 키워드 레이더(3) · 구글 번역(3) · 상품명 생성기(3)
+    cols2 = st.columns([3,3,3,3])
     with cols2[0]: render_11st_block()
     with cols2[1]: render_rakuten_block()
     with cols2[2]: render_translator_block()
+    with cols2[3]: render_product_name_generator()
 
-    # 상품명 생성기 맨 아래
-    st.markdown("---")
-    render_product_name_generator()
+    # ── 맨 아래 호출은 삭제!
+    # st.markdown("---")
+    # render_product_name_generator()
 
 if __name__ == "__main__":
     main()
