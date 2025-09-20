@@ -1,5 +1,5 @@
 # =========================================================
-# ENVY — Season 1 (One-Page, merged Datalab + tweaks)
+# ENVY — Season 1 (One-Page, merged Datalab + new layout)
 # =========================================================
 
 import os, base64, json, re
@@ -60,25 +60,25 @@ def _inject_sidebar_css():
       html, body, [data-testid="stAppViewContainer"] {{
         background-color:{bg} !important; color:{fg} !important;
       }}
-      .block-container {{ padding-top:.8rem !important; padding-bottom:.35rem !important; }}
+      .block-container {{ padding-top:.8rem !重要; padding-bottom:.35rem !重要; }}
       [data-testid="stSidebar"],
       [data-testid="stSidebar"] > div:first-child,
       [data-testid="stSidebar"] section {{
-        height: 100vh !important; overflow: hidden !important;
-        padding-top:.25rem !important; padding-bottom:.25rem !important;
+        height: 100vh !重要; overflow: hidden !重要;
+        padding-top:.25rem !重要; padding-bottom:.25rem !重要;
       }}
-      [data-testid="stSidebar"] section {{ overflow-y: auto !important; }}
-      [data-testid="stSidebar"] ::-webkit-scrollbar {{ display:none !important; }}
+      [data-testid="stSidebar"] section {{ overflow-y: auto !重要; }}
+      [data-testid="stSidebar"] ::-webkit-scrollbar {{ display:none !重要; }}
       [data-testid="stSidebar"] .stSelectbox,
       [data-testid="stSidebar"] .stNumberInput,
       [data-testid="stSidebar"] .stRadio,
       [data-testid="stSidebar"] .stMarkdown,
       [data-testid="stSidebar"] .stTextInput,
-      [data-testid="stSidebar"] .stButton {{ margin:.14rem 0 !important; }}
+      [data-testid="stSidebar"] .stButton {{ margin:.14rem 0 !重要; }}
       [data-baseweb="input"] input,
       .stNumberInput input,
       [data-baseweb="select"] div[role="combobox"] {{
-        height:1.55rem !important; padding:.12rem !important; font-size:.92rem !important;
+        height:1.55rem !重要; padding:.12rem !重要; font-size:.92rem !重要;
       }}
       .logo-circle {{
         width:95px; height:95px; border-radius:50%; overflow:hidden;
@@ -106,41 +106,57 @@ def render_sidebar() -> dict:
         else:
             st.caption("logo.png 를 앱 폴더에 두면 로고 표시")
 
-        st.toggle("🌓 다크 모드", value=(st.session_state.get("theme","light")=="dark"), on_change=_toggle_theme, key="__theme_toggle")
+        st.toggle("🌓 다크 모드", value=(st.session_state.get("theme","light")=="dark"),
+                  on_change=_toggle_theme, key="__theme_toggle")
 
         # ① 환율 계산기
         st.markdown("### ① 환율 계산기")
-        base = st.selectbox("기준 통화", list(CURRENCIES.keys()), index=list(CURRENCIES.keys()).index(st.session_state["fx_base"]), key="fx_base")
-        sale_foreign = st.number_input("판매금액 (외화)", value=float(st.session_state["sale_foreign"]), step=0.01, format="%.2f", key="sale_foreign")
+        base = st.selectbox("기준 통화", list(CURRENCIES.keys()),
+                            index=list(CURRENCIES.keys()).index(st.session_state["fx_base"]), key="fx_base")
+        sale_foreign = st.number_input("판매금액 (외화)", value=float(st.session_state["sale_foreign"]),
+                                       step=0.01, format="%.2f", key="sale_foreign")
         won = FX_DEFAULT[base] * sale_foreign
-        st.markdown(f'<div class="badge-green">환산 금액: <b>{won:,.2f} 원</b> <span class="muted">({CURRENCIES[base]["kr"]} • {CURRENCIES[base]["symbol"]})</span></div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="badge-green">환산 금액: <b>{won:,.2f} 원</b> '
+            f'<span class="muted">({CURRENCIES[base]["kr"]} • {CURRENCIES[base]["symbol"]})</span></div>',
+            unsafe_allow_html=True)
         st.caption(f"환율 기준: {FX_DEFAULT[base]:,.2f} ₩/{CURRENCIES[base]['unit']}")
 
         # ② 마진 계산기
         st.markdown("### ② 마진 계산기")
-        m_base = st.selectbox("매입 통화", list(CURRENCIES.keys()), index=list(CURRENCIES.keys()).index(st.session_state["m_base"]), key="m_base")
-        purchase_foreign = st.number_input("매입금액 (외화)", value=float(st.session_state["purchase_foreign"]), step=0.01, format="%.2f", key="purchase_foreign")
+        m_base = st.selectbox("매입 통화", list(CURRENCIES.keys()),
+                              index=list(CURRENCIES.keys()).index(st.session_state["m_base"]), key="m_base")
+        purchase_foreign = st.number_input("매입금액 (외화)", value=float(st.session_state["purchase_foreign"]),
+                                           step=0.01, format="%.2f", key="purchase_foreign")
         base_cost_won = FX_DEFAULT[m_base] * purchase_foreign if purchase_foreign>0 else won
         st.markdown(f'<div class="badge-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
         colf1, colf2 = st.columns(2)
-        with colf1: card_fee = st.number_input("카드수수료(%)", value=float(st.session_state["card_fee_pct"]), step=0.01, format="%.2f", key="card_fee_pct")
-        with colf2: market_fee = st.number_input("마켓수수료(%)", value=float(st.session_state["market_fee_pct"]), step=0.01, format="%.2f", key="market_fee_pct")
-        shipping_won = st.number_input("배송비(₩)", value=float(st.session_state["shipping_won"]), step=100.0, format="%.0f", key="shipping_won")
+        with colf1:
+            card_fee = st.number_input("카드수수료(%)", value=float(st.session_state["card_fee_pct"]),
+                                       step=0.01, format="%.2f", key="card_fee_pct")
+        with colf2:
+            market_fee = st.number_input("마켓수수료(%)", value=float(st.session_state["market_fee_pct"]),
+                                         step=0.01, format="%.2f", key="market_fee_pct")
+        shipping_won = st.number_input("배송비(₩)", value=float(st.session_state["shipping_won"]),
+                                       step=100.0, format="%.0f", key="shipping_won")
 
         mode = st.radio("마진 방식", ["퍼센트","플러스"], horizontal=True, key="margin_mode")
         if mode == "퍼센트":
-            margin_pct = st.number_input("마진율 (%)", value=float(st.session_state["margin_pct"]), step=0.01, format="%.2f", key="margin_pct")
+            margin_pct = st.number_input("마진율 (%)", value=float(st.session_state["margin_pct"]),
+                                         step=0.01, format="%.2f", key="margin_pct")
             target_price = base_cost_won * (1 + card_fee/100) * (1 + market_fee/100) * (1 + margin_pct/100) + shipping_won
             margin_value = target_price - base_cost_won
             margin_desc = f"{margin_pct:.2f}%"
         else:
-            margin_won = st.number_input("마진액 (₩)", value=float(st.session_state["margin_won"]), step=100.0, format="%.0f", key="margin_won")
+            margin_won = st.number_input("마진액 (₩)", value=float(st.session_state["margin_won"]),
+                                         step=100.0, format="%.0f", key="margin_won")
             target_price = base_cost_won * (1 + card_fee/100) * (1 + market_fee/100) + margin_won + shipping_won
             margin_value = margin_won
             margin_desc = f"+{margin_won:,.0f}"
 
         st.markdown(f'<div class="badge-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="badge-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {margin_desc}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="badge-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {margin_desc}</div>',
+                    unsafe_allow_html=True)
 
         st.divider()
         st.markdown("##### 프록시/환경")
@@ -397,7 +413,7 @@ def _fetch_trend(cookie: str, keywords: List[str], start: str, end: str) -> pd.D
 # Part 3.5 — Datalab HYBRID (Embed + Analysis) — merged
 # =========================================================
 def render_datalab_hybrid_block():
-    # 내부 제목 제거(요청): 카드 헤더만 사용
+    # 내부 제목 제거: 카드 헤더만 사용
     colA, colB, colC = st.columns([1,1,1])
     with colA:
         cat = st.selectbox("카테고리", DATALAB_CATS, key="dl_cat_merge")
@@ -519,19 +535,19 @@ def _fetch_rank(genre_id: str, topn: int = 20) -> pd.DataFrame:
     rows = []
     for it in items[:topn]:
         node = it.get("Item", {})
-        rows.append({"rank": node.get("rank"), "keyword": node.get("itemName") or "", "shop": node.get("shopName") or "", "url": node.get("itemUrl") or ""})
+        rows.append({"rank": node.get("rank"), "keyword": node.get("itemName") or "",
+                     "shop": node.get("shopName") or "", "url": node.get("itemUrl") or ""})
     if not rows:
         for i in range(1, topn+1):
             rows.append({"rank": i, "keyword": f"[샘플] 키워드 {i} ハロウィン 秋 🍂", "shop": "샘플샵", "url": "https://example.com"})
     return pd.DataFrame(rows)
 
 def render_rakuten_block():
-    # 내부 제목 제거 + 표 글꼴 더 작게(2단계)
     st.markdown("""
     <style>
       .rk-wrap [data-testid="stVerticalBlock"] { gap: .4rem !important; }
-      .rk-wrap .stDataFrame [role="grid"] { font-size: 0.80rem !important; }    /* ↓ 두 단계 */
-      .rk-wrap .stDataFrame a { font-size: 0.76rem !important; }               /* ↓ 두 단계 */
+      .rk-wrap .stDataFrame [role="grid"] { font-size: 0.80rem !important; }  /* ↓ 2단계 */
+      .rk-wrap .stDataFrame a { font-size: 0.76rem !important; }             /* ↓ 2단계 */
     </style>
     """, unsafe_allow_html=True)
 
@@ -567,7 +583,7 @@ def render_rakuten_block():
         st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================================================
-# Part 6 — Google Translator (same)
+# Part 6 — Google Translator
 # =========================================================
 def translate_text(src:str, tgt:str, text:str) -> tuple[str,str]:
     if not GoogleTranslator:
@@ -586,10 +602,12 @@ def translate_text(src:str, tgt:str, text:str) -> tuple[str,str]:
 def render_translator_block():
     c1, c2 = st.columns([1,1])
     with c1:
-        src = st.selectbox("원문 언어", list(LANG_LABELS.values()), index=list(LANG_LABELS.keys()).index("auto"), key="tr_src")
+        src = st.selectbox("원문 언어", list(LANG_LABELS.values()),
+                           index=list(LANG_LABELS.keys()).index("auto"), key="tr_src")
         text_in = st.text_area("원문 입력", height=150, key="tr_in")
     with c2:
-        tgt = st.selectbox("번역 언어", list(LANG_LABELS.values()), index=list(LANG_LABELS.keys()).index("en"), key="tr_tgt")
+        tgt = st.selectbox("번역 언어", list(LANG_LABELS.values()),
+                           index=list(LANG_LABELS.keys()).index("en"), key="tr_tgt")
         if st.button("번역", key="tr_go"):
             try:
                 out, ko_hint = translate_text(lang_label_to_code(src), lang_label_to_code(tgt), text_in)
@@ -661,9 +679,9 @@ def render_product_name_generator():
 def _inject_global_css():
     st.markdown("""
     <style>
-      .block-container { max-width: 1650px !important; padding-top:.8rem !important; padding-bottom:1rem !important; }
-      .section-spacer { height: 2.5vh; }
-      h3 { margin-top:.2rem !important; }
+      .block-container { max-width: 1680px !important; padding-top:.8rem !important; padding-bottom:1rem !important; }
+      .section-spacer { height: 2.4vh; }
+      h3, h4, h5, h6 { margin-top:.2rem !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -682,7 +700,7 @@ def _safe_call(fn_name:str):
         st.info(f"'{fn_name}()' 이 정의되어 있지 않습니다.")
 
 # =========================================================
-# Part 10 — Main
+# Part 10 — Main (NEW ORDER & WIDTHS)
 # =========================================================
 def main():
     render_sidebar()
@@ -691,36 +709,31 @@ def main():
     st.title("ENVY — Season 1 (stable)")
     st.caption("임베드 + 분석 보조. 프록시/쿠키는 Worker/Secrets로 관리.")
 
-    # 1행 (4칸)
-    r1c1, r1c2, r1c3, r1c4 = st.columns([1,1,1,1], gap="large")
+    # ── 1행: 데이터랩(6) · 아이템스카우트(3) · 셀러라이프(3)
+    r1c1, r1c2, r1c3 = st.columns([6,3,3], gap="large")
     with r1c1:
         _card("데이터랩 (임베드+분석)")
         _safe_call("render_datalab_hybrid_block")
     with r1c2:
-        _card("11번가 (모바일) — 아마존베스트")
-        _safe_call("render_11st_block")
+        _card("아이템스카우트 (임베드)")
+        _safe_call("render_itemscout_embed")
     with r1c3:
-        _card("상품명 생성기 (규칙 기반)")
-        _safe_call("render_product_name_generator")
-    with r1c4:
-        _card("AI 키워드 레이더 (Rakuten)")
-        _safe_call("render_rakuten_block")
+        _card("셀러라이프 (임베드)")
+        _safe_call("render_sellerlife_embed")
 
     _spacer()
 
-    # 2행 (4칸)
-    r2c1, r2c2, r2c3, r2c4 = st.columns([1,1,1,1], gap="large")
+    # ── 2행: 11번가(3) · AI 키워드 레이더(3) · 구글 번역(3)
+    r2c1, r2c2, r2c3 = st.columns([3,3,3], gap="large")
     with r2c1:
+        _card("11번가 (모바일) — 아마존베스트")
+        _safe_call("render_11st_block")
+    with r2c2:
+        _card("AI 키워드 레이더 (Rakuten)")
+        _safe_call("render_rakuten_block")
+    with r2c3:
         _card("구글 번역")
         _safe_call("render_translator_block")
-    with r2c2:
-        _card("아이템스카우트 (임베드)")
-        _safe_call("render_itemscout_embed")
-    with r2c3:
-        _card("셀러라이프 (임베드)")
-        _safe_call("render_sellerlife_embed")
-    with r2c4:
-        st.empty()  # 남는 칸
 
 if __name__ == "__main__":
     main()
