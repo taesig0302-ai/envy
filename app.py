@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
-# ENVY — Season 1 (Dual Proxy Edition, Ultra-Wide + Sidebar Lock, Final)
+# ENVY — Season 1 (Dual Proxy Edition, Ultra-Wide + Sidebar Lock, Pill UI, DataLab First-View)
 
 import os, base64
 from pathlib import Path
 from urllib.parse import quote
-from datetime import date, timedelta
 
 import streamlit as st
 import pandas as pd
@@ -15,7 +14,7 @@ except Exception:
     requests = None
 
 # ------------------------------------------------------------
-# 페이지 설정: 초광폭
+# 페이지 설정(초광폭)
 # ------------------------------------------------------------
 st.set_page_config(page_title="ENVY — Season 1 (Dual Proxy Edition)", layout="wide")
 
@@ -25,7 +24,7 @@ st.set_page_config(page_title="ENVY — Season 1 (Dual Proxy Edition)", layout="
 SHOW_ADMIN_BOX = False  # 사이드바 '프록시/환경' 박스 숨김
 
 # =========================
-# [Part 1] 사이드바 (로고 + 환율/마진 계산기) — 사이드바 '스크롤락'
+# [Part 1] 사이드바 (스크롤락 + Pill UI)
 # =========================
 CURRENCIES = {
     "USD": {"kr": "미국 달러", "symbol": "$", "unit": "USD"},
@@ -60,7 +59,7 @@ def _inject_sidebar_css():
     <style>
       /* 본문 초광폭 */
       .block-container {{
-        max-width: 3800px !important;  /* ✅ 더 와이드 */
+        max-width: 3800px !important;
         padding-top:.6rem !important; padding-bottom:1rem !important;
       }}
 
@@ -68,7 +67,7 @@ def _inject_sidebar_css():
         background-color:{bg} !important; color:{fg} !important;
       }}
 
-      /* ✅ 사이드바 스크롤락 (고정) + 스크롤바 숨김 */
+      /* ✅ 사이드바 '스크롤락' + 스크롤 숨김 */
       [data-testid="stSidebar"],
       [data-testid="stSidebar"] > div:first-child,
       [data-testid="stSidebar"] section {{
@@ -76,46 +75,48 @@ def _inject_sidebar_css():
         overflow: hidden !important;
         padding-top:.25rem !important; padding-bottom:.25rem !important;
       }}
+      [data-testid="stSidebar"] section {{ overflow-y: auto !important; }}
       [data-testid="stSidebar"] ::-webkit-scrollbar {{ display:none !important; }}
 
-      /* 사이드바 입력 컴포넌트 여백 */
+      /* 사이드바 UI 여백/폰트 */
       [data-testid="stSidebar"] .stSelectbox,
       [data-testid="stSidebar"] .stNumberInput,
       [data-testid="stSidebar"] .stRadio,
       [data-testid="stSidebar"] .stMarkdown,
       [data-testid="stSidebar"] .stTextInput,
-      [data-testid="stSidebar"] .stButton {{ margin:.14rem 0 !important; }}
+      [data-testid="stSidebar"] .stButton {{ margin:.18rem 0 !important; }}
 
       [data-baseweb="input"] input,
       .stNumberInput input,
       [data-baseweb="select"] div[role="combobox"] {{
-        height:1.55rem !important; padding:.12rem !important; font-size:.92rem !important;
+        height:1.6rem !important; padding:.18rem .5rem !important; font-size:.95rem !important;
+        border-radius: 12px !important;
       }}
 
       /* 로고 */
       .logo-circle {{
         width:95px; height:95px; border-radius:50%; overflow:hidden;
-        margin:.15rem auto .35rem auto; box-shadow:0 2px 8px rgba(0,0,0,.12);
+        margin:.2rem auto .45rem auto; box-shadow:0 2px 8px rgba(0,0,0,.12);
         border:1px solid rgba(0,0,0,.06);
       }}
       .logo-circle img {{ width:100%; height:100%; object-fit:cover; }}
 
-      /* 컬러 배지 */
-      .badge-green  {{ background:#e6ffcc; border:1px solid #b6f3a4; padding:6px 10px; border-radius:6px; color:#0b2e13; font-size:.86rem; display:inline-block; }}
-      .badge-blue   {{ background:#eef4ff; border:1px solid #bcd0ff; padding:6px 10px; border-radius:6px; color:#0a235a; font-size:.86rem; display:inline-block; }}
-      .badge-yellow {{ background:#fff7d6; border:1px solid #f1d27a; padding:6px 10px; border-radius:6px; color:#4a3b07; font-size:.86rem; display:inline-block; }}
-      .muted        {{ opacity:.8; font-size:.8rem; }}
+      /* ✅ Pill 배지(색상은 기존 팔레트 유지) */
+      .pill {{ border-radius:9999px; padding:.45rem .9rem; font-weight:700; display:inline-block; }}
+      .pill-green  {{ background:#e6ffcc; border:1px solid #b6f3a4; color:#0b2e13; }}
+      .pill-blue   {{ background:#eef4ff; border:1px solid #bcd0ff; color:#0a235a; }}
+      .pill-yellow {{ background:#fff7d6; border:1px solid #f1d27a; color:#4a3b07; }}
 
       /* 카드 */
-      .card {{ border:1px solid rgba(0,0,0,.06); border-radius:12px; padding:.75rem; background:#fff; box-shadow:0 1px 6px rgba(0,0,0,.04); }}
-      .card-title {{ font-size: 1.15rem; font-weight: 700; margin: .1rem 0 .4rem 0; }}
-      .card iframe {{ border:0; width:100%; border-radius:8px; }}
+      .card {{ border:1px solid rgba(0,0,0,.06); border-radius:14px; padding:.9rem; background:#fff; box-shadow:0 1px 6px rgba(0,0,0,.05); }}
+      .card-title {{ font-size: 1.18rem; font-weight: 800; margin: .1rem 0 .5rem 0; }}
+      .card iframe {{ border:0; width:100%; border-radius:10px; }}
 
-      /* 임베드 통일 높이 */
+      /* 임베드 높이 */
       .embed-wrap    {{ height: 860px; overflow:auto; }}
       .embed-wrap-sm {{ height: 760px; overflow:auto; }}
 
-      /* 표 폰트(라쿠텐) */
+      /* 라쿠텐 표 */
       .rk-table {{ font-size:.88rem; }}
       .rk-table a {{ font-size:.86rem; }}
 
@@ -132,6 +133,7 @@ def render_sidebar():
 
     result = {}
     with st.sidebar:
+        # 로고
         lp = Path(__file__).parent / "logo.png"
         if lp.exists():
             b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
@@ -139,10 +141,11 @@ def render_sidebar():
         else:
             st.caption("logo.png 를 앱 파일과 같은 폴더에 두면 로고가 표시됩니다.")
 
+        # 다크 모드 토글
         st.toggle("🌓 다크 모드", value=(st.session_state.get("theme","light")=="dark"),
                   on_change=_toggle_theme, key="__theme_toggle")
 
-        # ① 환율 계산기
+        # 환율 계산기
         st.markdown("### ① 환율 계산기")
         base = st.selectbox("기준 통화", list(CURRENCIES.keys()),
                             index=list(CURRENCIES.keys()).index(st.session_state["fx_base"]),
@@ -151,13 +154,13 @@ def render_sidebar():
                                        step=0.01, format="%.2f", key="sale_foreign")
         won = FX_DEFAULT[base] * sale_foreign
         st.markdown(
-            f'<div class="badge-green">환산 금액: <b>{won:,.2f} 원</b> '
-            f'<span class="muted">({CURRENCIES[base]["kr"]} • {CURRENCIES[base]["symbol"]})</span></div>',
+            f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b> '
+            f'<span style="opacity:.7;font-weight:600;"> ({CURRENCIES[base]["kr"]} • {CURRENCIES[base]["symbol"]})</span></div>',
             unsafe_allow_html=True
         )
         st.caption(f"환율 기준: {FX_DEFAULT[base]:,.2f} ₩/{CURRENCIES[base]['unit']}")
 
-        # ② 마진 계산기
+        # 마진 계산기
         st.markdown("### ② 마진 계산기")
         m_base = st.selectbox("매입 통화", list(CURRENCIES.keys()),
                               index=list(CURRENCIES.keys()).index(st.session_state["m_base"]),
@@ -165,7 +168,7 @@ def render_sidebar():
         purchase_foreign = st.number_input("매입금액 (외화)", value=float(st.session_state["purchase_foreign"]),
                                            step=0.01, format="%.2f", key="purchase_foreign")
         base_cost_won = FX_DEFAULT[m_base] * purchase_foreign if purchase_foreign>0 else won
-        st.markdown(f'<div class="badge-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="pill pill-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
 
         colf1, colf2 = st.columns(2)
         with colf1:
@@ -191,17 +194,15 @@ def render_sidebar():
             margin_value = margin_won
             margin_desc = f"+{margin_won:,.0f}"
 
-        st.markdown(f'<div class="badge-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="badge-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {margin_desc}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="pill pill-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="pill pill-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {margin_desc}</div>', unsafe_allow_html=True)
 
-        # 프록시/환경 표시는 숨김 (SHOW_ADMIN_BOX False)
         if SHOW_ADMIN_BOX:
             st.divider()
             st.markdown("##### 프록시/환경")
             st.text_input("PROXY_URL (Cloudflare Worker 등)",
                           value=st.session_state.get("PROXY_URL",""), key="PROXY_URL",
                           help="예: https://envy-proxy.example.workers.dev")
-            st.caption("※ 운영 고정값 사용 중")
 
     result.update({
         "fx_base": base,
@@ -220,14 +221,14 @@ def render_sidebar():
     return result
 
 # =========================
-# [Part 2] 프록시 세팅 (서비스별 분리)
+# [Part 2] 프록시(서비스별)
 # =========================
 NAVER_PROXY       = "https://envy-proxy.taesig0302.workers.dev"
 ELEVENST_PROXY    = "https://worker-11stjs.taesig0302.workers.dev"
 ITEMSCOUT_PROXY   = "https://worker-itemscoutjs.taesig0302.workers.dev"
 SELLERLIFE_PROXY  = "https://worker-sellerlifejs.taesig0302.workers.dev"
 
-# 11번가 아마존 베스트 — 고정 URL (요청한 주소)
+# 11번가 아마존 베스트 — 고정 URL
 AMAZON_BEST_URL = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
 
 # =========================
@@ -239,13 +240,16 @@ def _proxy_embed(proxy_base: str, target_url: str, height: int = 860, scroll=Tru
     st.components.v1.iframe(url, height=height, scrolling=scroll)
 
 # =========================
-# [Part 4] 섹션 컴포넌트
+# [Part 4] 섹션들
 # =========================
 def section_datalab_embed():
+    """
+    쇼핑인사이트 > 분야별 인기 검색어 (일간) — 패션의류(50000000)
+    """
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.markdown('<div class="card-title">데이터랩</div>', unsafe_allow_html=True)
     target = ("https://datalab.naver.com/shoppingInsight/sCategory.naver"
-              "?cid=50000003&timeUnit=week&device=all&gender=all&ages=all")
+              "?cid=50000000&timeUnit=date&device=all&gender=all&ages=all")
     _proxy_embed(NAVER_PROXY, target, height=860, scroll=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -269,9 +273,10 @@ def section_11st():
     _proxy_embed(ELEVENST_PROXY, AMAZON_BEST_URL, height=760, scroll=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-# --- Rakuten 키워드 레이더 ---
+# --- 라쿠텐 키워드 레이더 ---
 RAKUTEN_APP_ID_DEFAULT       = "1043271015809337425"
 RAKUTEN_AFFILIATE_ID_DEFAULT = "4c723498.cbfeca46.4c723499.1deb6f77"
+
 def _rk_keys():
     try:
         app_id = st.secrets.get("RAKUTEN_APP_ID", "") or st.secrets.get("RAKUTEN_APPLICATION_ID", "")
@@ -376,7 +381,7 @@ def section_title_generator():
                 if order=="브랜드-키워드-속성": seq = [brand, k] + at_list
                 elif order=="키워드-브랜드-속성": seq = [k, brand] + at_list
                 else: seq = [brand] + at_list + [k]
-                title = joiner.join([p for p in seq if p])
+                title = " ".join([p for p in seq if p]) if joiner==" " else joiner.join([p for p in seq if p])
                 if len(title) > max_len:
                     title = title[:max_len-1] + "…"
                 titles.append(title)
@@ -385,7 +390,7 @@ def section_title_generator():
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
-# [Part 5] 메인 조립 — 가로 고정 (1행 3개 / 2행 4개)
+# [Part 5] 메인 조립 (가로 고정: 위 3 / 아래 4)
 # =========================
 _ = render_sidebar()
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
