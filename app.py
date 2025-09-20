@@ -295,14 +295,12 @@ with colB:
             st.write("번역 결과")
             st.text_area("번역 결과", dummy, height=160)
 
-# =========================
-# PART_G — 사이드바 통교체
-# =========================
+# PART_G — 사이드바 (고정/스크롤락/로고/다크·라이트/환율·마진/프록시-조건부)
 import streamlit as st
 import base64
 from pathlib import Path
 
-# ── 통화/환율 기본 ───────────────────────────────────────────────────────────
+# ── 통화/라벨/환율 기본값 ──────────────────────────────────────────────
 CURRENCIES = {
     "USD": {"kr": "미국 달러", "symbol": "$", "unit": "USD"},
     "EUR": {"kr": "유로",     "symbol": "€", "unit": "EUR"},
@@ -311,17 +309,17 @@ CURRENCIES = {
 }
 FX_DEFAULT = {"USD": 1400.0, "EUR": 1500.0, "JPY": 10.0, "CNY": 200.0}
 
-# ── 세션 기본값 ──────────────────────────────────────────────────────────────
 def _ensure_session_defaults():
     ss = st.session_state
-    ss.setdefault("theme", "light")
+    ss.setdefault("theme", "light")  # 'light' | 'dark'
     ss.setdefault("PROXY_URL", "https://envy-proxy.taesig0302.workers.dev")
-    ss.setdefault("proxy_error_code", None)   # 401/403/1016 등 외부 파트가 세팅
+    ss.setdefault("proxy_error_code", None)   # 401/403/1016 발생 시 외부 파트에서 세팅
+
     # 환율 계산기
     ss.setdefault("fx_base", "USD")
     ss.setdefault("sale_foreign", 1.00)
+
     # 마진 계산기
-    ss.setdefault("purchase_foreign", 0.00)  # 외화 매입금액(선택 시 사용 가능)
     ss.setdefault("card_fee_pct", 4.00)
     ss.setdefault("market_fee_pct", 14.00)
     ss.setdefault("shipping_won", 0.0)
@@ -333,106 +331,102 @@ def _toggle_theme():
     st.session_state["theme"] = "dark" if st.session_state.get("theme","light")=="light" else "light"
 
 def _should_show_proxy_panel() -> bool:
-    # 오류코드(401/403/1016) 또는 PROXY_URL 미설정 시에만 표시
     code = st.session_state.get("proxy_error_code")
     proxy = (st.session_state.get("PROXY_URL") or "").strip()
-    if code in (401,403,1016):
+    if code in (401,403,1016):  # 차단/만료 등
         return True
     if not proxy:
         return True
     return False
 
-# ── CSS 주입(사이드바 고정 + 컬러 배지) ─────────────────────────────────────
 def _inject_sidebar_css():
-    theme = st.session_state.get("theme","light")
-    bg, fg = ("#0e1117", "#e6edf3") if theme=="dark" else ("#ffffff","#111111")
-
-    st.markdown(f"""
+    # 스크롤은 되지만 스크롤바는 숨김 → 시각적으로 '락'처럼 보이게.
+    # 이중 스크롤 방지 위해 사이드바 내부만 auto, 바는 숨김.
+    st.markdown("""
     <style>
-      /* 전체 배경색/글자색 (라이트/다크) */
-      html, body, [data-testid="stAppViewContainer"] {{
-        background-color:{bg} !important; color:{fg} !important;
-      }}
-      /* 본문 여백 */
-      .block-container {{ padding-top:.8rem !important; padding-bottom:.35rem !important; }}
-      /* ── 사이드바: 100vh 고정 + 스크롤락(이중 스크롤 방지) ── */
-      [data-testid="stSidebar"],
+      /* 사이드바 고정 + 내부 스크롤(바 숨김) */
       [data-testid="stSidebar"] > div:first-child,
-      [data-testid="stSidebar"] section {{
-        height: 100vh !important; overflow: hidden !important;
-        padding-top:.25rem !important; padding-bottom:.25rem !important;
-      }}
-      [data-testid="stSidebar"] ::-webkit-scrollbar {{ display:none !important; }}
+      [data-testid="stSidebar"] section {
+        height: 100vh !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        padding-top: .25rem !important;
+        padding-bottom: .25rem !important;
+      }
+      [data-testid="stSidebar"] ::-webkit-scrollbar { width:0; height:0; }
 
-      /* 입력/셀렉트 압축 */
+      /* 입력 간격 압축 */
       [data-testid="stSidebar"] .stSelectbox,
       [data-testid="stSidebar"] .stNumberInput,
       [data-testid="stSidebar"] .stRadio,
       [data-testid="stSidebar"] .stMarkdown,
       [data-testid="stSidebar"] .stTextInput,
-      [data-testid="stSidebar"] .stButton {{ margin:.14rem 0 !important; }}
+      [data-testid="stSidebar"] .stButton { margin:.14rem 0 !important; }
 
       [data-baseweb="input"] input,
       .stNumberInput input,
-      [data-baseweb="select"] div[role="combobox"] {{
+      [data-baseweb="select"] div[role="combobox"] {
         height:1.55rem !important; padding:.12rem !important; font-size:.92rem !important;
-      }}
+      }
 
-      /* 로고 (원형+그림자) */
-      .logo-circle {{
+      /* 로고 (원형 + 그림자) */
+      .logo-circle {
         width:95px; height:95px; border-radius:50%; overflow:hidden;
         margin:.15rem auto .35rem auto; box-shadow:0 2px 8px rgba(0,0,0,.12);
         border:1px solid rgba(0,0,0,.06);
-      }}
-      .logo-circle img {{ width:100%; height:100%; object-fit:cover; }}
+      }
+      .logo-circle img { width:100%; height:100%; object-fit:cover; }
 
-      /* 컬러 박스(읽기 전용) */
-      .badge-green  {{ background:#e6ffcc; border:1px solid #b6f3a4; padding:6px 10px; border-radius:6px; color:#0b2e13; font-size:.86rem; }}
-      .badge-blue   {{ background:#eef4ff; border:1px solid #bcd0ff; padding:6px 10px; border-radius:6px; color:#0a235a; font-size:.86rem; }}
-      .badge-yellow {{ background:#fff7d6; border:1px solid #f1d27a; padding:6px 10px; border-radius:6px; color:#4a3b07; font-size:.86rem; }}
-      .muted        {{ opacity:.8; font-size:.8rem; }}
+      /* 읽기용 컬러 박스 */
+      .pill-green  { background:#e6ffcc; border:1px solid #b6f3a4; padding:6px 10px; border-radius:6px; color:#0b2e13; font-size:.86rem; }
+      .pill-blue   { background:#eef4ff; border:1px solid #bcd0ff; padding:6px 10px; border-radius:6px; color:#0a235a; font-size:.86rem; }
+      .pill-amber  { background:#fff7d6; border:1px solid #f1d27a; padding:6px 10px; border-radius:6px; color:#4a3b07; font-size:.86rem; }
+      .muted { opacity:.8; font-size:.8rem; }
 
-      /* 프록시/환경 박스 (필요 시에만 렌더) */
-      .info-box {{ background:rgba(0,0,0,.03); border:1px dashed rgba(0,0,0,.08); padding:.6rem; border-radius:.5rem; }}
+      /* 프록시/환경 알림 박스(조건부 노출) */
+      .info-box { background:rgba(0,0,0,.03); border:1px dashed rgba(0,0,0,.08); padding:.6rem; border-radius:.5rem; }
     </style>
     """, unsafe_allow_html=True)
 
-# ── 로고 렌더(안정: base64 인라인) ──────────────────────────────────────────
 def _render_logo():
-    lp = Path(__file__).parent / "logo.png"
+    # logo.png가 앱 루트에 있으면 base64로 표시
+    try:
+        lp = Path(__file__).parent / "logo.png"
+    except NameError:
+        lp = Path("logo.png")
     if lp.exists():
         b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
         st.markdown(f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>', unsafe_allow_html=True)
     else:
-        st.caption("logo.png 를 앱 파일과 같은 폴더에 두면 로고가 표시됩니다.")
+        st.caption("logo.png 를 앱 폴더에 두면 로고가 표시됩니다.")
 
-# ── 사이드바 본체 ───────────────────────────────────────────────────────────
 def render_sidebar() -> dict:
     """
-    사이드바 UI 전부 렌더:
-      - 로고
-      - 다크/라이트 모드 토글
-      - ① 환율 계산기 (통화 선택 / 구매금액(외화) / 환산금액 컬러박스)
-      - ② 마진 계산기 (구매금액(원화)=기본 환산값 / 수수료 / 배송비 / 마진 / 판매가·순이익 컬러박스)
-      - (숨김) 프록시/환경 패널: 오류(401/403/1016)나 PROXY_URL 미설정일 때만 표시
+    사이드바 전체 UI 렌더:
+    - 로고
+    - 다크/라이트 모드
+    - ① 환율 계산기: 통화 선택 / 구매금액(외화) / 환산금액(읽기용 컬러박스)
+    - ② 마진 계산기: 원가(₩=환산값) / 수수료 / 배송비 / 퍼센트/플러스 / 판매가·순이익(읽기용 컬러박스)
+    - 프록시/환경: 401/403/1016 또는 미설정 시에만 노출
     """
     _ensure_session_defaults()
     _inject_sidebar_css()
 
     result = {}
     with st.sidebar:
-        # ── 로고 ─────────────────────────────────────────────────────────────
+        # ── 로고 ─────────────────────────────────────────────────────────
         _render_logo()
 
-        # 모드 토글
-        st.toggle("다크/라이트 모드", value=(st.session_state.get("theme","light")=="dark"),
+        # 다크/라이트 모드 (문구 고정)
+        st.toggle("다크/라이트 모드",
+                  value=(st.session_state.get("theme","light")=="dark"),
                   on_change=_toggle_theme, key="__theme_toggle")
 
-        # ── ① 환율 계산기 ───────────────────────────────────────────────────
+        # ── ① 환율 계산기 ───────────────────────────────────────────────
         st.markdown("### ① 환율 계산기")
-        currency_codes = list(CURRENCIES.keys())
-        def _fmt(code): 
+        def _fmt(code):
             c = CURRENCIES[code]; return f"{c['kr']} ({c['unit']}) {c['symbol']}"
+        currency_codes = list(CURRENCIES.keys())
         base = st.selectbox("통화 선택", currency_codes,
                             index=currency_codes.index(st.session_state["fx_base"]),
                             format_func=_fmt, key="fx_base")
@@ -440,17 +434,17 @@ def render_sidebar() -> dict:
                                        step=0.01, format="%.2f", key="sale_foreign")
         won = FX_DEFAULT[base] * sale_foreign
         st.markdown(
-            f'<div class="badge-green">환산 금액: <b>{won:,.2f} 원</b> '
+            f'<div class="pill-green">환산 금액: <b>{won:,.2f} 원</b> '
             f'<span class="muted">({CURRENCIES[base]["kr"]} • {CURRENCIES[base]["symbol"]})</span></div>',
             unsafe_allow_html=True
         )
         st.caption(f"환율 기준: {FX_DEFAULT[base]:,.2f} ₩/{CURRENCIES[base]['unit']}")
 
-        # ── ② 마진 계산기 ───────────────────────────────────────────────────
+        # ── ② 마진 계산기 ───────────────────────────────────────────────
         st.markdown("### ② 마진 계산기")
-        # 기본 원가 = 환율 환산값(없으면 0)
-        base_cost_won = won
-        st.markdown(f'<div class="badge-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
+
+        base_cost_won = won  # 원가(₩) 기본값 = 환율 환산값
+        st.markdown(f'<div class="pill-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
 
         colf1, colf2 = st.columns(2)
         with colf1:
@@ -464,12 +458,10 @@ def render_sidebar() -> dict:
 
         mode = st.radio("마진 방식", ["퍼센트","플러스"], horizontal=True, key="margin_mode")
 
+        fee_rate = (card_fee + market_fee) / 100.0
         if mode == "퍼센트":
             margin_pct = st.number_input("마진율 (%)", value=float(st.session_state["margin_pct"]),
                                          step=0.01, format="%.2f", key="margin_pct")
-            # 역산: 판매가 * (1 - 수수료) - (원가+배송) = 마진
-            # -> 판매가 = (원가+배송) / (1 - 수수료 - 마진율)
-            fee_rate = (card_fee + market_fee) / 100.0
             denom = (1.0 - fee_rate - margin_pct/100.0)
             target_price = (base_cost_won + shipping_won) / denom if denom>0 else 0.0
             margin_value = target_price*(1.0-fee_rate) - (base_cost_won + shipping_won)
@@ -477,16 +469,14 @@ def render_sidebar() -> dict:
         else:
             margin_won = st.number_input("마진액 (₩)", value=float(st.session_state["margin_won"]),
                                          step=100.0, format="%.0f", key="margin_won")
-            fee_rate = (card_fee + market_fee) / 100.0
-            # 판매가 = (원가+배송+마진액) / (1-수수료)
             target_price = (base_cost_won + shipping_won + margin_won) / (1.0 - fee_rate) if (1.0-fee_rate)>0 else 0.0
             margin_value = target_price*(1.0-fee_rate) - (base_cost_won + shipping_won)
             margin_desc = f"+{margin_won:,.0f}"
 
-        st.markdown(f'<div class="badge-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="badge-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {margin_desc}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="pill-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="pill-amber">순이익(마진): <b>{margin_value:,.2f} 원</b> — {margin_desc}</div>', unsafe_allow_html=True)
 
-        # ── (오류시에만) 프록시/환경 패널 ──────────────────────────────────
+        # ── 프록시/환경 (조건부 노출) ───────────────────────────────────
         if _should_show_proxy_panel():
             st.divider()
             st.markdown("##### 프록시/환경")
@@ -494,3 +484,25 @@ def render_sidebar() -> dict:
                           value=st.session_state.get("PROXY_URL",""),
                           key="PROXY_URL",
                           help="예: https://envy-proxy.taesig0302.workers.dev/")
+            st.markdown(
+                """
+                <div class="info-box">
+                  · PROXY_URL은 11번가/외부 임베드 차단(401/403/1016) 시에만 수정 필요<br/>
+                  · 평소에는 이 패널이 보이지 않습니다.
+                </div>
+                """, unsafe_allow_html=True
+            )
+
+    result.update({
+        "fx_base": base,
+        "sale_foreign": sale_foreign,
+        "converted_won": won,
+        "base_cost_won": base_cost_won,
+        "card_fee_pct": card_fee,
+        "market_fee_pct": market_fee,
+        "shipping_won": shipping_won,
+        "margin_mode": mode,
+        "target_price": target_price,
+        "margin_value": margin_value,
+    })
+    return result
