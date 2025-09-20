@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
-# ENVY — Season 1 (Dual Proxy Edition, Wide UI, Darker Pills) — 2가지 패치 반영
+# ENVY — Season 1 (Dual Proxy Edition, Responsive + Alerts, Darker Pills)
+# - 반응형 카드 레이아웃
+# - 전역 알림 팝업(토스트)
+# - 데이터랩 탭 제목 표시 + 2중 스크롤 제거
+# - 라쿠텐 rank 2단계 축소 + 가로 스크롤 억제(폰트 1단계 축소)
 import os, base64
 from pathlib import Path
 from urllib.parse import quote
@@ -23,7 +27,7 @@ st.set_page_config(page_title="ENVY — Season 1 (Dual Proxy Edition)", layout="
 SHOW_ADMIN_BOX = False
 
 # Proxies (배포한 워커 주소)
-NAVER_PROXY      = "https://envy-proxy.taesig0302.workers.dev"
+NAVER_PROXY      = "https://envy-proxy.taesig0302.workers.dev"          # ※ 워커는 TitleReporter 주입 버전이어야 탭제목 표시됨
 ELEVENST_PROXY   = "https://worker-11stjs.taesig0302.workers.dev"
 ITEMSCOUT_PROXY  = "https://worker-itemscoutjs.taesig0302.workers.dev"
 SELLERLIFE_PROXY = "https://worker-sellerlifejs.taesig0302.workers.dev"
@@ -98,11 +102,13 @@ def _inject_css():
       [data-baseweb="input"] input,.stNumberInput input,[data-baseweb="select"] div[role="combobox"]{{
         height:1.55rem!important;padding:.12rem .6rem!important;font-size:.96rem!important;border-radius:12px!important}}
 
+      /* Pills */
       .pill{{border-radius:9999px;padding:.40rem .9rem;font-weight:800;display:inline-block;margin:.10rem 0!important}}
       .pill-green{{background:#b8f06c;border:1px solid #76c02a;color:#083500}}
       .pill-blue{{background:#dbe6ff;border:1px solid #88a8ff;color:#09245e}}
       .pill-yellow{{background:#ffe29b;border:1px solid #d2a12c;color:#3e2a00}}
 
+      /* Cards */
       .card{{border:1px solid rgba(0,0,0,.06);border-radius:14px;padding:.85rem;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.05)}}
       .card-title{{font-size:1.18rem;font-weight:900;margin:.1rem 0 .55rem 0}}
       .card iframe{{border:0;width:100%;border-radius:10px}}
@@ -114,8 +120,80 @@ def _inject_css():
     </style>
     """, unsafe_allow_html=True)
 
+# ---------- 전역 알림 센터(토스트) ----------
+def _inject_alert_center():
+    st.markdown("""
+    <div id="envy-alert-root" style="position:fixed;top:16px;right:16px;z-index:999999;pointer-events:none;"></div>
+    <style>
+      .envy-toast{min-width:220px;max-width:420px;margin:8px 0;padding:.7rem 1rem;border-radius:12px;
+        color:#fff;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.25);opacity:0;transform:translateY(-6px);
+        transition:opacity .2s ease, transform .2s ease;}
+      .envy-toast.show{opacity:1;transform:translateY(0)}
+      .envy-info{background:#2563eb}.envy-warn{background:#d97706}.envy-error{background:#dc2626}
+    </style>
+    <script>
+      (function(){
+        const root = document.getElementById('envy-alert-root');
+        function toast(level, text){
+          const div = document.createElement('div');
+          div.className = 'envy-toast envy-'+(level||'info');
+          div.textContent = text||'알림';
+          div.style.pointerEvents='auto';
+          root.appendChild(div);
+          requestAnimationFrame(()=>div.classList.add('show'));
+          setTimeout(()=>{ div.classList.remove('show'); setTimeout(()=>div.remove(), 300); }, 5000);
+        }
+        // 모든 iframe에서 오는 메시지 수신
+        window.addEventListener('message', (e)=>{
+          const d = e.data || {};
+          if(d.__envy && d.kind === 'alert'){
+            toast(d.level||'info', d.msg||'알림');
+          }
+        }, false);
+        // 데이터랩 타이틀 수신 체크(지연 시 경고)
+        let heard = false;
+        window.addEventListener('message', (e)=>{
+          const d=e.data||{}; if(d.__envy && d.kind==='title'){ heard=true; }
+        }, false);
+        setTimeout(()=>{ if(!heard){ toast('warn','데이터랩 연결이 지연되고 있어요. 네트워크를 확인하세요.'); } }, 8000);
+      })();
+    </script>
+    """, unsafe_allow_html=True)
+
+# -------- 반응형: 뷰포트 버킷(0~3) 계산용 프루브 --------
+def _responsive_probe():
+    html = """
+    <script>
+    (function(){
+      const bps = [900, 1280, 1600];
+      const w = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+      let bin = 0; for (let i=0;i<bps.length;i++) if (w>=bps[i]) bin=i+1;
+      const url = new URL(window.location);
+      const curr = url.searchParams.get('vwbin');
+      if (curr !== String(bin)) {
+        url.searchParams.set('vwbin', String(bin));
+        window.location.replace(url.toString());
+      }
+    })();
+    </script>
+    """
+    st.components.v1.html(html, height=0, scrolling=False)
+
+def _get_view_bin():
+    # 0: <900, 1: >=900, 2: >=1280, 3: >=1600
+    try:
+        qp = st.query_params
+        raw = qp.get("vwbin", "3")
+    except Exception:
+        qp = st.experimental_get_query_params()
+        raw = (qp.get("vwbin", ["3"])[0])
+    try:
+        return max(0, min(3, int(raw)))
+    except:
+        return 3
+
 def _sidebar():
-    _ensure_session_defaults(); _inject_css()
+    _ensure_session_defaults(); _inject_css(); _inject_alert_center()
     with st.sidebar:
         lp = Path(__file__).parent / "logo.png"
         if lp.exists():
@@ -125,16 +203,12 @@ def _sidebar():
                   on_change=_toggle_theme, key="__theme_toggle")
 
         st.markdown("### ① 환율 계산기")
-        base = st.selectbox(
-            "기준 통화",
-            list(CURRENCIES.keys()),
-            index=list(CURRENCIES.keys()).index(st.session_state["fx_base"]),
-            key="fx_base"
-        )
+        base = st.selectbox("기준 통화", list(CURRENCIES.keys()),
+                            index=list(CURRENCIES.keys()).index(st.session_state["fx_base"]), key="fx_base")
         sale_foreign = st.number_input("판매금액 (외화)", value=float(st.session_state["sale_foreign"]),
                                        step=0.01, format="%.2f", key="sale_foreign")
         won = FX_DEFAULT[base] * sale_foreign
-        # '(미국 달러)' 같은 지역명 텍스트 제거 → 기호만
+        # '(미국 달러)' 같은 한글 텍스트 제거 → 통화 기호만 표기
         st.markdown(
             f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b>'
             f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[base]["symbol"]})</span></div>',
@@ -144,8 +218,7 @@ def _sidebar():
 
         st.markdown("### ② 마진 계산기")
         m_base = st.selectbox("매입 통화", list(CURRENCIES.keys()),
-                              index=list(CURRENCIES.keys()).index(st.session_state["m_base"]),
-                              key="m_base")
+                              index=list(CURRENCIES.keys()).index(st.session_state["m_base"]), key="m_base")
         purchase_foreign = st.number_input("매입금액 (외화)", value=float(st.session_state["purchase_foreign"]),
                                            step=0.01, format="%.2f", key="purchase_foreign")
         base_cost_won = FX_DEFAULT[m_base]*purchase_foreign if purchase_foreign>0 else won
@@ -182,30 +255,23 @@ def _sidebar():
             st.text_input("PROXY_URL(디버그)", key="PROXY_URL", help="Cloudflare Worker 주소 (옵션)")
 
 # =========================
-# 2. Embeds
+# 2. Embeds (프록시/데이터랩)
 # =========================
-# 기본 프록시 임베더
 def _proxy_iframe(proxy_base: str, target_url: str, height: int = 860, scroll=True, key=None):
     proxy = (proxy_base or "").strip().rstrip("/")
     url   = f"{proxy}/?url={quote(target_url, safe=':/?&=%')}"
     h     = int(height) if isinstance(height, (int, float, str)) else 860
     try:
-        st.iframe(url, height=h)
-        return
-    except Exception:
-        pass
+        st.iframe(url, height=h); return
+    except Exception: pass
     try:
-        st.components.v1.iframe(url, height=h, scrolling=bool(scroll))
-        return
-    except Exception:
-        pass
+        st.components.v1.iframe(url, height=h, scrolling=bool(scroll)); return
+    except Exception: pass
     st.markdown(
         f'<iframe src="{url}" style="width:100%;height:{h}px;border:0;border-radius:10px;" '
-        f'allow="clipboard-read; clipboard-write"></iframe>',
-        unsafe_allow_html=True,
-    )
+        f'allow="clipboard-read; clipboard-write"></iframe>', unsafe_allow_html=True)
 
-# DataLab 전용: postMessage 탭 제목 + 2중 스크롤 제거(컴포넌트 래퍼 scroll 막음)
+# DataLab: 탭 제목 + 2중 스크롤 방지(컴포넌트 래퍼 scrolling=False)
 def _proxy_iframe_with_title(proxy_base: str, target_url: str, height: int = 860, key: str = "naver_home"):
     proxy = (proxy_base or "").strip().rstrip("/")
     url   = f"{proxy}/?url={quote(target_url, safe=':/?&=%')}"
@@ -214,8 +280,7 @@ def _proxy_iframe_with_title(proxy_base: str, target_url: str, height: int = 860
     <div id="{key}-wrap" style="width:100%;overflow:hidden;">
       <div id="{key}-title"
            style="display:inline-block;border-radius:9999px;padding:.40rem .9rem;
-                  font-weight:800;background:#dbe6ff;border:1px solid #88a8ff;color:#09245e;
-                  margin:0 0 .5rem 0;">
+                  font-weight:800;background:#dbe6ff;border:1px solid #88a8ff;color:#09245e;margin:0 0 .5rem 0;">
         DataLab
       </div>
       <iframe src="{url}" style="width:100%;height:{h}px;border:0;border-radius:10px;"></iframe>
@@ -224,18 +289,15 @@ def _proxy_iframe_with_title(proxy_base: str, target_url: str, height: int = 860
       (function(){{
         const titleEl = document.getElementById("{key}-title");
         window.addEventListener("message", function(e){{
+          const d = e.data || {{}};
           try {{
-            const d = e.data || {{}};
-            if (d.__envy && d.kind === "title" && d.title) {{
-              titleEl.textContent = d.title;
-            }}
+            if (d.__envy && d.kind === "title" && d.title) titleEl.textContent = d.title;
           }} catch(_){{
           }}
         }}, false);
       }})();
     </script>
     """
-    # ★ scrolling=False 로 컴포넌트 래퍼 스크롤 제거 → 2중 스크롤 방지
     st.components.v1.html(html, height=h+56, scrolling=False)
 
 def _11st_abest_url():
@@ -301,7 +363,7 @@ def _rk_fetch_rank(genre_id: str, topn: int = 20) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 def section_rakuten():
-    # ▼ 표 가로 스크롤 방지를 위해 카드 범위에서만 폰트 1단계 축소
+    # 표 가로 스크롤 최소화를 위해 카드 범위에서만 폰트 1단계 축소
     st.markdown("""
     <style>
       #rk-card [data-testid="stDataFrame"] * { font-size: 0.92rem !important; }
@@ -310,7 +372,6 @@ def section_rakuten():
 
     st.markdown('<div id="rk-card" class="card"><div class="card-title">AI 키워드 레이더 (Rakuten)</div>', unsafe_allow_html=True)
 
-    # 상단 컨트롤 (GenreID 비노출)
     colA, colB, colC = st.columns([1, 1, 1])
     with colA:
         scope = st.radio("범위", ["국내","글로벌"], horizontal=True, key="rk_scope")
@@ -323,11 +384,11 @@ def section_rakuten():
     with colC:
         sample_only = st.checkbox("샘플 보기", value=False, key="rk_sample")
 
-    # 카테고리→GenreID 매핑 (세션 저장, 기본 100283)
+    # 카테고리→GenreID 매핑 (세션 저장, 기본 100283) — 화면엔 ID 미노출
     genre_map = st.session_state.get("rk_genre_map", {})
     genre_id = (genre_map.get(cat) or "100283").strip()
 
-    # 매핑 편집(필요시만)
+    # 매핑 편집(필요시만 열기)
     with st.expander("🔧 장르 매핑 편집 (GenreID는 여기서만 관리 — 화면에는 숨김)", expanded=False):
         new_map = {}
         cols = st.columns(3)
@@ -348,7 +409,7 @@ def section_rakuten():
     else:
         df = _rk_fetch_rank(genre_id or "100283", topn=20)
 
-    # 랭크 칼럼 2단계 축소(= small) 유지
+    # 랭크 칼럼 2단계 축소 유지
     colcfg = {
         "rank": st.column_config.NumberColumn("rank", width="small"),
         "keyword": st.column_config.TextColumn("keyword", width="large"),
@@ -434,23 +495,59 @@ def section_title_generator():
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
-# 6. Layout
+# 6. Layout (반응형)
 # =========================
 _ = _sidebar()
+# 뷰포트 버킷 주입(브레이크포인트 변경 시 URL 갱신 → 리렌더)
+_responsive_probe()
+vwbin = _get_view_bin()  # 0:<900, 1:≥900, 2:≥1280, 3:≥1600
+
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
 # 1줄: 데이터랩 / 아이템스카우트 / 셀러라이프
-# 데이터랩 2단계 넓게, 나머지 각 1단계 좁게
-top1, top2, top3 = st.columns([5,2,2], gap="medium")
-with top1: section_datalab_home()
-with top2: section_itemscout()
-with top3: section_sellerlife()
+if vwbin >= 3:  # ≥1600px (기존 그대로)
+    top1, top2, top3 = st.columns([5,2,2], gap="medium")
+    with top1: section_datalab_home()
+    with top2: section_itemscout()
+    with top3: section_sellerlife()
+elif vwbin == 2:  # 1280~1599px (살짝 균등화)
+    top1, top2, top3 = st.columns([4,3,3], gap="small")
+    with top1: section_datalab_home()
+    with top2: section_itemscout()
+    with top3: section_sellerlife()
+else:  # <1280px (스택)
+    section_datalab_home()
+    st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
+    section_itemscout()
+    st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
+    section_sellerlife()
 
 st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
 
 # 2줄: 11번가 / 레이더 / 번역 / 생성기
-b1, b2, b3, b4 = st.columns([3,3,3,3], gap="medium")
-with b1: section_11st()
-with b2: section_rakuten()
-with b3: section_translator()
-with b4: section_title_generator()
+if vwbin >= 3:
+    b1, b2, b3, b4 = st.columns([3,3,3,3], gap="medium")
+    with b1: section_11st()
+    with b2: section_rakuten()
+    with b3: section_translator()
+    with b4: section_title_generator()
+elif vwbin == 2:
+    # 2열로 재배치: 좌(11번가+라쿠텐) / 우(번역+생성기)
+    colL, colR = st.columns([1,1], gap="small")
+    with colL:
+        section_11st()
+        st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
+        section_rakuten()
+    with colR:
+        section_translator()
+        st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
+        section_title_generator()
+else:
+    # 단일 스택
+    section_11st()
+    st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
+    section_rakuten()
+    st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
+    section_translator()
+    st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
+    section_title_generator()
