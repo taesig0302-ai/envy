@@ -1,5 +1,5 @@
 # =========================================================
-# ENVY — Season 1 (One-Page, merged Datalab + new layout)
+# ENVY — Season 1 (One-Page, Forced Proxy + Datalab UI trim)
 # =========================================================
 
 import os, base64, json, re
@@ -10,6 +10,9 @@ from typing import List, Dict, Any
 import streamlit as st
 import pandas as pd
 import numpy as np
+
+# 페이지는 항상 와이드
+st.set_page_config(layout="wide")
 
 # ---------------------------------
 # Optional deps (requirements.txt)
@@ -22,6 +25,16 @@ try:
     from deep_translator import GoogleTranslator
 except Exception:
     GoogleTranslator = None
+
+# =========================================================
+# Part 0 — Forced Proxy (하드코딩)
+# =========================================================
+# ⚠️ 여기에 네 Cloudflare Worker 주소를 하드코딩한다.
+FORCED_PROXY = "https://envy-proxy.taesig0302.workers.dev".rstrip("/")  # ← 필요시 교체
+
+def _effective_proxy() -> str:
+    # 항상 강제 주소 사용 (사이드바 입력값은 무시)
+    return FORCED_PROXY
 
 # =========================================================
 # Part 1 — Sidebar (fixed, do not change)
@@ -37,7 +50,7 @@ FX_DEFAULT = {"USD": 1400.0, "EUR": 1500.0, "JPY": 10.0, "CNY": 200.0}
 def _ensure_session_defaults():
     ss = st.session_state
     ss.setdefault("theme", "light")
-    ss.setdefault("PROXY_URL", "")
+    ss.setdefault("PROXY_URL", "")  # 표시는 남겨두되 사용은 안 함(강제 프록시)
     ss.setdefault("fx_base", "USD")
     ss.setdefault("sale_foreign", 1.00)
     ss.setdefault("m_base", "USD")
@@ -60,25 +73,25 @@ def _inject_sidebar_css():
       html, body, [data-testid="stAppViewContainer"] {{
         background-color:{bg} !important; color:{fg} !important;
       }}
-      .block-container {{ padding-top:.8rem !重要; padding-bottom:.35rem !重要; }}
+      .block-container {{ padding-top:.8rem !important; padding-bottom:.35rem !important; }}
       [data-testid="stSidebar"],
       [data-testid="stSidebar"] > div:first-child,
       [data-testid="stSidebar"] section {{
-        height: 100vh !重要; overflow: hidden !重要;
-        padding-top:.25rem !重要; padding-bottom:.25rem !重要;
+        height: 100vh !important; overflow: hidden !important;
+        padding-top:.25rem !important; padding-bottom:.25rem !important;
       }}
-      [data-testid="stSidebar"] section {{ overflow-y: auto !重要; }}
-      [data-testid="stSidebar"] ::-webkit-scrollbar {{ display:none !重要; }}
+      [data-testid="stSidebar"] section {{ overflow-y: auto !important; }}
+      [data-testid="stSidebar"] ::-webkit-scrollbar {{ display:none !important; }}
       [data-testid="stSidebar"] .stSelectbox,
       [data-testid="stSidebar"] .stNumberInput,
       [data-testid="stSidebar"] .stRadio,
       [data-testid="stSidebar"] .stMarkdown,
       [data-testid="stSidebar"] .stTextInput,
-      [data-testid="stSidebar"] .stButton {{ margin:.14rem 0 !重要; }}
+      [data-testid="stSidebar"] .stButton {{ margin:.14rem 0 !important; }}
       [data-baseweb="input"] input,
       .stNumberInput input,
       [data-baseweb="select"] div[role="combobox"] {{
-        height:1.55rem !重要; padding:.12rem !重要; font-size:.92rem !重要;
+        height:1.55rem !important; padding:.12rem !important; font-size:.92rem !important;
       }}
       .logo-circle {{
         width:95px; height:95px; border-radius:50%; overflow:hidden;
@@ -160,13 +173,10 @@ def render_sidebar() -> dict:
 
         st.divider()
         st.markdown("##### 프록시/환경")
-        st.text_input("PROXY_URL (Cloudflare Worker)", value=st.session_state.get("PROXY_URL",""), key="PROXY_URL")
+        st.text_input("PROXY_URL (표시용, 실제로는 강제 프록시 사용)", value=st.session_state.get("PROXY_URL",""), key="PROXY_URL")
         st.markdown("""
             <div class="info-box">
-              <b>ENVY</b> 사이드바 정보는 고정입니다.<br/>
-              · 로고/환율/마진 계산기: 변경 금지<br/>
-              · PROXY_URL: 11번가/데이터랩 임베드용<br/>
-              · 다크/라이트 모드는 상단 토글
+              현재 앱은 <b>강제 프록시</b>를 사용합니다. 사이드바 값과 무관하게 고정 주소로 접속합니다.
             </div>
         """, unsafe_allow_html=True)
 
@@ -411,33 +421,28 @@ def _fetch_trend(cookie: str, keywords: List[str], start: str, end: str) -> pd.D
 
 # =========================================================
 # Part 3.5 — Datalab HYBRID (Embed + Analysis) — merged
+# (상단 드롭다운 제거, 강제 프록시 사용)
 # =========================================================
 def render_datalab_hybrid_block():
-    # 내부 제목 제거: 카드 헤더만 사용
-    colA, colB, colC = st.columns([1,1,1])
-    with colA:
-        cat = st.selectbox("카테고리", DATALAB_CATS, key="dl_cat_merge")
-        cid = CID_MAP.get(cat, "50000003")
-    with colB:
-        time_unit = st.selectbox("기간 단위", ["week","month"], index=0, key="dl_timeunit_merge")
-    with colC:
-        device = st.selectbox("기기", ["all","pc","mo"], index=0, key="dl_device_merge")
+    # 상단 3개 셀렉터 제거 → 기본 파라미터 고정
+    cid = "50000003"       # 디지털/가전
+    time_unit = "week"
+    device = "all"
 
-    proxy = (st.session_state.get("PROXY_URL") or "").strip().rstrip("/")
+    proxy = _effective_proxy()
     cookie = _naver_cookie()
-    st.caption(f"PROXY_URL: {'✅' if proxy else '❌ 없음'}  |  NAVER_COOKIE: {'✅' if cookie else '❌ 없음'}")
+    st.caption(f"PROXY_URL: ✅ 강제 적용  |  NAVER_COOKIE: {'✅' if cookie else '❌ 없음'}")
 
     tab1, tab2 = st.tabs(["원본(임베드)", "분석(Top20/트렌드)"])
 
+    # 임베드
     with tab1:
-        if not proxy:
-            st.warning("PROXY_URL 없음 — 사이드바 하단에 Cloudflare Worker 주소를 입력하세요.")
-        else:
-            target = f"https://datalab.naver.com/shoppingInsight/sCategory.naver?cid={cid}&timeUnit={time_unit}&device={device}&gender=all&ages=all"
-            embed_url = f"{proxy}/?url={quote(target, safe=':/?&=%')}"
-            st.components.v1.iframe(embed_url, height=980, scrolling=True)
-            st.caption("프록시가 쿠키/헤더를 서버 측에서 처리합니다. 앱에는 쿠키 저장이 필요 없습니다.")
+        target = f"https://datalab.naver.com/shoppingInsight/sCategory.naver?cid={cid}&timeUnit={time_unit}&device={device}&gender=all&ages=all"
+        embed_url = f"{proxy}/?url={quote(target, safe=':/?&=%')}"
+        st.components.v1.iframe(embed_url, height=980, scrolling=True)
+        st.caption("강제 프록시 경유. 데이터랩 내부 이동도 프록시로 재작성됩니다(강화 워커 권장).")
 
+    # 분석(Top20/트렌드)
     with tab2:
         today = date.today()
         colD, colE = st.columns(2)
@@ -492,10 +497,8 @@ import urllib.parse as _url
 AMAZON_BEST_URL = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
 
 def _proxy_wrap(url: str) -> str:
-    proxy = st.session_state.get("PROXY_URL", "").strip().rstrip("/")
-    if proxy:
-        return f"{proxy}/?url={_url.quote(url, safe=':/?&=%')}"
-    return url
+    proxy = _effective_proxy()
+    return f"{proxy}/?url={_url.quote(url, safe=':/?&=%')}" if proxy else url
 
 def render_11st_block():
     try:
@@ -625,25 +628,19 @@ def render_translator_block():
 # Part 7 — Itemscout / SellerLife Embeds (proxy)
 # =========================================================
 def render_itemscout_embed():
-    proxy = (st.session_state.get("PROXY_URL") or "").strip().rstrip("/")
-    if not proxy:
-        st.warning("PROXY_URL이 비어 있습니다. 사이드바 하단에 Worker 주소를 입력하세요.")
-        return
+    proxy = _effective_proxy()
     default_url = st.secrets.get("itemscout", {}).get("DEFAULT_URL", "https://app.itemscout.io/market/keyword")
     url = st.text_input("Itemscout URL", default_url)
     st.components.v1.iframe(f"{proxy}/?url={quote(url, safe=':/?&=%')}", height=920, scrolling=True)
 
 def render_sellerlife_embed():
-    proxy = (st.session_state.get("PROXY_URL") or "").strip().rstrip("/")
-    if not proxy:
-        st.warning("PROXY_URL이 비어 있습니다. 사이드바 하단에 Worker 주소를 입력하세요.")
-        return
+    proxy = _effective_proxy()
     default_url = st.secrets.get("sellerlife", {}).get("DEFAULT_URL", "https://sellerlife.co.kr/dashboard")
     url = st.text_input("SellerLife URL", default_url)
     st.components.v1.iframe(f"{proxy}/?url={quote(url, safe=':/?&=%')}", height=920, scrolling=True)
 
 # =========================================================
-# Part 8 — Product Name Generator (rules)
+# Part 8 — Product Name Generator (rules, optional)
 # =========================================================
 def render_product_name_generator():
     with st.container(border=True):
@@ -679,11 +676,8 @@ def render_product_name_generator():
 def _inject_global_css():
     st.markdown("""
     <style>
-      .block-container { 
-        max-width: 3360px !important;   /* ← 여기서 수정 */
-        padding-top:.8rem !important; 
-        padding-bottom:1rem !important; 
-      }
+      /* 너비는 상황 맞춰 조절 (예: 3360px = 2배 확대) */
+      .block-container { max-width: 3360px !important; padding-top:.8rem !important; padding-bottom:1rem !important; }
       .section-spacer { height: 2.4vh; }
       h3, h4, h5, h6 { margin-top:.2rem !important; }
     </style>
@@ -704,14 +698,15 @@ def _safe_call(fn_name:str):
         st.info(f"'{fn_name}()' 이 정의되어 있지 않습니다.")
 
 # =========================================================
-# Part 10 — Main (NEW ORDER & WIDTHS)
+# Part 10 — Main (레이아웃: 1행 데이터랩·아이템스카우트·셀러라이프 / 2행 11번가·라쿠텐·번역)
+#          폭: 데이터랩 6, 나머지 3 (상대비)
 # =========================================================
 def main():
     render_sidebar()
     _inject_global_css()
 
     st.title("ENVY — Season 1 (stable)")
-    st.caption("임베드 + 분석 보조. 프록시/쿠키는 Worker/Secrets로 관리.")
+    st.caption("프록시 강제 적용 + 데이터랩 임베드 상단 UI 제거.")
 
     # ── 1행: 데이터랩(6) · 아이템스카우트(3) · 셀러라이프(3)
     r1c1, r1c2, r1c3 = st.columns([6,3,3], gap="large")
