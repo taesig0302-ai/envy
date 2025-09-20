@@ -541,27 +541,34 @@ def render_datalab_embed_block():
     st.components.v1.iframe(embed_url, height=980, scrolling=True)
     st.caption("프록시가 쿠키/헤더를 서버 측에서 처리합니다. 앱에는 쿠키 저장이 필요 없습니다.")
 
-# -----------------------------
-# Part 4 — 11번가(모바일) 임베드
-# -----------------------------
-def render_11st_block():
-    url_default = "https://m.11st.co.kr/page/main/home"
-    url = st.text_input("모바일 URL", url_default, key="t11_url")
-    proxy = (st.session_state.get("PROXY_URL") or "").strip().rstrip("/")
-    if not proxy:
-        st.info("PROXY_URL 미설정: 직접 iFrame은 차단될 수 있습니다.")
-        try:
-            st.components.v1.iframe(url, height=560, scrolling=True)
-        except Exception as e:
-            toast_err(f"11번가 로드 실패: {e}")
-        return
-    from urllib.parse import quote
-    embed = f"{proxy}/?url={quote(url, safe=':/?&=%')}"
-    try:
-        st.components.v1.iframe(embed, height=800, scrolling=True)
-    except Exception as e:
-        toast_err(f"프록시 임베드 실패: {e}")
+# =========================
+# Part 4 — 11번가(모바일) 임베드 (아마존베스트 '고정')
+# =========================
+import urllib.parse as _url
+import streamlit as st
 
+AMAZON_BEST_URL = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
+
+def _proxy_wrap(url: str) -> str:
+    """PROXY_URL이 있으면 ?url= 래핑, 없으면 원본 반환"""
+    proxy = st.session_state.get("PROXY_URL", "").strip().rstrip("/")
+    if proxy:
+        return f"{proxy}/?url={_url.quote(url, safe='')}"
+    return url
+
+def render_11st_block():
+    st.markdown("## 11번가 (모바일) — 아마존베스트 (고정)")
+
+    if not st.session_state.get("PROXY_URL", "").strip():
+        st.warning("PROXY_URL이 비어 있습니다. 11번가는 iFrame 차단이 있어 Cloudflare Worker 경유가 필요할 수 있습니다. "
+                   "사이드바 하단에 Worker 주소를 입력해 주세요.")
+
+    try:
+        st.components.v1.iframe(_proxy_wrap(AMAZON_BEST_URL), height=780, scrolling=True)
+        st.caption("모바일 탭: 아마존베스트(고정)")
+    except Exception as e:
+        st.error(f"11번가 임베드 실패: {e}")
+        st.code(AMAZON_BEST_URL, language="text")
 # -----------------------------
 # Part 4.5 — 아이템스카우트 임베드
 # -----------------------------
