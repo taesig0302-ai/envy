@@ -787,7 +787,7 @@ def _inject_global_css():
     st.markdown("""
     <style>
       /* 본문 가로폭을 크게 */
-      .block-container { max-width: 2200px !important; padding-top:.8rem !important; padding-bottom:1rem !important; }
+      .block-container { max-width: 1500px !important; padding-top:.8rem !important; padding-bottom:1rem !important; }
       html, body { overflow: auto !important; }
       /* 사이드바 스크롤만 허용(사이드바 구조는 그대로) */
       [data-testid="stSidebar"] section { overflow-y: auto !important; }
