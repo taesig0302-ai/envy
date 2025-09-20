@@ -1,16 +1,12 @@
 # =========================================================
-# ENVY — Season 1 (One-Page) · app.py  |  4×2 Grid UI (stable, restored)
-#  - Part 1: 사이드바 (환율/마진 계산기, PROXY_URL 기본값)
-#  - Part 2: 공용 유틸
-#  - Part 3: 데이터랩 (분석 보조: Top20/Trend)
-#  - Part 3.5: 데이터랩 (원본 임베드, 프록시 ?url=)
-#  - Part 4: 11번가(모바일) 임베드
-#  - Part 4.5: 아이템스카우트 임베드
-#  - Part 4.6: 셀러라이프 임베드
-#  - Part 5: AI 키워드 레이더 (Rakuten, 실데이터 우선)
-#  - Part 6: 구글 번역
-#  - Part 6.5: 상품명 생성기 (규칙 기반)
-#  - Part 7: 메인 조립 (가로 4×2, max-width 2200px)
+# ENVY — Season 1 (One-Page) · app.py  |  Ultra-Wide 2×N Cards
+#  - 사이드바(고정, 절대 수정 X)
+#  - 데이터랩: 원본 임베드 + 분석 보조
+#  - 11번가/아이템스카우트/셀러라이프: 프록시 임베드
+#  - AI 키워드 레이더(Rakuten): 실데이터 우선
+#  - 구글 번역: 같은 줄 배치 + 한국어 확인 규칙
+#  - 상품명 생성기(규칙 기반)
+#  - PROXY_URL 기본값 자동주입 + 사이드바 입력으로 덮어쓰기
 # =========================================================
 
 import os, base64, json, re
@@ -34,7 +30,7 @@ except Exception:
 st.set_page_config(page_title="ENVY — Season 1", layout="wide")
 
 # -----------------------------
-# Part 1 — 사이드바 (수정 금지 영역 유지 + PROXY 기본값)
+# Part 1 — 사이드바 (수정 금지 + PROXY 기본값)
 # -----------------------------
 CURRENCIES = {
     "USD": {"kr": "미국 달러", "symbol": "$", "unit": "USD"},
@@ -91,6 +87,7 @@ def _inject_sidebar_css():
         height: 100vh !important; overflow: hidden !important;
         padding-top:.25rem !important; padding-bottom:.25rem !important;
       }}
+      [data-testid="stSidebar"] section {{ overflow-y:auto !important; }}
       [data-testid="stSidebar"] ::-webkit-scrollbar {{ display:none !important; }}
 
       [data-testid="stSidebar"] .stSelectbox,
@@ -229,7 +226,7 @@ def toast_warn(msg:str): st.toast(f"⚠️ {msg}")
 def toast_err(msg:str): st.toast(f"❌ {msg}")
 
 # -----------------------------
-# Part 3 — 데이터랩(분석 보조) v3
+# Part 3 — 데이터랩(분석 보조)
 # -----------------------------
 from collections import defaultdict
 
@@ -527,7 +524,7 @@ def render_datalab_block():
             st.caption("좌측에서 Top20을 먼저 불러오면 여기서 트렌드를 볼 수 있습니다.")
 
 # -----------------------------
-# Part 3.5 — 데이터랩(원본 임베드, Worker v2 '?url=')
+# Part 3.5 — 데이터랩(원본 임베드)
 # -----------------------------
 from urllib.parse import quote as _q
 
@@ -546,17 +543,13 @@ def render_datalab_embed_block():
         device = st.selectbox("기기", ["all","pc","mo"], index=0, key="dl_embed_device")
 
     proxy = get_proxy_url()
-    if not proxy:
-        st.warning("PROXY_URL 없음 — 사이드바 하단에 Cloudflare Worker 주소를 입력하세요.")
-        return
-
     target = f"https://datalab.naver.com/shoppingInsight/sCategory.naver?cid={cid}&timeUnit={time_unit}&device={device}&gender=all&ages=all"
     embed_url = f"{proxy}/?url={_q(target, safe=':/?&=%')}"
     st.components.v1.iframe(embed_url, height=980, scrolling=True)
     st.caption("프록시가 쿠키/헤더를 서버 측에서 처리합니다. 앱에는 쿠키 저장이 필요 없습니다.")
 
 # -----------------------------
-# Part 4 — 11번가(모바일) 임베드 (아마존베스트 고정)
+# Part 4 — 11번가(모바일) 임베드
 # -----------------------------
 import urllib.parse as _url
 
@@ -564,18 +557,12 @@ AMAZON_BEST_URL = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBE
 
 def _proxy_wrap(url: str) -> str:
     proxy = get_proxy_url()
-    if proxy:
-        return f"{proxy}/?url={_url.quote(url, safe='')}"
-    return url
+    return f"{proxy}/?url={_url.quote(url, safe='')}" if proxy else url
 
 def render_11st_block():
     st.markdown("## 11번가 (모바일) — 아마존베스트 (고정)")
-    try:
-        st.components.v1.iframe(_proxy_wrap(AMAZON_BEST_URL), height=780, scrolling=True)
-        st.caption("모바일 탭: 아마존베스트(고정)")
-    except Exception as e:
-        st.error(f"11번가 임베드 실패: {e}")
-        st.code(AMAZON_BEST_URL, language="text")
+    st.components.v1.iframe(_proxy_wrap(AMAZON_BEST_URL), height=780, scrolling=True)
+    st.caption("모바일 탭: 아마존베스트(고정)")
 
 # -----------------------------
 # Part 4.5 — 아이템스카우트 임베드
@@ -583,9 +570,6 @@ def render_11st_block():
 def render_itemscout_embed():
     proxy = get_proxy_url()
     st.markdown("## 아이템스카우트 (원본 임베드)")
-    if not proxy:
-        st.warning("PROXY_URL이 비어 있습니다. 사이드바 하단에 Worker 주소를 입력하세요.")
-        return
     default_url = st.secrets.get("itemscout", {}).get("DEFAULT_URL", "https://app.itemscout.io/market/keyword")
     url = st.text_input("Itemscout URL", default_url, help="로그인된 상태로 보고 싶은 경로를 붙여넣기 가능")
     st.components.v1.iframe(f"{proxy}/?url={_q(url, safe=':/?&=%')}", height=920, scrolling=True)
@@ -596,15 +580,12 @@ def render_itemscout_embed():
 def render_sellerlife_embed():
     proxy = get_proxy_url()
     st.markdown("## 셀러라이프 (원본 임베드)")
-    if not proxy:
-        st.warning("PROXY_URL이 비어 있습니다. 사이드바 하단에 Worker 주소를 입력하세요.")
-        return
     default_url = st.secrets.get("sellerlife", {}).get("DEFAULT_URL", "https://sellerlife.co.kr/dashboard")
     url = st.text_input("SellerLife URL", default_url)
     st.components.v1.iframe(f"{proxy}/?url={_q(url, safe=':/?&=%')}", height=920, scrolling=True)
 
 # -----------------------------
-# Part 5 — AI 키워드 레이더 (Rakuten)  [실데이터 우선 + 스크롤/여백/URL 축소]
+# Part 5 — AI 키워드 레이더 (Rakuten)  [실데이터 우선]
 # -----------------------------
 RAKUTEN_APP_ID_DEFAULT       = "1043271015809337425"
 RAKUTEN_AFFILIATE_ID_DEFAULT = "4c723498.cbfeca46.4c723499.1deb6f77"
@@ -748,7 +729,7 @@ def render_translator_block():
                 st.error(f"번역 실패: {e}")
 
 # -----------------------------
-# Part 6.5 — 간단 규칙 기반 상품명 생성기
+# Part 6.5 — 상품명 생성기
 # -----------------------------
 def render_product_name_generator():
     st.markdown("### 상품명 생성기 (규칙 기반)")
@@ -786,19 +767,19 @@ def render_product_name_generator():
             st.write("\n".join(titles))
 
 # -----------------------------
-# Part 7 — 메인 조립 (가로 4×2 그리드, 폭 1500px)
+# Part 7 — 메인 조립 (초와이드 2×N, 카드 폭 3배)
 # -----------------------------
 def _inject_global_css():
     st.markdown("""
     <style>
-      .block-container { max-width: 1500px !important; padding-top:.8rem !important; padding-bottom:1rem !important; }
+      /* 초와이드 컨테이너로 카드 폭 3배 체감 */
+      .block-container { max-width: 2200px !important; padding-top:.8rem !important; padding-bottom:1rem !important; }
       html, body { overflow: auto !important; }
-      [data-testid="stSidebar"] section { overflow-y: auto !important; }
 
       .envy-card { background:rgba(0,0,0,.02); border:1px solid rgba(0,0,0,.09);
-        border-radius:16px; padding:18px; box-shadow:0 6px 18px rgba(0,0,0,.05);}
-      .envy-card h3, .envy-card h2 { margin:0 0 .35rem 0 !important; }
-      .envy-sub { font-size:.86rem; opacity:.75; margin-bottom:.35rem; }
+        border-radius:18px; padding:22px; box-shadow:0 8px 22px rgba(0,0,0,.06);}
+      .envy-card h3, .envy-card h2 { margin:0 0 .45rem 0 !important; }
+      .envy-sub { font-size:.9rem; opacity:.75; margin-bottom:.45rem; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -824,23 +805,33 @@ def main():
     _inject_global_css()
 
     st.title("ENVY — Season 1 (stable)")
-    st.caption("임베드 기본 + 분석 보조. 프록시/쿠키는 Worker 비밀값으로 관리. (PROXY_URL 예: https://envy-proxy.taesig0302.workers.dev/)")
+    st.caption("임베드 기본 + 분석 보조. 프록시/쿠키는 Worker 비밀값으로 관리.")
 
-    # Row 1 — 데이터랩(원본) · 데이터랩(분석) · 11번가 · 상품명 생성기
-    r1c1, r1c2, r1c3, r1c4 = st.columns([1,1,1,1], gap="large")
+    # Row 1 — 데이터랩(원본) · 데이터랩(분석)  (2열 와이드)
+    r1c1, r1c2 = st.columns([1,1], gap="large")
     with r1c1: _safe_call("render_datalab_embed_block", "데이터랩 (원본 임베드)", "프록시 경유 · 쿠키 앱 비저장")
     with r1c2: _safe_call("render_datalab_block", "데이터랩 (분석 보조)", "Top20 + 트렌드")
-    with r1c3: _safe_call("render_11st_block", "11번가 (모바일) — 아마존베스트", "프록시 권장")
-    with r1c4: _safe_call("render_product_name_generator", "상품명 생성기 (규칙 기반)", "브랜드/속성/키워드 조합")
 
-    st.markdown('<div style="height:14px;"></div>', unsafe_allow_html=True)
+    st.markdown('<div style="height:18px;"></div>', unsafe_allow_html=True)
 
-    # Row 2 — AI 레이더 · 구글 번역 · 아이템스카우트 · 셀러라이프
-    r2c1, r2c2, r2c3, r2c4 = st.columns([1,1,1,1], gap="large")
-    with r2c1: _safe_call("render_rakuten_block", "AI 키워드 레이더 (Rakuten)", "실데이터 우선 · URL ‘열기’")
-    with r2c2: _safe_call("render_translator_block", "구글 번역", "한국어 확인 라인 포함")
-    with r2c3: _safe_call("render_itemscout_embed", "아이템스카우트 (임베드)", "로그인 필요 시 Worker Secrets")
-    with r2c4: _safe_call("render_sellerlife_embed", "셀러라이프 (임베드)", "로그인 필요 시 Worker Secrets")
+    # Row 2 — 11번가 · 상품명 생성기  (2열 와이드)
+    r2c1, r2c2 = st.columns([1,1], gap="large")
+    with r2c1: _safe_call("render_11st_block", "11번가 (모바일) — 아마존베스트", "프록시 권장")
+    with r2c2: _safe_call("render_product_name_generator", "상품명 생성기 (규칙 기반)", "브랜드/속성/키워드 조합")
+
+    st.markdown('<div style="height:18px;"></div>', unsafe_allow_html=True)
+
+    # Row 3 — AI 레이더 · 구글 번역  (2열 와이드)
+    r3c1, r3c2 = st.columns([1,1], gap="large")
+    with r3c1: _safe_call("render_rakuten_block", "AI 키워드 레이더 (Rakuten)", "실데이터 우선 · URL ‘열기’")
+    with r3c2: _safe_call("render_translator_block", "구글 번역", "한국어 확인 라인 포함")
+
+    st.markdown('<div style="height:18px;"></div>', unsafe_allow_html=True)
+
+    # Row 4 — 아이템스카우트 · 셀러라이프  (2열 와이드)
+    r4c1, r4c2 = st.columns([1,1], gap="large")
+    with r4c1: _safe_call("render_itemscout_embed", "아이템스카우트 (임베드)", "로그인 필요 시 Worker Secrets")
+    with r4c2: _safe_call("render_sellerlife_embed", "셀러라이프 (임베드)", "로그인 필요 시 Worker Secrets")
 
 if __name__ == "__main__":
     main()
