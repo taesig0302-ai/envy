@@ -105,28 +105,58 @@ st.session_state.fx_krw = fx_krw
 # ====================== PART C: 마진 계산기 (사이드바) ======================
 st.sidebar.markdown("### 마진 계산기")
 
-m_cost = st.sidebar.number_input("구매금액(원화)", min_value=0.0, value=float(st.session_state.get("fx_krw",0.0)), step=100.0)
-m_card = st.sidebar.number_input("카드수수료(%)", min_value=0.0, value=4.0, step=0.1)
-m_market = st.sidebar.number_input("마켓수수료(%)", min_value=0.0, value=14.0, step=0.1)
-m_ship = st.sidebar.number_input("배송비(원)", min_value=0.0, value=0.0, step=100.0)
+# 환율 계산기 결과(있으면 같이 보여줌)
+_fx_krw_val = float(st.session_state.get("fx_krw", 0.0))
+if _fx_krw_val > 0:
+    st.sidebar.markdown(
+        f'<div class="pill-box pill-blue">환율 환산 금액: {_fx_krw_val:,.0f} 원</div>',
+        unsafe_allow_html=True
+    )
+
+# 입력
+m_cost = st.sidebar.number_input("구매금액(원화)", min_value=0.0,
+                                 value=_fx_krw_val if _fx_krw_val>0 else 0.0,
+                                 step=100.0)
+
+# ✅ 요청하신 “입력값의 읽기용 출력 칸” (즉시 반영)
+st.sidebar.markdown(
+    f'<div class="pill-box pill-blue">구매금액(원화·적용): {m_cost:,.0f} 원</div>',
+    unsafe_allow_html=True
+)
+
+m_card   = st.sidebar.number_input("카드수수료(%)",  min_value=0.0, value=4.0,  step=0.1)
+m_market = st.sidebar.number_input("마켓수수료(%)",  min_value=0.0, value=14.0, step=0.1)
+m_ship   = st.sidebar.number_input("배송비(원)",      min_value=0.0, value=0.0,  step=100.0)
 
 m_mode = st.sidebar.radio("마진 방식", ["퍼센트","플러스"], horizontal=True)
+
 if m_mode == "퍼센트":
     m_margin_pct = st.sidebar.number_input("마진(%)", min_value=0.0, value=10.0, step=0.5, key="margin_pct")
-    # 역산: 판매가 = (원가+배송비) / (1 - 수수료합 - 마진율)
-    fee_rate = (m_card+m_market)/100.0
-    sale_price = (m_cost+m_ship) / max(1e-6, (1 - fee_rate - m_margin_pct/100.0))
+    fee_rate = (m_card + m_market) / 100.0
+    sale_price = (m_cost + m_ship) / max(1e-6, (1 - fee_rate - m_margin_pct/100.0))
 else:
     m_margin_plus = st.sidebar.number_input("플러스(원)", min_value=0.0, value=10000.0, step=500.0, key="margin_plus")
-    # 판매가 = (원가+배송비+플러스) / (1 - 수수료합)
-    fee_rate = (m_card+m_market)/100.0
-    sale_price = (m_cost+m_ship+m_margin_plus) / max(1e-6, (1 - fee_rate))
+    fee_rate = (m_card + m_market) / 100.0
+    sale_price = (m_cost + m_ship + m_margin_plus) / max(1e-6, (1 - fee_rate))
 
-fees = sale_price * fee_rate
+fees   = sale_price * fee_rate
 profit = sale_price - (m_cost + m_ship + fees)
 
-st.sidebar.markdown(f'<div class="pill-box pill-amber">판매가: {sale_price:,.0f} 원</div>', unsafe_allow_html=True)
-st.sidebar.markdown(f'<div class="pill-box pill-green">순이익: {profit:,.0f} 원</div>', unsafe_allow_html=True)
+# 수수료 안내(가시성 높임)
+st.sidebar.markdown(
+    f'<div class="pill-box pill-amber">수수료 합계({fee_rate*100:.1f}%): {fees:,.0f} 원</div>',
+    unsafe_allow_html=True
+)
+
+# 결과 출력 Pill
+st.sidebar.markdown(
+    f'<div class="pill-box pill-amber">판매가: {sale_price:,.0f} 원</div>',
+    unsafe_allow_html=True
+)
+st.sidebar.markdown(
+    f'<div class="pill-box pill-green">순이익: {profit:,.0f} 원</div>',
+    unsafe_allow_html=True
+)
 # =========================================================================== 
 # ====================== PART D: 프록시/환경 (조건부 표시) ====================
 import urllib.parse
