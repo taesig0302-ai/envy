@@ -74,12 +74,17 @@ def _inject_css():
         height:100vh!important;overflow:hidden!important;padding:.15rem .25rem!important}}
       [data-testid="stSidebar"] section{{overflow-y:auto!important}}
       [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none!important}}
+
+      /* ▼ 여백 더 줄임: 입력/라디오/버튼/마크다운 전부 */
       [data-testid="stSidebar"] .stSelectbox,
       [data-testid="stSidebar"] .stNumberInput,
       [data-testid="stSidebar"] .stRadio,
       [data-testid="stSidebar"] .stMarkdown,
       [data-testid="stSidebar"] .stTextInput,
-      [data-testid="stSidebar"] .stButton{{margin:.10rem 0!important}}
+      [data-testid="stSidebar"] .stButton{{margin:.04rem 0!important}}
+
+      /* 사이드바 텍스트 마크다운 기본 P 마진 축소 (pill 위아래 간격 최소화) */
+      [data-testid="stSidebar"] div[data-testid="stMarkdown"] p{{margin:.10rem 0!important}}
 
       [data-baseweb="input"] input,.stNumberInput input,[data-baseweb="select"] div[role="combobox"]{{
         height:1.55rem!important;padding:.12rem .6rem!important;font-size:.96rem!important;border-radius:12px!important}}
@@ -88,8 +93,8 @@ def _inject_css():
                    box-shadow:0 2px 8px rgba(0,0,0,.12);border:1px solid rgba(0,0,0,.06)}}
       .logo-circle img{{width:100%;height:100%;object-fit:cover}}
 
-      /* Darker Pills  ▷ CHANGED (더 진하게) */
-      .pill{{border-radius:9999px;padding:.46rem .9rem;font-weight:800;display:inline-block}}
+      /* Darker Pills */
+      .pill{{border-radius:9999px;padding:.46rem .9rem;font-weight:800;display:inline-block;margin:.10rem 0!important}}
       .pill-green{{background:#b8f06c;border:1px solid #76c02a;color:#083500}}
       .pill-blue{{background:#dbe6ff;border:1px solid #88a8ff;color:#09245e}}
       .pill-yellow{{background:#ffe29b;border:1px solid #d2a12c;color:#3e2a00}}
@@ -118,7 +123,6 @@ def _sidebar():
         sale_foreign = st.number_input("판매금액 (외화)", value=float(st.session_state["sale_foreign"]),
                                        step=0.01, format="%.2f", key="sale_foreign")
         won = FX_DEFAULT[base] * sale_foreign
-        # ▼ 변경: 괄호 내 한국어 통화명 제거, 심볼만 표기
         st.markdown(
             f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b>'
             f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[base]["symbol"]})</span></div>',
@@ -168,30 +172,20 @@ def _sidebar():
 # =========================
 # 2. Embeds
 # =========================
-# PATCH: 안전 임베더 (_proxy_iframe)
 def _proxy_iframe(proxy_base: str, target_url: str, height: int = 860, scroll=True, key=None):
-    """
-    - st.iframe → (실패 시) components.v1.iframe → (실패 시) HTML 폴백
-    - components.v1.iframe 는 key 인자를 지원하지 않으므로 무시
-    - scroll 인자는 components 경로에서만 사용
-    """
     proxy = (proxy_base or "").strip().rstrip("/")
     url   = f"{proxy}/?url={quote(target_url, safe=':/?&=%')}"
     h     = int(height) if isinstance(height, (int, float, str)) else 860
-
-    # 1) 최신 Streamlit: st.iframe (key 없음)
     try:
         st.iframe(url, height=h)
         return
     except Exception:
         pass
-    # 2) 구버전 경로: components.v1.iframe (key 미지원)
     try:
         st.components.v1.iframe(url, height=h, scrolling=bool(scroll))
         return
     except Exception:
         pass
-    # 3) 최후 폴백
     st.markdown(
         f'<iframe src="{url}" style="width:100%;height:{h}px;border:0;border-radius:10px;" '
         f'allow="clipboard-read; clipboard-write"></iframe>',
@@ -220,7 +214,8 @@ def section_sellerlife():
 
 def section_11st():
     st.markdown('<div class="card"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>', unsafe_allow_html=True)
-    _proxy_iframe(ELEVENST_PROXY, _11st_abest_url(), height=760, scroll=True, key="abest")
+    # ▼ 높이 상향: AI 키워드 레이더 표 최대 높이에 맞춰 확장
+    _proxy_iframe(ELEVENST_PROXY, _11st_abest_url(), height=900, scroll=True, key="abest")
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
@@ -267,17 +262,20 @@ def section_rakuten():
         scope = st.radio("범위", ["국내","글로벌"], horizontal=True, key="rk_scope")
     with colB:
         cat = st.selectbox("라쿠텐 카테고리", ["전체(샘플)","뷰티/코스메틱","의류/패션","가전/디지털","가구/인테리어","식품","생활/건강","스포츠/레저","문구/취미"], key="rk_cat")
+    # ▼ GenreID 입력칸 화면에서 가림(내부 기본값 사용)
     with colC:
-        gid = st.text_input("GenreID", "100283", key="rk_genre")
+        _hidden_gid_default = "100283"
+        st.session_state.setdefault("rk_genre", _hidden_gid_default)
+        gid = st.session_state.get("rk_genre", _hidden_gid_default)
+        st.markdown("<div style='height:0;overflow:hidden'></div>", unsafe_allow_html=True)
     with colD:
         sample_only = st.checkbox("샘플 보기", value=False)
 
     df = _rk_fetch_rank(gid or "100283", topn=20) if not sample_only else pd.DataFrame(
         [{"rank":i+1,"keyword":f"[샘플] 키워드 {i+1}","shop":"샘플샵","url":"https://example.com"} for i in range(20)]
     )
-    # ▼ 변경: rank 열 너비를 2단계 더 축소(픽셀 고정)
     colcfg = {
-        "rank": st.column_config.NumberColumn("rank", width=50),
+        "rank": st.column_config.NumberColumn("rank", width=50),  # 2단계 축소
         "keyword": st.column_config.TextColumn("keyword", width="large"),
         "shop": st.column_config.TextColumn("shop", width="medium"),
         "url": st.column_config.LinkColumn("url", display_text="열기", width="small"),
@@ -360,7 +358,6 @@ _ = _sidebar()
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
 # 1줄: 데이터랩 / 아이템스카우트 / 셀러라이프
-# ▼ 변경: 비율 [5,2,2]로 조정 (데이터랩 +2, 나머지 각 -1)
 top1, top2, top3 = st.columns([5,2,2], gap="medium")
 with top1: section_datalab_home()
 with top2: section_itemscout()
