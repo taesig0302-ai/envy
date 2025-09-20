@@ -245,4 +245,598 @@ def _naver_cookie() -> str:
 
 def _hdr(cookie: str, cid: str, time_unit: str='week', device: str='all', as_json: bool=True) -> dict:
     h = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36",
+        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Origin": "https://datalab.naver.com",
+        "Referer": f"https://datalab.naver.com/shoppingInsight/sCategory.naver?cid={cid}&timeUnit={time_unit}&device={device}",
+        "Cookie": cookie.strip(),
+    }
+    if as_json:
+        h["Accept"] = "application/json, text/plain, */*"
+        h["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
+        h["X-Requested-With"] = "XMLHttpRequest"
+    else:
+        h["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    return h
+
+def _to_float(v) -> float:
+    if v is None: return 0.0
+    if isinstance(v, (int,float)): return float(v)
+    s = str(v).replace(',', '')
+    m = re.search(r'-?\d+(?:\.\d+)?', s)
+    return float(m.group(0)) if m else 0.0
+
+def _normalize_top20(obj: Any) -> List[dict]:
+    rows: List[dict] = []
+    if isinstance(obj, dict) and isinstance(obj.get("ranks"), list):
+        for i, d in enumerate(obj["ranks"], 1):
+            kw = (d.get("keyword") or d.get("relKeyword") or "").strip()
+            sc = None
+            for k in ("ratio","ratioValue","value","score","count","ratioIndex"):
+                if k in d:
+                    sc = _to_float(d.get(k)); break
+            if kw:
+                rows.append({"rank": i, "keyword": kw, "score": 0.0 if sc is None else sc})
+
+    def consider(d: dict):
+        kw = (d.get('keyword') or d.get('relKeyword') or d.get('name') or d.get('key') or '').strip()
+        sc = None
+        for k in ('ratio','ratioValue','ratioIndex','value','score','count'):
+            if k in d: sc = _to_float(d.get(k)); break
+        if kw: rows.append({'keyword': kw, 'score': 0.0 if sc is None else sc})
+
+    def walk(o):
+        if isinstance(o, dict):
+            if "ranks" in o and isinstance(o["ranks"], list):
+                for i, d in enumerate(o["ranks"], 1):
+                    kw = (d.get("keyword") or d.get("relKeyword") or "").strip()
+                    sc = None
+                    for k in ("ratio","ratioValue","value","score","count","ratioIndex"):
+                        if k in d: sc = _to_float(d.get(k)); break
+                    if kw: rows.append({"rank": i, "keyword": kw, "score": 0.0 if sc is None else sc})
+            for v in o.values():
+                if isinstance(v, (dict, list)): walk(v)
+            consider(o)
+        elif isinstance(o, list):
+            for v in o: walk(v)
+    walk(obj)
+
+    best = {}
+    for r in rows:
+        k = r["keyword"]; s = float(r.get("score", 0) or 0)
+        if k and (k not in best or s > best[k]["score"]): best[k] = {"keyword": k, "score": s}
+    out = list(best.values()); out.sort(key=lambda x: x.get("score", 0), reverse=True); out = out[:20]
+    for i, r in enumerate(out, 1): r["rank"] = i
+    return out
+
+def _extract_top20_from_text(txt: str) -> List[dict]:
+    for m in re.finditer(r'\{"message"\s*:\s*null.*?\}', txt, re.S):
+        try:
+            data = json.loads(m.group(0))
+            rows = _normalize_top20(data)
+            if rows: return rows
+        except Exception: pass
+    m = re.search(r'"ranks"\s*:\s*(\[[^\]]+\])', txt, re.S)
+    if m:
+        try:
+            arr = json.loads(m.group(1))
+            return _normalize_top20({"ranks": arr})
+        except Exception: pass
+    pats = [
+        r'"keyword"\s*:\s*"([^"]+)"[^}]*?(?:ratio|ratioValue|value|score)"\s*:\s*"?(?P<num>[-\d.,]+%?)"?',
+        r'"relKeyword"\s*:\s*"([^"]+)"[^}]*?(?:ratio|ratioValue|value|score)"\s*:\s*"?(?P<num>[-\d.,]+%?)"?',
+    ]
+    kv = defaultdict(float)
+    for p in pats:
+        for kw, sc in re.findall(p, txt):
+            kw = kw.strip(); val = _to_float(sc)
+            if kw and val > kv[kw]: kv[kw] = val
+    rows = [{"keyword": k, "score": v} for k, v in kv.items()]
+    rows.sort(key=lambda x: x["score"], reverse=True); rows = rows[:20]
+    for i, r in enumerate(rows, 1): r["rank"] = i
+    return rows
+
+@st.cache_data(show_spinner=False, ttl=600)
+def _fetch_top20(cookie: str, cid: str, start: str, end: str) -> dict:
+    if not requests: return {"ok": False, "reason": "requests 미설치"}
+    tried, last_json, last_reason = [], None, ""
+    base_kw = "https://datalab.naver.com/shoppingInsight/getCategoryKeywordRank.naver"
+
+    for method in ("POST","GET"):
+        for time_unit in ("week","date"):
+            for device in ("all","pc","mo"):
+                for age_key in ("age","ages"):
+                    tried.append(f"{method}:{time_unit}/{device}/{age_key}")
+                    payload = {"cid": str(cid).strip(),"timeUnit": time_unit,"startDate": start,"endDate": end,"device": device,"gender": "all"}
+                    payload[age_key] = "all"
+                    try:
+                        if method=="POST":
+                            r = requests.post(base_kw, headers=_hdr(cookie, cid, time_unit, device, as_json=True),
+                                              data=payload, timeout=12, allow_redirects=False)
+                        else:
+                            r = requests.get(base_kw, headers=_hdr(cookie, cid, time_unit, device, as_json=True),
+                                             params=payload, timeout=12, allow_redirects=False)
+                        ct = (r.headers.get("content-type") or "").lower()
+                        if r.status_code in (301,302,303,307,308): return {"ok": False, "reason": "302 리다이렉트 — 쿠키 만료/로그인 필요", "tried": tried}
+                        if "text/html" in ct: last_reason = "HTML 응답 — 쿠키/리퍼러 불일치"; continue
+                        r.raise_for_status()
+                        data = r.json(); last_json = data
+                        rows = _normalize_top20(data)
+                        if rows: return {"ok": True, "rows": rows}
+                        last_reason = "응답 파싱 실패(구조 변경 가능성)"
+                    except Exception as e:
+                        last_reason = f"요청 실패: {e}"
+
+    base_cat = "https://datalab.naver.com/shoppingInsight/getCategory.naver"
+    for time_unit in ("week","date"):
+        for device in ("all","pc","mo"):
+            for age_key in ("age","ages"):
+                tried.append(f"GET:getCategory/{time_unit}/{device}/{age_key}")
+                params = {"cid": str(cid).strip(),"timeUnit": time_unit,"startDate": start,"endDate": end,"device": device,"gender": "all"}
+                params[age_key] = "all"
+                try:
+                    r = requests.get(base_cat, headers=_hdr(cookie, cid, time_unit, device, as_json=True),
+                                     params=params, timeout=12, allow_redirects=False)
+                    if r.status_code in (301,302,303,307,308): return {"ok": False, "reason": "302 리다이렉트 — 쿠키 만료/로그인 필요", "tried": tried}
+                    ct = (r.headers.get("content-type") or "").lower()
+                    if "application/json" in ct:
+                        data = r.json(); last_json = data
+                        rows = _normalize_top20(data)
+                        if rows: return {"ok": True, "rows": rows}
+                        rows = _extract_top20_from_text(r.text or "")
+                        if rows: return {"ok": True, "rows": rows}
+                    else:
+                        rows = _extract_top20_from_text(r.text or "")
+                        if rows: return {"ok": True, "rows": rows}
+                    last_reason = "getCategory 응답 파싱 실패"
+                except Exception as e:
+                    last_reason = f"getCategory 실패: {e}"
+
+    try:
+        page_url = ("https://datalab.naver.com/shoppingInsight/sCategory.naver"
+                    f"?cid={cid}&timeUnit=week&startDate={start}&endDate={end}&device=all&gender=all&ages=all")
+        r = requests.get(page_url, headers=_hdr(cookie, cid, as_json=False),
+                         timeout=12, allow_redirects=False)
+        if r.status_code in (301,302,303,307,308): return {"ok": False, "reason": "302 리다이렉트 — 쿠키 만료/로그인 필요", "tried": tried}
+        html = r.text or ""; rows = _extract_top20_from_text(html)
+        if rows: return {"ok": True, "rows": rows, "fallback": "html"}
+        sample = ""
+        try:
+            if last_json is not None: sample = json.dumps(last_json, ensure_ascii=False)[:800]
+        except Exception: pass
+        return {"ok": False, "reason": last_reason or "응답 파싱 실패", "tried": tried, "sample": sample}
+    except Exception as e:
+        sample = ""
+        try:
+            if last_json is not None: sample = json.dumps(last_json, ensure_ascii=False)[:800]
+        except Exception: pass
+        return {"ok": False, "reason": f"HTML 폴백 실패: {e}", "tried": tried, "sample": sample}
+
+@st.cache_data(show_spinner=False, ttl=600)
+def _fetch_trend(cookie: str, keywords: List[str], start: str, end: str) -> pd.DataFrame:
+    if not (requests and keywords): return pd.DataFrame()
+    url = "https://datalab.naver.com/shoppingInsight/getKeywordTrends.naver"
+    headers = _hdr(cookie, cid='50000000', as_json=True)
+    payload = {
+        "timeUnit": "week","startDate": start,"endDate": end,
+        "keyword": json.dumps([{"name": k.strip(), "param": [k.strip()]} for k in keywords], ensure_ascii=False),
+        "device": "all","gender": "all","ages": "all",
+    }
+    try:
+        r = requests.post(url, headers=headers, data=payload, timeout=12, allow_redirects=False)
+        ct = (r.headers.get("content-type") or "").lower()
+        if r.status_code in (301,302,303,307,308) or "text/html" in ct: return pd.DataFrame()
+        r.raise_for_status(); data = r.json()
+    except Exception: return pd.DataFrame()
+
+    series: Dict[str, list] = {}
+    def walk(o):
+        if isinstance(o, dict):
+            title = o.get("title") or o.get("name")
+            data_list = o.get("data")
+            if title and isinstance(data_list, list):
+                for i, p in enumerate(data_list):
+                    period = p.get("period") or p.get("date") or f"P{i}"
+                    ratio  = p.get("ratio")  or p.get("value") or 0
+                    series.setdefault("period", []).append(period)
+                    series.setdefault(title, []).append(ratio)
+            for v in o.values():
+                if isinstance(v, (dict, list)): walk(v)
+        elif isinstance(o, list):
+            for v in o: walk(v)
+    walk(data)
+    if not series: return pd.DataFrame()
+    df = pd.DataFrame(series)
+    if "period" in df.columns: df = df.set_index("period")
+    return df
+
+def render_datalab_block():
+    st.markdown("## 데이터랩 (분석)")
+    cookie = _naver_cookie()
+    if not cookie:
+        with st.expander("NAVER_COOKIE 입력(최초 1회)", expanded=True):
+            c = st.text_input("쿠키 전체 문자열", type="password",
+                              help="datalab.naver.com 로그인 상태에서 NID_* 포함 전체 쿠키 복사/붙여넣기")
+            if c:
+                st.session_state["__NAVER_COOKIE"] = c.strip()
+                cookie = c.strip()
+                st.success("세션 저장 완료")
+
+    c1, c2 = st.columns([1.1, 1.4])
+    with c1:
+        cat = st.selectbox("카테고리", DATALAB_CATS, key="dl_cat_simple")
+        cid = CID_MAP.get(cat, "50000000")
+        today = date.today()
+        start = st.date_input("시작일", value=today - timedelta(days=30), key="dl_start_simple")
+        end   = st.date_input("종료일", value=today, key="dl_end_simple")
+        btn = st.button("Top20 불러오기", key="dl_go_simple", use_container_width=True)
+
+        top_df = pd.DataFrame()
+        if btn:
+            if not cookie:
+                st.error("NAVER_COOKIE가 필요합니다. 위에서 한 번만 입력해 주세요.")
+            else:
+                res = _fetch_top20(cookie, cid, str(start), str(end))
+                if not res.get("ok"):
+                    st.error(f"조회 실패: {res.get('reason')}")
+                    if res.get("tried"): st.caption("시도: " + ", ".join(res["tried"]))
+                    if res.get("sample"): st.caption("응답 샘플:"); st.code(res["sample"])
+                else:
+                    top_df = pd.DataFrame(res["rows"], columns=["rank","keyword","score"])
+                    st.dataframe(top_df, hide_index=True, use_container_width=True, height=420)
+
+        st.session_state.setdefault("_top_keywords", [])
+        if not top_df.empty: st.session_state["_top_keywords"] = top_df["keyword"].tolist()
+
+    with c2:
+        st.markdown("### 선택 키워드 트렌드")
+        kw_source = st.session_state.get("_top_keywords", [])
+        if kw_source:
+            picks = st.multiselect("키워드(최대 5개)", kw_source, default=kw_source[:3],
+                                   max_selections=5, key="dl_kw_picks")
+            if st.button("트렌드 보기", key="dl_trend_simple"):
+                if not cookie:
+                    st.error("NAVER_COOKIE가 필요합니다.")
+                elif not picks:
+                    st.warning("키워드를 선택해 주세요.")
+                else:
+                    df_line = _fetch_trend(cookie, picks,
+                                           str(st.session_state["dl_start_simple"]),
+                                           str(st.session_state["dl_end_simple"]))
+                    if df_line.empty:
+                        x = np.arange(0, 12)
+                        base = 50 + 5*np.sin(x/2)
+                        df_line = pd.DataFrame({
+                            (picks[0] if len(picks)>0 else "kw1"): base,
+                            (picks[1] if len(picks)>1 else "kw2"): base-5 + 3*np.cos(x/3),
+                            (picks[2] if len(picks)>2 else "kw3"): base+3 + 4*np.sin(x/4),
+                        }, index=[f"P{i}" for i in range(len(x))])
+                        st.info("실데이터 조회 실패 — 샘플 라인을 표시합니다.")
+                    st.line_chart(df_line, height=260, use_container_width=True)
+        else:
+            st.caption("좌측에서 Top20을 먼저 불러오면 여기서 트렌드를 볼 수 있습니다.")
+
+# -----------------------------
+# Part 3.5 — 데이터랩(원본 임베드, Worker v2 '?url=')
+# -----------------------------
+from urllib.parse import quote
+
+def render_datalab_embed_block():
+    st.markdown("## 데이터랩 (원본 임베드)")
+    _CID_MAP = CID_MAP
+    _CATS = list(_CID_MAP.keys())
+
+    colA, colB, colC = st.columns([1.2, 1, 1])
+    with colA:
+        cat = st.selectbox("카테고리", _CATS, index=3, key="dl_embed_cat")
+        cid = _CID_MAP.get(cat, "50000003")
+    with colB:
+        time_unit = st.selectbox("기간 단위", ["week","month"], index=0, key="dl_embed_timeunit")
+    with colC:
+        device = st.selectbox("기기", ["all","pc","mo"], index=0, key="dl_embed_device")
+
+    proxy = (st.session_state.get("PROXY_URL") or "").strip().rstrip("/")
+    if not proxy:
+        st.warning("PROXY_URL 없음 — 사이드바 하단에 Cloudflare Worker 주소를 입력하세요.")
+        return
+
+    target = f"https://datalab.naver.com/shoppingInsight/sCategory.naver?cid={cid}&timeUnit={time_unit}&device={device}&gender=all&ages=all"
+    embed_url = f"{proxy}/?url={quote(target, safe=':/?&=%')}"
+    st.components.v1.iframe(embed_url, height=980, scrolling=True)
+    st.caption("프록시가 쿠키/헤더를 서버 측에서 처리합니다. 앱에는 쿠키 저장이 필요 없습니다.")
+
+# -----------------------------
+# Part 4 — 11번가(모바일) 임베드 (아마존베스트 '고정')
+# -----------------------------
+import urllib.parse as _url
+
+AMAZON_BEST_URL = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
+
+def _proxy_wrap(url: str) -> str:
+    proxy = st.session_state.get("PROXY_URL", "").strip().rstrip("/")
+    if proxy:
+        return f"{proxy}/?url={_url.quote(url, safe='')}"
+    return url
+
+def render_11st_block():
+    st.markdown("## 11번가 (모바일) — 아마존베스트 (고정)")
+    if not st.session_state.get("PROXY_URL", "").strip():
+        st.warning("PROXY_URL이 비어 있습니다. 11번가는 iFrame 차단이 있어 Cloudflare Worker 경유가 필요할 수 있습니다. "
+                   "사이드바 하단에 Worker 주소를 입력해 주세요.")
+    try:
+        st.components.v1.iframe(_proxy_wrap(AMAZON_BEST_URL), height=780, scrolling=True)
+        st.caption("모바일 탭: 아마존베스트(고정)")
+    except Exception as e:
+        st.error(f"11번가 임베드 실패: {e}")
+        st.code(AMAZON_BEST_URL, language="text")
+
+# -----------------------------
+# Part 4.5 — 아이템스카우트 임베드
+# -----------------------------
+def render_itemscout_embed():
+    proxy = (st.session_state.get("PROXY_URL") or "").strip().rstrip("/")
+    st.markdown("## 아이템스카우트 (원본 임베드)")
+    if not proxy:
+        st.warning("PROXY_URL이 비어 있습니다. 사이드바 하단에 Worker 주소를 입력하세요.")
+        return
+    default_url = st.secrets.get("itemscout", {}).get("DEFAULT_URL", "https://app.itemscout.io/market/keyword")
+    url = st.text_input("Itemscout URL", default_url, help="로그인된 상태로 보고 싶은 경로를 붙여넣기 가능")
+    from urllib.parse import quote as _q
+    st.components.v1.iframe(f"{proxy}/?url={_q(url, safe=':/?&=%')}", height=920, scrolling=True)
+
+# -----------------------------
+# Part 4.6 — 셀러라이프 임베드
+# -----------------------------
+def render_sellerlife_embed():
+    proxy = (st.session_state.get("PROXY_URL") or "").strip().rstrip("/")
+    st.markdown("## 셀러라이프 (원본 임베드)")
+    if not proxy:
+        st.warning("PROXY_URL이 비어 있습니다. 사이드바 하단에 Worker 주소를 입력하세요.")
+        return
+    default_url = st.secrets.get("sellerlife", {}).get("DEFAULT_URL", "https://sellerlife.co.kr/dashboard")
+    url = st.text_input("SellerLife URL", default_url)
+    from urllib.parse import quote as _q
+    st.components.v1.iframe(f"{proxy}/?url={_q(url, safe=':/?&=%')}", height=920, scrolling=True)
+
+# -----------------------------
+# Part 5 — AI 키워드 레이더 (Rakuten)  [실데이터 우선 + 스크롤/여백/URL 축소]
+# -----------------------------
+RAKUTEN_APP_ID_DEFAULT       = "1043271015809337425"
+RAKUTEN_AFFILIATE_ID_DEFAULT = "4c723498.cbfeca46.4c723499.1deb6f77"
+
+RAKUTEN_CATS = [
+    "전체(샘플)","뷰티/코스메틱","의류/패션","가전/디지털","가구/인테리어",
+    "식품","생활/건강","스포츠/레저","문구/취미"
+]
+
+def _get_rakuten_keys():
+    try:
+        app_id = (st.secrets.get("rakuten", {}).get("APP_ID") or
+                  st.secrets.get("RAKUTEN_APP_ID") or
+                  st.secrets.get("RAKUTEN_APPLICATION_ID") or
+                  RAKUTEN_APP_ID_DEFAULT)
+    except Exception:
+        app_id = RAKUTEN_APP_ID_DEFAULT
+    try:
+        affiliate = (st.secrets.get("rakuten", {}).get("AFFILIATE_ID") or
+                     st.secrets.get("RAKUTEN_AFFILIATE_ID") or
+                     st.secrets.get("RAKUTEN_AFFILIATE") or
+                     RAKUTEN_AFFILIATE_ID_DEFAULT)
+    except Exception:
+        affiliate = RAKUTEN_AFFILIATE_ID_DEFAULT
+    return (app_id or "").strip(), (affiliate or "").strip()
+
+def _fetch_rank(genre_id: str, topn: int = 20) -> pd.DataFrame:
+    if not requests:
+        raise RuntimeError("requests 미설치")
+    app_id, affiliate = _get_rakuten_keys()
+    url = "https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628"
+    params = {"applicationId": app_id, "genreId": str(genre_id).strip(), "carrier": 0}
+    if affiliate:
+        params["affiliateId"] = affiliate
+    r = requests.get(url, params=params, timeout=12)
+    r.raise_for_status()
+    items = r.json().get("Items", [])
+    rows = []
+    for it in items[:topn]:
+        node = it.get("Item", {})
+        rows.append({
+            "rank": node.get("rank"),
+            "keyword": node.get("itemName") or "",
+            "shop": node.get("shopName") or "",
+            "url": node.get("itemUrl") or "",
+        })
+    return pd.DataFrame(rows)
+
+def _mock_rows(n=20) -> pd.DataFrame:
+    return pd.DataFrame([{
+        "rank": i+1, "keyword": f"[샘플] 키워드 {i+1} ハロウィン 秋 🍂", "shop": "샘플샵", "url": "https://example.com"
+    } for i in range(n)])
+
+def render_rakuten_block():
+    st.markdown("## AI 키워드 레이더 (Rakuten)")
+    st.markdown("""
+    <style>
+      .rk-wrap [data-testid="stVerticalBlock"] { gap: .4rem !important; }
+      .rk-wrap .stMarkdown { margin: .25rem 0 !important; }
+      .rk-wrap .stDataFrame { margin-top: .2rem !important; }
+      .rk-wrap .stDataFrame [role="grid"] { font-size: 0.90rem !important; }
+      .rk-wrap .stDataFrame a { font-size: 0.86rem !important; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    colA, colB, colC, colD = st.columns([1,1,1,1])
+    with colA:
+        scope = st.radio("범위", ["국내","글로벌"], horizontal=True, key="rk_scope")
+    with colB:
+        cat = st.selectbox("라쿠텐 카테고리", RAKUTEN_CATS, key="rk_cat")
+    with colC:
+        genreid = st.text_input("GenreID", "100283", key="rk_genre")
+    with colD:
+        sample_only = st.checkbox("샘플 보기", value=False, help="체크 시 샘플 데이터로 표시")
+
+    app_id, affiliate = _get_rakuten_keys()
+    st.caption(f"APP_ID: {('✅ ' + app_id) if app_id else '❌ 없음'}  |  Affiliate: {('✅ ' + affiliate) if affiliate else '—'}")
+
+    df = pd.DataFrame()
+    err = None
+    if not sample_only:
+        try:
+            df = _fetch_rank(genreid or "100283", topn=20)
+        except Exception as e:
+            err = str(e)
+
+    if df.empty:
+        if err:
+            st.warning(f"Rakuten API 실패 → 샘플로 대체: {err[:200]}")
+        df = _mock_rows(20)
+
+    df = df[["rank","keyword","shop","url"]]
+    colcfg = {
+        "rank":    st.column_config.NumberColumn("rank", width="small"),
+        "keyword": st.column_config.TextColumn("keyword", width="large"),
+        "shop":    st.column_config.TextColumn("shop", width="medium"),
+        "url":     st.column_config.LinkColumn("url", display_text="열기", width="small"),
+    }
+
+    with st.container():
+        st.markdown('<div class="rk-wrap">', unsafe_allow_html=True)
+        st.dataframe(df, hide_index=True, use_container_width=True, height=420, column_config=colcfg)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+# -----------------------------
+# Part 6 — 구글 번역
+# -----------------------------
+def translate_text(src:str, tgt:str, text:str) -> tuple[str,str]:
+    if not GoogleTranslator:
+        raise ModuleNotFoundError("deep-translator 미설치")
+    src = lang_label_to_code(src); tgt = lang_label_to_code(tgt)
+    translator = GoogleTranslator(source=src, target=tgt)
+    out = translator.translate(text)
+    ko_hint = ""
+    if tgt != "ko" and out.strip():
+        try:
+            ko_hint = GoogleTranslator(source=tgt, target="ko").translate(out)
+        except Exception:
+            ko_hint = ""
+    return out, ko_hint
+
+def render_translator_block():
+    st.markdown("## 구글 번역 (텍스트 입력/출력 + 한국어 확인용)")
+    c1, c2 = st.columns([1,1])
+    with c1:
+        src = st.selectbox("원문 언어", list(LANG_LABELS.values()), index=list(LANG_LABELS.keys()).index("auto"), key="tr_src")
+        text_in = st.text_area("원문 입력", height=150, key="tr_in")
+    with c2:
+        tgt = st.selectbox("번역 언어", list(LANG_LABELS.values()), index=list(LANG_LABELS.keys()).index("en"), key="tr_tgt")
+        if st.button("번역", key="tr_go"):
+            try:
+                out, ko_hint = translate_text(lang_label_to_code(src), lang_label_to_code(tgt), text_in)
+                if ko_hint and lang_label_to_code(tgt) != "ko":
+                    st.text_area("번역 결과", value=f"{out}\n{ko_hint}", height=150)
+                else:
+                    st.text_area("번역 결과", value=out, height=150)
+                toast_ok("번역 완료")
+            except ModuleNotFoundError as e:
+                st.warning(f"deep-translator 설치 필요: {e}")
+            except Exception as e:
+                st.error(f"번역 실패: {e}")
+
+# -----------------------------
+# Part 6.5 — 간단 규칙 기반 상품명 생성기(복구)
+# -----------------------------
+def render_product_name_generator():
+    st.markdown("### 상품명 생성기 (규칙 기반)")
+    with st.container(border=True):
+        colA, colB = st.columns([1,2])
+        with colA:
+            brand = st.text_input("브랜드", placeholder="예: Apple / 샤오미 / 무지")
+            attrs = st.text_input("속성(콤마, 선택)", placeholder="예: 공식, 정품, 한정판")
+        with colB:
+            kws = st.text_input("키워드(콤마)", placeholder="예: 노트북 스탠드, 접이식, 알루미늄")
+        col1, col2, col3 = st.columns([1,1,1])
+        with col1:
+            max_len = st.slider("최대 글자수", 20, 80, 50, 1)
+        with col2:
+            joiner = st.selectbox("구분자", [" ", " | ", " · ", " - "], index=0)
+        with col3:
+            order = st.selectbox("순서", ["브랜드-키워드-속성", "키워드-브랜드-속성", "브랜드-속성-키워드"], index=0)
+
+        if st.button("상품명 생성"):
+            kw_list = [k.strip() for k in kws.split(",") if k.strip()]
+            at_list = [a.strip() for a in attrs.split(",") if a.strip()]
+            if not kw_list:
+                st.warning("키워드가 비었습니다.")
+                return
+            titles = []
+            for k in kw_list:
+                if order=="브랜드-키워드-속성": seq = [brand, k] + at_list
+                elif order=="키워드-브랜드-속성": seq = [k, brand] + at_list
+                else: seq = [brand] + at_list + [k]
+                title = joiner.join([p for p in seq if p])
+                if len(title) > max_len:
+                    title = title[:max_len-1] + "…"
+                titles.append(title)
+            st.success(f"총 {len(titles)}건")
+            st.write("\n".join(titles))
+
+# -----------------------------
+# Part 7 — 메인 조립 (가로 4×2 그리드)
+# -----------------------------
+def _inject_global_css():
+    st.markdown("""
+    <style>
+      .block-container { max-width: 1500px !important; padding-top:.8rem !important; padding-bottom:1rem !important; }
+      html, body { overflow: auto !important; }
+      /* 사이드바 내부 스크롤 허용 (사이드바 구조는 그대로) */
+      [data-testid="stSidebar"] section { overflow-y: auto !important; }
+
+      .envy-card { background:rgba(0,0,0,.02); border:1px solid rgba(0,0,0,.09);
+        border-radius:16px; padding:18px; box-shadow:0 6px 18px rgba(0,0,0,.05);}
+      .envy-card h3, .envy-card h2 { margin:0 0 .35rem 0 !important; }
+      .envy-sub { font-size:.86rem; opacity:.75; margin-bottom:.35rem; }
+    </style>
+    """, unsafe_allow_html=True)
+
+def _card(title:str, sub:str=""):
+    st.markdown('<div class="envy-card">', unsafe_allow_html=True)
+    st.markdown(f'**{title}**' + (f'  \n<span class="envy-sub">{sub}</span>' if sub else ''), unsafe_allow_html=True)
+
+def _close_card():
+    st.markdown('</div>', unsafe_allow_html=True)
+
+def _safe_call(fn_name:str, title:str=None, sub:str=""):
+    fn = globals().get(fn_name)
+    _card(title or fn_name, sub)
+    if callable(fn):
+        try: fn()
+        except Exception as e: st.error(f"{title or fn_name} 실행 중 오류: {e}")
+    else:
+        st.info(f"'{fn_name}()' 이 정의되어 있지 않습니다.")
+    _close_card()
+
+def main():
+    _ = render_sidebar()
+    _inject_global_css()
+
+    st.title("ENVY — Season 1 (stable)")
+    st.caption("임베드 기본 + 분석 보조. 프록시/쿠키는 Worker 비밀값으로 관리. (PROXY_URL 예: https://envy-proxy.taesig0302.workers.dev/)")
+
+    # Row 1 — 데이터랩(원본) · 데이터랩(분석) · 11번가 · 상품명 생성기
+    r1c1, r1c2, r1c3, r1c4 = st.columns([1,1,1,1], gap="large")
+    with r1c1: _safe_call("render_datalab_embed_block", "데이터랩 (원본 임베드)", "프록시 경유 · 쿠키 앱 비저장")
+    with r1c2: _safe_call("render_datalab_block", "데이터랩 (분석 보조)", "Top20 + 트렌드")
+    with r1c3: _safe_call("render_11st_block", "11번가 (모바일) — 아마존베스트", "프록시 권장")
+    with r1c4: _safe_call("render_product_name_generator", "상품명 생성기 (규칙 기반)", "브랜드/속성/키워드 조합")
+
+    st.markdown('<div style="height:10px;"></div>', unsafe_allow_html=True)
+
+    # Row 2 — AI 레이더 · 구글 번역 · 아이템스카우트 · 셀러라이프
+    r2c1, r2c2, r2c3, r2c4 = st.columns([1,1,1,1], gap="large")
+    with r2c1: _safe_call("render_rakuten_block", "AI 키워드 레이더 (Rakuten)", "실데이터 우선 · URL ‘열기’")
+    with r2c2: _safe_call("render_translator_block", "구글 번역", "한국어 확인 라인 포함")
+    with r2c3: _safe_call("render_itemscout_embed", "아이템스카우트 (임베드)", "로그인 필요 시 Worker Secrets")
+    with r2c4: _safe_call("render_sellerlife_embed", "셀러라이프 (임베드)", "로그인 필요 시 Worker Secrets")
+
+if __name__ == "__main__":
+    main()
