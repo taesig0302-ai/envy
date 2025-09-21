@@ -192,28 +192,41 @@ def _proxy_iframe(proxy_base: str, target_url: str, height: int = 860, scroll=Tr
     st.components.v1.iframe(url, height=int(height), scrolling=bool(scroll))
 
 def _proxy_iframe_with_title(proxy_base: str, target_url: str, height: int = 860, key: str = "naver_home"):
+    """
+    NOTE: str.format / f-string을 사용하지 않고 토큰 치환으로 바꿔
+    JS 중괄호({})와 파이썬 포맷 충돌을 완전히 회피합니다.
+    """
     proxy = (proxy_base or "").strip().rstrip("/")
     url   = f"{proxy}/?url={quote(target_url, safe=':/?&=%')}"
-    html  = """
-    <div id="{key}-wrap" style="width:100%;overflow:hidden;">
-      <div id="{key}-title"
-           style="display:inline-block;border-radius:9999px;padding:.40rem .9rem;
-                  font-weight:800;background:#dbe6ff;border:1px solid #88a8ff;color:#09245e;margin:0 0 .5rem 0;">
-        DataLab
-      </div>
-      <iframe src="{url}" style="width:100%;height:{h}px;border:0;border-radius:10px;"></iframe>
-    </div>
-    <script>
-      (function(){{
-        const titleEl=document.getElementById("{key}-title");
-        window.addEventListener("message",function(e){{
-          try{ const d=e.data||{{}}; if(d.__envy && d.kind==="title" && d.title) titleEl.textContent=d.title; }catch(_){{
-          }}
-        }},false);
-      }})();
-    </script>
-    """.format(key=key, url=url, h=int(height))
-    st.components.v1.html(html, height=int(height)+56, scrolling=False)
+    hpx   = str(int(height))
+
+    template = r"""
+<div id="<<KEY>>-wrap" style="width:100%;overflow:hidden;">
+  <div id="<<KEY>>-title"
+       style="display:inline-block;border-radius:9999px;padding:.40rem .9rem;
+              font-weight:800;background:#dbe6ff;border:1px solid #88a8ff;color:#09245e;margin:0 0 .5rem 0;">
+    DataLab
+  </div>
+  <iframe src="<<URL>>" style="width:100%;height:<<H>>px;border:0;border-radius:10px;"></iframe>
+</div>
+<script>
+  (function(){
+    const titleEl = document.getElementById("<<KEY>>-title");
+    window.addEventListener("message", function(e){
+      try {
+        const d = e.data || {};
+        if (d.__envy && d.kind === "title" && d.title) titleEl.textContent = d.title;
+      } catch (_) {}
+    }, false);
+  })();
+</script>
+"""
+    html = (template
+            .replace("<<KEY>>", key)
+            .replace("<<URL>>", url)
+            .replace("<<H>>",  hpx))
+
+    st.components.v1.html(html, height=int(height) + 56, scrolling=False)
 
 # ---------------------------
 # 4) SIDEBAR
