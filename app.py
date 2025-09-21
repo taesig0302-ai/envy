@@ -1,13 +1,5 @@
 # -*- coding: utf-8 -*-
-# ENVY — Season 1 (Dual Proxy Edition, Unified Radar)
-# - 레이더 통합: 국내(네이버 API) / 글로벌(라쿠텐) 한 장
-# - 라쿠텐 rank 칸 2단계 축소, 가로 스크롤 제거 유지
-# - 데이터랩 외부 스크롤 억제 + 제목 브릿지 유지
-# - 사이드바 여백 축소 + 환산금액 통화명 제거(기호만)
-# - 11번가 섹션 높이 표와 동일
-# - 아이템스카우트/셀러라이프: 임베드 보류 → 새 탭 버튼
-# - 번역기/상품명 생성기 기존 유지
-
+# ENVY — Season 1 (Dual Proxy Edition, Unified Radar + Fixed DataLab Title + Secret Fallback)
 import base64, time
 from pathlib import Path
 from urllib.parse import quote
@@ -31,17 +23,19 @@ st.set_page_config(page_title="ENVY — Season 1 (Dual Proxy Edition)", layout="
 # =========================
 # 0) GLOBALS
 # =========================
-SHOW_ADMIN_BOX = False
+SHOW_ADMIN_BOX = False  # True로 바꾸면 사이드바에 디버그 박스
 
+# Proxies
 NAVER_PROXY      = "https://envy-proxy.taesig0302.workers.dev"
 ELEVENST_PROXY   = "https://worker-11stjs.taesig0302.workers.dev"
 ITEMSCOUT_PROXY  = "https://worker-itemscoutjs.taesig0302.workers.dev"
 SELLERLIFE_PROXY = "https://worker-sellerlifejs.taesig0302.workers.dev"
 
-# Rakuten Fallbacks
+# Rakuten (디폴트)
 RAKUTEN_APP_ID_DEFAULT       = "1043271015809337425"
 RAKUTEN_AFFILIATE_ID_DEFAULT = "4c723498.cbfeca46.4c723499.1deb6f77"
 
+# Sidebar 환율/마진
 CURRENCIES = {
     "USD":{"kr":"미국 달러","symbol":"$","unit":"USD"},
     "EUR":{"kr":"유로","symbol":"€","unit":"EUR"},
@@ -66,23 +60,15 @@ def _ensure_session_defaults():
     ss.setdefault("margin_mode","퍼센트")
     ss.setdefault("margin_pct",10.00)
     ss.setdefault("margin_won",10000.0)
-
     # 표 공통
     ss.setdefault("df_height", 520)
     ss.setdefault("df_font_px", 12)
     ss.setdefault("df_compact", True)
-
-    # 라쿠텐 카테고리 → genreId (초깃값: 샘플)
+    # 라쿠텐 카테고리 → genreId
     ss.setdefault("rk_genre_map", {
-        "전체(샘플)": "100283",
-        "뷰티/코스메틱": "100283",
-        "의류/패션": "100283",
-        "가전/디지털": "100283",
-        "가구/인테리어": "100283",
-        "식품": "100283",
-        "생활/건강": "100283",
-        "스포츠/레저": "100283",
-        "문구/취미": "100283",
+        "전체(샘플)": "100283", "뷰티/코스메틱": "100283", "의류/패션": "100283",
+        "가전/디지털": "100283", "가구/인테리어": "100283", "식품": "100283",
+        "생활/건강": "100283", "스포츠/레저": "100283", "문구/취미": "100283",
     })
 
 def _toggle_theme():
@@ -100,7 +86,7 @@ def _inject_css():
       html,body,[data-testid="stAppViewContainer"]{{background:{bg}!important;color:{fg}!important}}
       h2,h3{{margin-top:.3rem!important}}
 
-      /* Sidebar tight spacing */
+      /* Sidebar tighter spacing */
       [data-testid="stSidebar"],[data-testid="stSidebar"]>div:first-child,[data-testid="stSidebar"] section{{
         height:100vh!important;overflow:hidden!important;padding:.15rem .25rem!important}}
       [data-testid="stSidebar"] section{{overflow-y:auto!important}}
@@ -114,7 +100,7 @@ def _inject_css():
       [data-baseweb="input"] input,.stNumberInput input,[data-baseweb="select"] div[role="combobox"]{{
         height:1.55rem!important;padding:.12rem .6rem!important;font-size:.96rem!important;border-radius:12px!important}}
 
-      /* 로고 72px */
+      /* 로고 72px 복원 */
       .logo-circle{{width:72px;height:72px;border-radius:50%;overflow:hidden;margin:.2rem auto .4rem auto;
                    box-shadow:0 2px 8px rgba(0,0,0,.12);border:1px solid rgba(0,0,0,.06)}}
       .logo-circle img{{width:100%;height:100%;object-fit:cover}}
@@ -137,7 +123,7 @@ def _inject_css():
       '''
       ]) if compact else ""}
 
-      /* 통합 레이더 카드: 가로 스크롤 제거 + rank 폭 축소 */
+      /* 레이더 표: 가로 스크롤 제거 + rank 폭 2단계 축소 */
       #radar-card [data-testid="stDataFrame"] div[role='grid']{{ overflow-x: hidden !important; }}
       #radar-card table thead th:nth-child(1),
       #radar-card table tbody td:nth-child(1){{ width:54px!important; min-width:54px!important; max-width:54px!important; text-align:center; }}
@@ -145,16 +131,7 @@ def _inject_css():
     """, unsafe_allow_html=True)
 
 def _inject_alert_center():
-    st.markdown("""
-    <div id="envy-alert-root" style="position:fixed;top:16px;right:16px;z-index:999999;pointer-events:none;"></div>
-    <style>
-      .envy-toast{min-width:220px;max-width:420px;margin:8px 0;padding:.7rem 1rem;border-radius:12px;
-        color:#fff;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.25);opacity:0;transform:translateY(-6px);
-        transition:opacity .2s ease, transform .2s ease;}
-      .envy-toast.show{opacity:1;transform:translateY(0)}
-      .envy-info{background:#2563eb}.envy-warn{background:#d97706}.envy-error{background:#dc2626}
-    </style>
-    """, unsafe_allow_html=True)
+    st.markdown('<div id="envy-alert-root" style="position:fixed;top:16px;right:16px;z-index:999999;"></div>', unsafe_allow_html=True)
 
 # =========================
 # 2) 공용 임베드
@@ -168,22 +145,6 @@ def _proxy_iframe(proxy_base: str, target_url: str, height: int = 860, scroll=Tr
     try: st.components.v1.iframe(url, height=h, scrolling=bool(scroll)); return
     except Exception: ...
     st.markdown(f'<iframe src="{url}" style="width:100%;height:{h}px;border:0;border-radius:10px;"></iframe>', unsafe_allow_html=True)
-
-def _proxy_iframe_with_title(proxy_base: str, target_url: str, height: int = 860, key: str = "naver_home"):
-    proxy = (proxy_base or "").strip().rstrip("/")
-    url   = f"{proxy}/?url={quote(target_url, safe=':/?&=%')}"
-    h     = int(height) if isinstance(height, (int, float, str)) else 860
-    html = f"""
-    <div id="{key}-wrap" style="width:100%;overflow:hidden;">
-      <div id="{key}-title"
-           style="display:inline-block;border-radius:9999px;padding:.40rem .9rem;
-                  font-weight:800;background:#dbe6ff;border:1px solid #88a8ff;color:#09245e;margin:0 0 .5rem 0;">
-        DataLab
-      </div>
-      <iframe src="{url}" style="width:100%;height:{h}px;border:0;border-radius:10px;"></iframe>
-    </div>
-    """
-    st.components.v1.html(html, height=h+56, scrolling=False)
 
 # =========================
 # 3) 사이드바
@@ -253,7 +214,10 @@ def _sidebar():
 # =========================
 def section_datalab_home():
     st.markdown('<div class="card"><div class="card-title">데이터랩</div>', unsafe_allow_html=True)
-    _proxy_iframe_with_title(NAVER_PROXY, "https://datalab.naver.com/", height=860, key="naver_home")
+    # 탭 라벨을 항상 보이게(수동 선택)
+    lbl = st.selectbox("표시 라벨", ["DataLab","검색어트렌드","쇼핑인사이트","지역통계","댓글통계"], index=0, key="dl_label")
+    st.markdown(f'<div class="pill pill-blue" style="margin-bottom:.5rem;">{lbl}</div>', unsafe_allow_html=True)
+    _proxy_iframe(NAVER_PROXY, "https://datalab.naver.com/", height=860, scroll=True, key="naver_home")
     st.markdown('</div>', unsafe_allow_html=True)
 
 def section_itemscout_placeholder():
@@ -277,7 +241,7 @@ def section_11st():
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
-# 5) Rakuten Helpers
+# 5) Rakuten
 # =========================
 def _rakuten_keys():
     app_id = (st.secrets.get("RAKUTEN_APP_ID", "")
@@ -316,13 +280,19 @@ def _rk_fetch_rank(genre_id: str, topn: int = 20) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 # =========================
-# 6) NAVER DataLab Helpers
+# 6) NAVER DataLab
 # =========================
 NAVER_DATALAB_API = "https://openapi.naver.com/v1/datalab/search"
 
 def _naver_keys():
+    # 1) 시크릿 우선
     cid = (st.secrets.get("NAVER_CLIENT_ID","") or "").strip()
     csc = (st.secrets.get("NAVER_CLIENT_SECRET","") or "").strip()
+    # 2) 없으면 카드 내 임시 입력값 사용(세션)
+    if not cid:
+        cid = (st.session_state.get("__NAVER_CLIENT_ID","") or "").strip()
+    if not csc:
+        csc = (st.session_state.get("__NAVER_CLIENT_SECRET","") or "").strip()
     return cid, csc
 
 def _daterange(months=3):
@@ -332,15 +302,11 @@ def _daterange(months=3):
 
 @st.cache_data(ttl=600, show_spinner=False)
 def naver_trend_for_keywords(keywords:list[str], months:int=3, device:str="all"):
-    if not keywords:
+    if not keywords or requests is None:
         return pd.DataFrame(), pd.DataFrame()
-    if requests is None:
-        return pd.DataFrame(), pd.DataFrame()
-
     start, end = _daterange(months)
     cid, csc = _naver_keys()
     if not cid or not csc:
-        # 시크릿 없으면 빈값 반환
         return pd.DataFrame(), pd.DataFrame()
 
     headers = {"X-Naver-Client-Id": cid, "X-Naver-Client-Secret": csc, "Content-Type": "application/json"}
@@ -348,7 +314,7 @@ def naver_trend_for_keywords(keywords:list[str], months:int=3, device:str="all")
     def chunk(xs, n):
         for i in range(0, len(xs), n): 
             yield xs[i:i+n]
-    for part in chunk(keywords, 5):  # API 제한: 5개씩
+    for part in chunk(keywords, 5):
         body = {
           "startDate": start, "endDate": end, "timeUnit": "week",
           "keywordGroups": [{"groupName": k, "keywords": [k]} for k in part],
@@ -387,7 +353,6 @@ def section_radar_unified():
     with c1:
         scope = st.radio("분석 범위", ["국내(네이버)", "글로벌(라쿠텐)"], horizontal=True, key="radar_scope")
     with c2:
-        # seed/글로벌용 카테고리 (라쿠텐)
         cat = st.selectbox("라쿠텐 카테고리 (seed/글로벌)", 
             ["전체(샘플)","뷰티/코스메틱","의류/패션","가전/디지털","가구/인테리어","식품","생활/건강","스포츠/레저","문구/취미"], 
             key="radar_cat")
@@ -397,7 +362,7 @@ def section_radar_unified():
     genre_map = st.session_state.get("rk_genre_map", {})
     gid = (genre_map.get(cat) or "100283")
 
-    # ---- 글로벌(라쿠텐) ----
+    # 글로벌(라쿠텐)
     if scope.startswith("글로벌"):
         df = pd.DataFrame([{"rank":i+1,"keyword":f"[샘플] 키워드 {i+1}","shop":"샘플","url":"https://example.com"} for i in range(20)]) \
              if sample_only else _rk_fetch_rank(gid, topn=20)
@@ -414,7 +379,7 @@ def section_radar_unified():
         st.markdown('</div>', unsafe_allow_html=True)
         return
 
-    # ---- 국내(네이버) ----
+    # 국내(네이버)
     c4, c5, c6 = st.columns([1,1,1])
     with c4:
         months = st.slider("분석기간(개월)", 1, 6, 3, key="kr_months")
@@ -427,17 +392,23 @@ def section_radar_unified():
         seed = st.text_area("키워드(콤마로 구분)", "원피스, 블라우스, 바람막이, 트위드자켓", key="kr_seed")
         kw_list = [k.strip() for k in (seed or "").split(",") if k.strip()]
     else:
-        # 라쿠텐 상위 20 → seed
         seed_df = pd.DataFrame([{"keyword":f"[샘플] 키워드 {i+1}"} for i in range(20)]) \
                   if sample_only else _rk_fetch_rank(gid, topn=20)
         kw_list = [str(x).strip() for x in seed_df["keyword"].tolist() if str(x).strip()]
 
-    # 시크릿 체크
+    # 시크릿/임시 입력 UI (부재 시 사용)
+    with st.expander("API 키(임시 입력)", expanded=False):
+        st.caption("시크릿이 이미 설정돼 있으면 생략 가능")
+        tmp_id  = st.text_input("NAVER_CLIENT_ID",  value=st.session_state.get("__NAVER_CLIENT_ID",""),  type="password")
+        tmp_sec = st.text_input("NAVER_CLIENT_SECRET", value=st.session_state.get("__NAVER_CLIENT_SECRET",""), type="password")
+        st.session_state["__NAVER_CLIENT_ID"]  = tmp_id
+        st.session_state["__NAVER_CLIENT_SECRET"] = tmp_sec
+
     n_cid, n_sec = _naver_keys()
     disabled = not (n_cid and n_sec)
     btn = st.button("레이더 업데이트", disabled=disabled, use_container_width=True)
     if disabled:
-        st.error("NAVER_CLIENT_ID / NAVER_CLIENT_SECRET 누락")
+        st.error("NAVER_CLIENT_ID / NAVER_CLIENT_SECRET 누락 — 시크릿을 넣거나 위 임시 입력란에 입력하세요.")
 
     if btn:
         with st.spinner("네이버 트렌드 불러오는 중…"):
@@ -521,7 +492,7 @@ def section_title_generator():
                     if order=="브랜드-키워드-속성": seq=[brand, k]+at_list
                     elif order=="키워드-브랜드-속성": seq=[k,brand]+at_list
                     else: seq=[brand]+at_list+[k]
-                    title = joiner.join([p for p in seq if p])
+                    title = " ".join([p for p in seq if p])
                     if len(title)>max_len:
                         title = title[:max_len-1]+"…"
                     titles.append(title)
