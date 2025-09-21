@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-# ENVY — Season 1 (Dual Proxy Edition, Final Patch: cache+retry, no-HScroll, hold ItemScout/SellerLife)
-# - ItemScout/SellerLife: 보류 카드(임베드 대신 안내 + 새 탭 버튼)로 대체, 레이아웃 유지
+# ENVY — Season 1 (Dual Proxy Edition, Final Patch w/ smaller logo)
+# - ItemScout/SellerLife: 보류 카드(임베드 대신 안내 + 새 탭 버튼) 유지
 # - Rakuten: cache(15분) + 백오프 재시도, 랭크 2단계 축소, 가로 스크롤 제거, CSV 다운로드
 # - DataLab: 외부 스크롤 억제 + 탭 제목 수신 유지
 # - Sidebar: 여백 축소 & 환산 금액 괄호 텍스트 정리
+# - Sidebar 로고: 72x72 로 축소 (밀림 방지)
 
-import base64, time, math
+import base64, time
 from pathlib import Path
 from urllib.parse import quote
 
@@ -29,17 +30,14 @@ st.set_page_config(page_title="ENVY — Season 1 (Dual Proxy Edition)", layout="
 # =========================
 SHOW_ADMIN_BOX = False
 
-# 프록시(Cloudflare Worker 등)
 NAVER_PROXY      = "https://envy-proxy.taesig0302.workers.dev"
 ELEVENST_PROXY   = "https://worker-11stjs.taesig0302.workers.dev"
 ITEMSCOUT_PROXY  = "https://worker-itemscoutjs.taesig0302.workers.dev"
 SELLERLIFE_PROXY = "https://worker-sellerlifejs.taesig0302.workers.dev"
 
-# 라쿠텐 키(먼저 secrets 사용, 없으면 기본 — 데모용)
 RAKUTEN_APP_ID_DEFAULT       = "1043271015809337425"
 RAKUTEN_AFFILIATE_ID_DEFAULT = "4c723498.cbfeca46.4c723499.1deb6f77"
 
-# 통화표
 CURRENCIES = {
     "USD":{"kr":"미국 달러","symbol":"$","unit":"USD"},
     "EUR":{"kr":"유로","symbol":"€","unit":"EUR"},
@@ -64,7 +62,6 @@ def _ensure_session_defaults():
     ss.setdefault("margin_mode","퍼센트")
     ss.setdefault("margin_pct",10.00)
     ss.setdefault("margin_won",10000.0)
-    # 라쿠텐 장르 매핑 캐시
     ss.setdefault("rk_genre_map", {
         "전체(샘플)": "100283",
         "뷰티/코스메틱": "100283",
@@ -114,6 +111,11 @@ def _inject_css():
       .card-title{{font-size:1.18rem;font-weight:900;margin:.1rem 0 .55rem 0}}
       .card iframe{{border:0;width:100%;border-radius:10px}}
       .row-gap{{height:16px}}
+
+      /* 🔧 로고 축소(72px) */
+      .logo-circle{{width:72px;height:72px;border-radius:50%;overflow:hidden;margin:.2rem auto .4rem auto;
+                   box-shadow:0 2px 8px rgba(0,0,0,.12);border:1px solid rgba(0,0,0,.06)}}
+      .logo-circle img{{width:100%;height:100%;object-fit:cover}}
     </style>
     """, unsafe_allow_html=True)
 
@@ -145,7 +147,7 @@ def _inject_alert_center():
     """, unsafe_allow_html=True)
 
 # =========================
-# 2) 반응형(브레이크포인트)
+# 2) 반응형
 # =========================
 def _responsive_probe():
     html = """
@@ -359,7 +361,6 @@ def _retry_backoff(fn, tries=3, base=0.8, factor=2.0):
 def _rk_fetch_rank_cached(genre_id: str, topn: int = 20) -> pd.DataFrame:
     app_id, affiliate = _rakuten_keys()
     if not (requests and app_id):
-        # 샘플
         return pd.DataFrame([{"rank":i+1,"keyword":f"[샘플] 키워드 {i+1} ハロウィン 秋 🍂","shop":"샘플","url":"https://example.com"} for i in range(topn)])
 
     def _do():
@@ -383,7 +384,6 @@ def _rk_fetch_rank_cached(genre_id: str, topn: int = 20) -> pd.DataFrame:
     try:
         return _retry_backoff(_do)
     except Exception:
-        # 실패 시 샘플
         return pd.DataFrame([{"rank":i+1,"keyword":f"[샘플] 키워드 {i+1} ハロウィン 秋 🍂","shop":"샘플","url":"https://example.com"} for i in range(topn)])
 
 def section_rakuten():
@@ -411,7 +411,6 @@ def section_rakuten():
     with colC:
         sample_only = st.checkbox("샘플 보기", value=False, key="rk_sample")
 
-    # 장르 자동 추정(세션 캐시)
     genre_map = st.session_state.get("rk_genre_map", {})
     genre_id = (genre_map.get(cat) or "").strip()
     need_auto = (not genre_id) or (genre_id == "100283" and cat != "전체(샘플)")
@@ -435,11 +434,8 @@ def section_rakuten():
         "url": st.column_config.LinkColumn("url", display_text="열기", width="small"),
     }
     st.dataframe(df[["rank","keyword","shop","url"]], hide_index=True, use_container_width=True, height=420, column_config=colcfg)
-
-    # CSV 다운로드
     st.download_button("표 CSV 다운로드", data=df.to_csv(index=False).encode("utf-8-sig"),
                        file_name="rakuten_ranking.csv", mime="text/csv")
-
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
@@ -517,17 +513,17 @@ vwbin = _get_view_bin()
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
 # 1줄: 데이터랩 / 아이템스카우트(보류) / 셀러라이프(보류)
-if vwbin >= 3:  # ≥1600px
+if vwbin >= 3:
     t1, t2, t3 = st.columns([5,2,2], gap="medium")
     with t1: section_datalab_home()
     with t2: section_itemscout_placeholder()
     with t3: section_sellerlife_placeholder()
-elif vwbin == 2:  # 1280~1599px
+elif vwbin == 2:
     t1, t2, t3 = st.columns([4,3,3], gap="small")
     with t1: section_datalab_home()
     with t2: section_itemscout_placeholder()
     with t3: section_sellerlife_placeholder()
-else:  # <1280px (스택)
+else:
     section_datalab_home()
     st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
     section_itemscout_placeholder()
