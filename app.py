@@ -1,14 +1,11 @@
 # -*- coding: utf-8 -*-
-# ENVY — Season 1 (Dual Proxy Edition, Responsive + Alerts, No-HScroll, Auto-Genre)
-# - 반응형 카드 레이아웃
-# - 전역 알림(토스트)
-# - 데이터랩 2중 스크롤 제거 + 탭 제목 수신(워커가 지원 시)
-# - 사이드바 여백/문구 정리: 환산 금액에 통화 기호만 노출
-# - 라쿠텐: 카테고리→GenreID 자동 추정(세션 캐시), rank 2단계 축소, 표 가로 스크롤 제거(강제 래핑 + 폰트 -1단계)
-# - 11번가 카드 높이 균형(라쿠텐 표와 맞춤)
-# - 셀러라이프: sellochomes 도메인으로 임베드(요청 반영)
+# ENVY — Season 1 (Dual Proxy Edition, Final Patch: cache+retry, no-HScroll, hold ItemScout/SellerLife)
+# - ItemScout/SellerLife: 보류 카드(임베드 대신 안내 + 새 탭 버튼)로 대체, 레이아웃 유지
+# - Rakuten: cache(15분) + 백오프 재시도, 랭크 2단계 축소, 가로 스크롤 제거, CSV 다운로드
+# - DataLab: 외부 스크롤 억제 + 탭 제목 수신 유지
+# - Sidebar: 여백 축소 & 환산 금액 괄호 텍스트 정리
 
-import base64
+import base64, time, math
 from pathlib import Path
 from urllib.parse import quote
 
@@ -67,7 +64,7 @@ def _ensure_session_defaults():
     ss.setdefault("margin_mode","퍼센트")
     ss.setdefault("margin_pct",10.00)
     ss.setdefault("margin_won",10000.0)
-    # 라쿠텐 장르 매핑(표시 비노출, 자동 추정 결과가 여기 세션에 캐시됨)
+    # 라쿠텐 장르 매핑 캐시
     ss.setdefault("rk_genre_map", {
         "전체(샘플)": "100283",
         "뷰티/코스메틱": "100283",
@@ -92,20 +89,17 @@ def _inject_css():
       html,body,[data-testid="stAppViewContainer"]{{background:{bg}!important;color:{fg}!important}}
       h2,h3{{margin-top:.3rem!important}}
 
-      /* Sidebar: 고정 + 컴팩트 간격 */
+      /* Sidebar: 컴팩트 간격 */
       [data-testid="stSidebar"],[data-testid="stSidebar"]>div:first-child,[data-testid="stSidebar"] section{{
         height:100vh!important;overflow:hidden!important;padding:.15rem .25rem!important}}
       [data-testid="stSidebar"] section{{overflow-y:auto!important}}
       [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none!important}}
-
-      /* 사이드바 입력/출력 상하 여백 축소 */
       [data-testid="stSidebar"] .stSelectbox,
       [data-testid="stSidebar"] .stNumberInput,
       [data-testid="stSidebar"] .stRadio,
       [data-testid="stSidebar"] .stMarkdown,
       [data-testid="stSidebar"] .stTextInput,
       [data-testid="stSidebar"] .stButton{{margin:.06rem 0!important}}
-
       [data-baseweb="input"] input,.stNumberInput input,[data-baseweb="select"] div[role="combobox"]{{
         height:1.55rem!important;padding:.12rem .6rem!important;font-size:.96rem!important;border-radius:12px!important}}
 
@@ -120,10 +114,6 @@ def _inject_css():
       .card-title{{font-size:1.18rem;font-weight:900;margin:.1rem 0 .55rem 0}}
       .card iframe{{border:0;width:100%;border-radius:10px}}
       .row-gap{{height:16px}}
-
-      .logo-circle{{width:95px;height:95px;border-radius:50%;overflow:hidden;margin:.2rem auto .5rem auto;
-                   box-shadow:0 2px 8px rgba(0,0,0,.12);border:1px solid rgba(0,0,0,.06)}}
-      .logo-circle img{{width:100%;height:100%;object-fit:cover}}
     </style>
     """, unsafe_allow_html=True)
 
@@ -291,35 +281,20 @@ def section_datalab_home():
     _proxy_iframe_with_title(NAVER_PROXY, "https://datalab.naver.com/", height=860, key="naver_home")
     st.markdown('</div>', unsafe_allow_html=True)
 
-def section_itemscout():
+def section_itemscout_placeholder():
     st.markdown('<div class="card"><div class="card-title">아이템스카우트</div>', unsafe_allow_html=True)
-    _proxy_iframe(
-        ITEMSCOUT_PROXY,
-        "https://app.itemscout.io/market/keyword",
-        height=760,
-        scroll=True,
-        key="itemscout"
-    )
-    # 임베드가 막힐 경우 대비
+    st.info("임베드 보류 중입니다. 아래 버튼으로 원본 페이지를 새 탭에서 여세요.")
     st.link_button("아이템스카우트 직접 열기(새 탭)", "https://app.itemscout.io/market/keyword")
     st.markdown('</div>', unsafe_allow_html=True)
 
-def section_sellerlife():
+def section_sellerlife_placeholder():
     st.markdown('<div class="card"><div class="card-title">셀러라이프</div>', unsafe_allow_html=True)
-    _proxy_iframe(
-        SELLERLIFE_PROXY,
-        "https://sellochomes.co.kr/sellerlife/",  # ← 요청한 새 임베드 대상
-        height=760,
-        scroll=True,
-        key="sellerlife"
-    )
+    st.info("임베드 보류 중입니다. 아래 버튼으로 원본 페이지를 새 탭에서 여세요.")
     st.link_button("직접 열기(새 탭)", "https://sellochomes.co.kr/sellerlife/")
     st.markdown('</div>', unsafe_allow_html=True)
 
 def _11st_abest_url():
-    import time
-    return ("https://m.11st.co.kr/page/main/abest"
-            f"?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160&_ts={int(time.time())}")
+    return ("https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160&_ts=%d" % int(time.time()))
 
 def section_11st():
     st.markdown('<div class="card"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>', unsafe_allow_html=True)
@@ -327,7 +302,7 @@ def section_11st():
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
-# 5) 라쿠텐 (자동 장르 추정 + 랭킹)
+# 5) 라쿠텐 (cache + retry + no-HScroll)
 # =========================
 def _rakuten_keys():
     app_id = (st.secrets.get("RAKUTEN_APP_ID", "")
@@ -338,7 +313,6 @@ def _rakuten_keys():
                  or RAKUTEN_AFFILIATE_ID_DEFAULT).strip()
     return app_id, affiliate
 
-# 카테고리 → 일본어 키워드(자동 장르 추정에 사용)
 RK_JP_KEYWORDS = {
     "뷰티/코스메틱": "コスメ",
     "의류/패션": "ファッション",
@@ -362,44 +336,57 @@ def _rk_guess_genre_by_keyword(jp_keyword: str, hits: int = 30) -> str | None:
         )
         r.raise_for_status()
         items = [it.get("Item", {}) for it in r.json().get("Items", [])]
-        freq = {}
+        freq={}
         for it in items:
             gid = str(it.get("genreId") or "")
-            if gid:
-                freq[gid] = freq.get(gid, 0) + 1
-        if not freq:
-            return None
+            if gid: freq[gid]=freq.get(gid,0)+1
+        if not freq: return None
         return max(freq.items(), key=lambda kv: kv[1])[0]
     except Exception:
         return None
 
-def _rk_fetch_rank(genre_id: str, topn: int = 20) -> pd.DataFrame:
+def _retry_backoff(fn, tries=3, base=0.8, factor=2.0):
+    last=None
+    for i in range(tries):
+        try:
+            return fn()
+        except Exception as e:
+            last=e
+            time.sleep(base*(factor**i))
+    raise last
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _rk_fetch_rank_cached(genre_id: str, topn: int = 20) -> pd.DataFrame:
     app_id, affiliate = _rakuten_keys()
-    rows=[]
-    if requests and app_id:
-      try:
+    if not (requests and app_id):
+        # 샘플
+        return pd.DataFrame([{"rank":i+1,"keyword":f"[샘플] 키워드 {i+1} ハロウィン 秋 🍂","shop":"샘플","url":"https://example.com"} for i in range(topn)])
+
+    def _do():
         api = "https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628"
         params = {"applicationId": app_id, "genreId": str(genre_id).strip(), "hits": topn}
         if affiliate: params["affiliateId"] = affiliate
         r = requests.get(api, params=params, timeout=12)
         r.raise_for_status()
         items = r.json().get("Items", [])[:topn]
+        rows=[]
         for it in items:
-          node = it.get("Item", {})
-          rows.append({
-            "rank": node.get("rank"),
-            "keyword": node.get("itemName",""),
-            "shop": node.get("shopName",""),
-            "url": node.get("itemUrl",""),
-          })
-      except Exception:
-        pass
-    if not rows:
-      rows=[{"rank":i+1,"keyword":f"[샘플] 키워드 {i+1} ハロウィン 秋 🍂","shop":"샘플","url":"https://example.com"} for i in range(topn)]
-    return pd.DataFrame(rows)
+            node = it.get("Item", {})
+            rows.append({
+                "rank": node.get("rank"),
+                "keyword": node.get("itemName",""),
+                "shop": node.get("shopName",""),
+                "url": node.get("itemUrl",""),
+            })
+        return pd.DataFrame(rows)
+
+    try:
+        return _retry_backoff(_do)
+    except Exception:
+        # 실패 시 샘플
+        return pd.DataFrame([{"rank":i+1,"keyword":f"[샘플] 키워드 {i+1} ハロウィン 秋 🍂","shop":"샘플","url":"https://example.com"} for i in range(topn)])
 
 def section_rakuten():
-    # 폰트 1단계 축소 + 가로 스크롤 숨김 + 셀 강제 래핑
     st.markdown("""
     <style>
       #rk-card [data-testid="stDataFrame"] * { font-size: 0.92rem !important; }
@@ -424,45 +411,35 @@ def section_rakuten():
     with colC:
         sample_only = st.checkbox("샘플 보기", value=False, key="rk_sample")
 
-    # --- 장르 결정 로직 (자동 추정 + 세션 캐시) ---
+    # 장르 자동 추정(세션 캐시)
     genre_map = st.session_state.get("rk_genre_map", {})
     genre_id = (genre_map.get(cat) or "").strip()
-
     need_auto = (not genre_id) or (genre_id == "100283" and cat != "전체(샘플)")
     if need_auto and cat in RK_JP_KEYWORDS:
         guessed = _rk_guess_genre_by_keyword(RK_JP_KEYWORDS[cat])
         if guessed:
             genre_id = guessed
             st.session_state["rk_genre_map"][cat] = genre_id
-            st.markdown(
-                "<script>window.postMessage({__envy:true,kind:'alert',level:'info',msg:'카테고리에 맞춰 장르를 자동 지정했어요.'},'*');</script>",
-                unsafe_allow_html=True
-            )
+            st.markdown("<script>window.postMessage({__envy:true,kind:'alert',level:'info',msg:'카테고리에 맞춰 장르를 자동 지정했어요.'},'*');</script>", unsafe_allow_html=True)
     if not genre_id:
         genre_id = "100283"
 
-    # 데이터 로드
-    if sample_only:
-        df = pd.DataFrame(
-            [{"rank": i+1, "keyword": f"[샘플] 키워드 {i+1}", "shop": "샘플샵", "url": "https://example.com"} for i in range(20)]
-        )
-    else:
-        df = _rk_fetch_rank(genre_id, topn=20)
+    with st.spinner("라쿠텐 랭킹 불러오는 중…"):
+        df = pd.DataFrame([{"rank":i+1,"keyword":f"[샘플] 키워드 {i+1}","shop":"샘플","url":"https://example.com"} for i in range(20)]) if sample_only \
+             else _rk_fetch_rank_cached(genre_id, topn=20)
 
-    # rank 2단계 축소 + 폭 조정
     colcfg = {
         "rank": st.column_config.NumberColumn("rank", width="small"),
         "keyword": st.column_config.TextColumn("keyword", width="medium"),
         "shop": st.column_config.TextColumn("shop", width="small"),
         "url": st.column_config.LinkColumn("url", display_text="열기", width="small"),
     }
-    st.dataframe(
-        df[["rank","keyword","shop","url"]],
-        hide_index=True,
-        use_container_width=True,
-        height=420,
-        column_config=colcfg
-    )
+    st.dataframe(df[["rank","keyword","shop","url"]], hide_index=True, use_container_width=True, height=420, column_config=colcfg)
+
+    # CSV 다운로드
+    st.download_button("표 CSV 다운로드", data=df.to_csv(index=False).encode("utf-8-sig"),
+                       file_name="rakuten_ranking.csv", mime="text/csv")
+
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
@@ -539,23 +516,23 @@ vwbin = _get_view_bin()
 
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
-# 1줄: 데이터랩 / 아이템스카우트 / 셀러라이프
+# 1줄: 데이터랩 / 아이템스카우트(보류) / 셀러라이프(보류)
 if vwbin >= 3:  # ≥1600px
     t1, t2, t3 = st.columns([5,2,2], gap="medium")
     with t1: section_datalab_home()
-    with t2: section_itemscout()
-    with t3: section_sellerlife()
+    with t2: section_itemscout_placeholder()
+    with t3: section_sellerlife_placeholder()
 elif vwbin == 2:  # 1280~1599px
     t1, t2, t3 = st.columns([4,3,3], gap="small")
     with t1: section_datalab_home()
-    with t2: section_itemscout()
-    with t3: section_sellerlife()
+    with t2: section_itemscout_placeholder()
+    with t3: section_sellerlife_placeholder()
 else:  # <1280px (스택)
     section_datalab_home()
     st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
-    section_itemscout()
+    section_itemscout_placeholder()
     st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
-    section_sellerlife()
+    section_sellerlife_placeholder()
 
 st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
 
