@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# ENVY — Season 1 (Dual Proxy Edition, Radar+DataLab on row-1 / 4-cards on row-2)
+# ENVY — Season 1 (Dual Proxy Edition, Radar tabs=국내/해외, Rakuten scope radio removed, row1 ratio 5:7)
 
 import base64, time, re, math
 from pathlib import Path
@@ -277,7 +277,7 @@ def _sidebar():
             st.text_input("PROXY_URL(디버그)", key="PROXY_URL", help="Cloudflare Worker 주소 (옵션)")
 
 # =========================
-# 5) Rakuten Ranking
+# 5) Rakuten Ranking (no scope radio)
 # =========================
 def _rakuten_keys():
     app_id = (st.secrets.get("RAKUTEN_APP_ID", "")
@@ -314,10 +314,8 @@ def _rk_fetch_rank_cached(genre_id: str, topn: int = 20, strip_emoji: bool=True)
     app_id, affiliate = _rakuten_keys()
     def _clean(s: str) -> str:
         if not strip_emoji: return s
-        # remove most emoji / pictographs
         return re.sub(r"[\U00010000-\U0010ffff]", "", s or "")
 
-    # fallback sample
     if not (requests and app_id):
         rows=[{"rank":i+1,"keyword":_clean(f"[샘플] 키워드 {i+1} ハロウィン 秋 🍂"),
                "shop":"샘플","url":"https://example.com"} for i in range(topn)]
@@ -360,9 +358,7 @@ def section_rakuten_ui():
     """, unsafe_allow_html=True)
 
     st.markdown('<div id="rk-card">', unsafe_allow_html=True)
-    colA, colB, colC = st.columns([1,1,1])
-    with colA:
-        scope = st.radio("범위", ["국내","글로벌"], horizontal=True, key="rk_scope")
+    colB, colC = st.columns([2,1])
     with colB:
         cat = st.selectbox(
             "라쿠텐 카테고리",
@@ -374,15 +370,12 @@ def section_rakuten_ui():
 
     strip_emoji = st.toggle("이모지 제거", value=True, key="rk_strip_emoji")
 
-    # genre id resolve (simple)
     genre_map = st.session_state.get("rk_genre_map", {})
-    genre_id = (genre_map.get(cat) or "").strip()
-    if not genre_id:
-        genre_id = "100283"
+    genre_id = (genre_map.get(cat) or "").strip() or "100283"
 
     with st.spinner("라쿠텐 랭킹 불러오는 중…"):
-        df = pd.DataFrame([{"rank":i+1,"keyword":f"[샘플] 키워드 {i+1}","shop":"샘플","url":"https://example.com"} for i in range(20)]) if sample_only \
-             else _rk_fetch_rank_cached(genre_id, topn=20, strip_emoji=strip_emoji)
+        df = (pd.DataFrame([{"rank":i+1,"keyword":f"[샘플] 키워드 {i+1}","shop":"샘플","url":"https://example.com"} for i in range(20)])
+              if sample_only else _rk_fetch_rank_cached(genre_id, topn=20, strip_emoji=strip_emoji))
 
     colcfg = {
         "rank": st.column_config.NumberColumn("rank", width="small"),
@@ -406,7 +399,6 @@ def _naver_signature(timestamp: str, method: str, uri: str, secret: str) -> str:
     return b64.b64encode(digest).decode("utf-8")
 
 def _naver_keys_from_secrets_or_ui():
-    # secrets 우선, 비어있으면 UI 입력값 사용
     ak = st.secrets.get("NAVER_API_KEY", "")
     sk = st.secrets.get("NAVER_SECRET_KEY", "")
     cid= st.secrets.get("NAVER_CUSTOMER_ID", "")
@@ -419,7 +411,6 @@ def _naver_keys_from_secrets_or_ui():
 def _naver_keywordstool(hint_keywords: list[str]) -> pd.DataFrame:
     api_key, sec_key, customer_id = _naver_keys_from_secrets_or_ui()
     if not (requests and api_key and sec_key and customer_id and hint_keywords):
-        # fallback sample
         rows=[]
         ex = ["핸드메이드코트","남자코트","코트","여자핸드메이드코트","40대여성쇼핑몰",
               "여자결혼식하객룩","브랜드세일","자전거복"]
@@ -459,7 +450,6 @@ def _naver_keywordstool(hint_keywords: list[str]) -> pd.DataFrame:
             "compIdx":"광고경쟁정도",
         })
         df = df.drop_duplicates(["키워드"]).set_index("키워드").reset_index()
-        # 숫자/문자 정리
         num_cols=["PC월간검색수","Mobile월간검색수",
                   "PC월평균클릭수","Mobile월평균클릭수",
                   "PC월평균클릭률","Mobile월평균클릭률","월평균노출광고수"]
@@ -470,7 +460,6 @@ def _naver_keywordstool(hint_keywords: list[str]) -> pd.DataFrame:
         return pd.DataFrame()
 
 def _count_product_from_shopping(keyword: str) -> int|None:
-    """네이버쇼핑 '전체' 탭 상품 수"""
     if not requests: return None
     try:
         url=f"https://search.shopping.naver.com/search/all?where=all&frm=NVSCTAB&query={quote(keyword)}"
@@ -524,14 +513,12 @@ def section_korea_ui():
             st.warning("데이터가 없습니다. API 키/계정 또는 키워드를 확인하세요.")
             return
 
-        # A: 검색지표
         if table_mode.startswith("A"):
             st.dataframe(df, use_container_width=True, height=430)
             st.download_button("CSV 다운로드", df.to_csv(index=False).encode("utf-8-sig"),
                                file_name="korea_keyword_A.csv", mime="text/csv")
             return
 
-        # B/C: 순위 및 상품수, 스코어
         df2 = df.copy()
         df2["검색합계"] = (pd.to_numeric(df2["PC월간검색수"], errors="coerce").fillna(0) +
                            pd.to_numeric(df2["Mobile월간검색수"], errors="coerce").fillna(0))
@@ -544,7 +531,6 @@ def section_korea_ui():
                                file_name="korea_keyword_B.csv", mime="text/csv")
             return
 
-        # C 모드: 상품수 수집 + 스코어
         product_counts = []
         if add_product:
             with st.spinner("네이버쇼핑 상품수 수집 중…(키워드 수에 따라 수 분 소요)"):
@@ -555,11 +541,9 @@ def section_korea_ui():
             product_counts = [math.nan]*len(df2)
         df2["판매상품수"] = product_counts
 
-        # 순위/스코어
         df2["상품수순위"] = df2["판매상품수"].rank(na_option="bottom", method="min")
         df2["상품발굴대상"] = (df2["검색순위"] + df2["상품수순위"]).rank(na_option="bottom", method="min")
 
-        # 보기 좋은 컬럼 순서
         cols = ["키워드","PC월간검색수","Mobile월간검색수","판매상품수",
                 "PC월평균클릭수","Mobile월평균클릭수","PC월평균클릭률","Mobile월평균클릭률",
                 "월평균노출광고수","광고경쟁정도","검색순위","상품수순위","상품발굴대상"]
@@ -569,15 +553,15 @@ def section_korea_ui():
                            file_name="korea_keyword_C.csv", mime="text/csv")
 
 # =========================
-# 7) Radar Card (tabs)
+# 7) Radar Card (tabs: 국내 -> 해외)
 # =========================
 def section_radar():
     st.markdown('<div class="card"><div class="card-title">AI 키워드 레이더</div>', unsafe_allow_html=True)
-    tab1, tab2 = st.tabs(["Rakuten", "Korea"])
-    with tab1:
-        section_rakuten_ui()
-    with tab2:
+    tab_domestic, tab_overseas = st.tabs(["국내", "해외"])  # 순서/명칭 변경
+    with tab_domestic:
         section_korea_ui()
+    with tab_overseas:
+        section_rakuten_ui()
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
@@ -671,7 +655,7 @@ def section_sellerlife_placeholder():
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
-# 9) Layout — 요청한 위치 재배치
+# 9) Layout — row1 ratio 5:7 (Radar : DataLab)
 # =========================
 _ = _sidebar()
 _responsive_probe()
@@ -679,8 +663,8 @@ vwbin = _get_view_bin()
 
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
-# 1행: 레이더 + 데이터랩
-row1_l, row1_r = st.columns([7,5], gap="medium")
+# 1행: 레이더(5) + 데이터랩(7)
+row1_l, row1_r = st.columns([5,7], gap="medium")
 with row1_l:
     section_radar()
 with row1_r:
