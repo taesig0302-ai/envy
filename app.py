@@ -39,7 +39,7 @@ NAVER_CLIENT_SECRET_DEFAULT = st.secrets.get("NAVER_CLIENT_SECRET", "ltoxUNyKxi"
 # Naver Ads / 검색광고 API (실사용)
 NAVER_API_KEY_DEFAULT     = st.secrets.get("NAVER_API_KEY",     "0100000000785cf1d8f039b13a5d3c3d1262b84e9ad4a046637e8887bbd003051b0d2a5cdf").strip()
 NAVER_SECRET_KEY_DEFAULT  = st.secrets.get("NAVER_SECRET_KEY",  "AQAAAAB4XPHY8DmxOl08PRJiuE6ao1LN3lh0kF9rOJ4m5b8O5g==").strip()
-NAVER_CUSTOMER_ID_DEFAULT = st.secrets.get("NAVER_CUSTOMER_ID", "629744").strip()
+NAVER_CUSTOMER_ID_DEFAULT = st.secrets.get("NAVER_CUSTOMER_ID", "2274338").strip()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # UI defaults & CSS
