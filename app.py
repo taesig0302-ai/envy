@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# ENVY — Season 1 (Dual Proxy Edition, Radar tabs=국내/해외, Naver keys prefilled, Rakuten genre AUTO-MAP)
+# ENVY — Season 1 (Dual Proxy Edition, Radar tabs=국내/해외, Naver detailed error, Rakuten genre AUTO-MAP)
 
 import base64, time, re, math
 from pathlib import Path
@@ -20,9 +20,9 @@ except Exception:
 
 st.set_page_config(page_title="ENVY — Season 1 (Dual Proxy Edition)", layout="wide")
 
-# =============================================================================
-# 0) PROXIES & KEYS (secrets 우선, 없으면 기본값 사용)
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+# PROXIES & KEYS (secrets 우선, 없으면 기본값 사용)
+# ─────────────────────────────────────────────────────────────────────────────
 NAVER_PROXY      = "https://envy-proxy.taesig0302.workers.dev"
 ELEVENST_PROXY   = "https://worker-11stjs.taesig0302.workers.dev"
 ITEMSCOUT_PROXY  = "https://worker-itemscoutjs.taesig0302.workers.dev"
@@ -41,9 +41,9 @@ NAVER_API_KEY_DEFAULT     = st.secrets.get("NAVER_API_KEY",     "0100000000785cf
 NAVER_SECRET_KEY_DEFAULT  = st.secrets.get("NAVER_SECRET_KEY",  "AQAAAAB4XPHY8DmxOl08PRJiuE6ao1LN3lh0kF9rOJ4m5b8O5g==").strip()
 NAVER_CUSTOMER_ID_DEFAULT = st.secrets.get("NAVER_CUSTOMER_ID", "629744").strip()
 
-# =============================================================================
-# 1) UI defaults & CSS
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+# UI defaults & CSS
+# ─────────────────────────────────────────────────────────────────────────────
 SHOW_ADMIN_BOX = False
 
 CURRENCIES = {
@@ -68,7 +68,7 @@ def _ensure_session_defaults():
     ss.setdefault("margin_pct",10.00)
     ss.setdefault("margin_won",10000.0)
 
-    # Rakuten genre map (초기에는 임시값, 첫 로드시 자동 매핑으로 갱신)
+    # Rakuten genre map (초기 임시 → 첫 로드시 자동 매핑으로 갱신)
     ss.setdefault("rk_genre_map", {
         "전체(샘플)": "100283",
         "뷰티/코스메틱": "100283",
@@ -81,6 +81,7 @@ def _ensure_session_defaults():
         "문구/취미":   "100283",
     })
     ss.setdefault("rk_automap_done", False)
+    ss.setdefault("naver_err", "")  # 국내 API 오류 메시지 저장
 
 def _toggle_theme():
     st.session_state["theme"] = "dark" if st.session_state.get("theme","light")=="light" else "light"
@@ -92,8 +93,6 @@ def _inject_css():
     <style>
       .block-container{{max-width:3800px!important;padding-top:.55rem!important;padding-bottom:1rem!important}}
       html,body,[data-testid="stAppViewContainer"]{{background:{bg}!important;color:{fg}!important}}
-      h2,h3{{margin-top:.3rem!important}}
-      [data-testid="stSidebar"] section{{overflow-y:auto!important}}
       .pill{{border-radius:9999px;padding:.40rem .9rem;font-weight:800;display:inline-block;margin:.10rem 0!important}}
       .pill-green{{background:#b8f06c;border:1px solid #76c02a;color:#083500}}
       .pill-blue{{background:#dbe6ff;border:1px solid #88a8ff;color:#09245e}}
@@ -109,30 +108,11 @@ def _inject_css():
 def _inject_alert_center():
     st.markdown("""
     <div id="envy-alert-root" style="position:fixed;top:16px;right:16px;z-index:999999;pointer-events:none;"></div>
-    <style>
-      .envy-toast{min-width:220px;max-width:420px;margin:8px 0;padding:.7rem 1rem;border-radius:12px;color:#fff;font-weight:700;
-        box-shadow:0 8px 24px rgba(0,0,0,.25);opacity:0;transform:translateY(-6px);transition:opacity .2s, transform .2s;}
-      .envy-toast.show{opacity:1;transform:translateY(0)}
-      .envy-info{background:#2563eb}.envy-warn{background:#d97706}.envy-error{background:#dc2626}
-    </style>
-    <script>
-      (function(){
-        const root = document.getElementById('envy-alert-root');
-        function toast(level, text){
-          const el = document.createElement('div');
-          el.className='envy-toast envy-'+(level||'info'); el.textContent=text||'알림';
-          el.style.pointerEvents='auto'; root.appendChild(el);
-          requestAnimationFrame(()=>el.classList.add('show'));
-          setTimeout(()=>{el.classList.remove('show'); setTimeout(()=>el.remove(), 300);}, 5000);
-        }
-        window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='alert'){toast(d.level,d.msg);} },false);
-      })();
-    </script>
     """, unsafe_allow_html=True)
 
-# =============================================================================
-# 2) Responsive
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+# Responsive
+# ─────────────────────────────────────────────────────────────────────────────
 def _responsive_probe():
     html = """
     <script>
@@ -157,9 +137,9 @@ def _get_view_bin():
     except:
         return 3
 
-# =============================================================================
-# 3) Proxy iframes
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+# Proxy iframes
+# ─────────────────────────────────────────────────────────────────────────────
 def _proxy_iframe(proxy_base: str, target_url: str, height: int = 860, scroll=True, key=None):
     proxy = (proxy_base or "").strip().rstrip("/")
     url   = f"{proxy}/?url={quote(target_url, safe=':/?&=%')}"
@@ -188,9 +168,9 @@ def _proxy_iframe_with_title(proxy_base: str, target_url: str, height: int = 860
 '''
     st.components.v1.html(html, height=h+56, scrolling=False)
 
-# =============================================================================
-# 4) Sidebar
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+# Sidebar
+# ─────────────────────────────────────────────────────────────────────────────
 def _sidebar():
     _ensure_session_defaults(); _inject_css(); _inject_alert_center()
     with st.sidebar:
@@ -203,14 +183,12 @@ def _sidebar():
 
         st.markdown("### ① 환율 계산기")
         base = st.selectbox("기준 통화", list(CURRENCIES.keys()),
-                            index=list(CURRENCIES.keys()).index(st.session_state["fx_base"]), key="fx_base")
+                            index=list(CURRENCRIES.keys()).index(st.session_state["fx_base"]) if "CURRENCRIES" in globals() else list(CURRENCIES.keys()).index(st.session_state["fx_base"]),
+                            key="fx_base")
         sale_foreign = st.number_input("판매금액 (외화)", value=float(st.session_state["sale_foreign"]),
                                        step=0.01, format="%.2f", key="sale_foreign")
         won = FX_DEFAULT[base] * sale_foreign
-        st.markdown(f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b> '
-                    f'<span style="opacity:.75;font-weight:700">({CURRENCIES[base]["symbol"]})</span></div>',
-                    unsafe_allow_html=True)
-        st.caption(f"환율 기준: {FX_DEFAULT[base]:,.2f} ₩/{CURRENCIES[base]['unit']}")
+        st.markdown(f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b></div>', unsafe_allow_html=True)
 
         st.markdown("### ② 마진 계산기")
         m_base = st.selectbox("매입 통화", list(CURRENCIES.keys()),
@@ -218,7 +196,7 @@ def _sidebar():
         purchase_foreign = st.number_input("매입금액 (외화)", value=float(st.session_state["purchase_foreign"]),
                                            step=0.01, format="%.2f", key="purchase_foreign")
         base_cost_won = FX_DEFAULT[m_base]*purchase_foreign if purchase_foreign>0 else won
-        st.markdown(f'<div class="pill pill-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="pill pill-blue">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
 
         c1, c2 = st.columns(2)
         with c1:
@@ -236,18 +214,16 @@ def _sidebar():
                                        step=0.01, format="%.2f", key="margin_pct")
             target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)*(1+margin_pct/100)+shipping_won
             margin_value = target_price - base_cost_won
-            desc = f"{margin_pct:.2f}%"
         else:
             margin_won=st.number_input("마진액 (₩)", value=float(st.session_state["margin_won"]),
                                        step=100.0, format="%.0f", key="margin_won")
             target_price=base_cost_won*(1+card_fee/100)*(1+market_fee/100)+margin_won+shipping_won
-            margin_value=margin_won; desc=f"+{margin_won:,.0f}"
-        st.markdown(f'<div class="pill pill-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="pill pill-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>', unsafe_allow_html=True)
+            margin_value=margin_won
+        st.markdown(f'<div class="pill pill-yellow">판매가: <b>{target_price:,.2f} 원</b> / 순이익: <b>{margin_value:,.2f} 원</b></div>', unsafe_allow_html=True)
 
-# =============================================================================
-# 5) Rakuten Ranking (AUTO GENRE MAP)
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+# Rakuten (AUTO GENRE MAP)
+# ─────────────────────────────────────────────────────────────────────────────
 def _rakuten_keys():
     return RAKUTEN_APP_ID_DEFAULT, RAKUTEN_AFFILIATE_ID_DEFAULT
 
@@ -262,18 +238,13 @@ def _retry_backoff(fn, tries=3, base=0.8, factor=2.0):
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def _rk_fetch_top_genres() -> list[dict]:
-    """최상위 장르 목록(genreId, genreName) 반환"""
     app_id, _ = _rakuten_keys()
-    if not (requests and app_id):
-        return []
+    if not (requests and app_id): return []
     api = "https://app.rakuten.co.jp/services/api/IchibaGenre/Search/20140222"
-    params = {"applicationId": app_id, "genreId": 0}
-    r = requests.get(api, params=params, timeout=10)
+    r = requests.get(api, params={"applicationId": app_id, "genreId": 0}, timeout=10)
     r.raise_for_status()
-    js = r.json()
-    return js.get("children", [])
+    return r.json().get("children", [])
 
-# 한국어 카테고리 → 일본어 장르명 후보
 RAKUTEN_JP_MATCH = {
     "뷰티/코스메틱": ["美容・コスメ・香水","コスメ","美容"],
     "의류/패션":     ["レディースファッション","メンズファッション","バッグ・小物・ブランド雑貨","靴"],
@@ -286,20 +257,16 @@ RAKUTEN_JP_MATCH = {
 }
 
 def _rk_try_automap():
-    """최상위 장르 목록을 받아 자동 매핑해 세션 map 갱신"""
     if not requests: return False
     try:
         top = _rk_fetch_top_genres()
         if not top: return False
-        # name -> id 매핑 테이블
         name_id = {}
         for ch in top:
             g = ch.get("child", {})
             name = g.get("genreName","").strip()
             gid  = str(g.get("genreId","")).strip()
-            if name and gid:
-                name_id[name] = gid
-        # 자동 매핑
+            if name and gid: name_id[name] = gid
         changed = False
         m = dict(st.session_state["rk_genre_map"])
         for ko, jp_list in RAKUTEN_JP_MATCH.items():
@@ -307,11 +274,9 @@ def _rk_try_automap():
                 if jp in name_id:
                     gid = name_id[jp]
                     if m.get(ko) != gid:
-                        m[ko] = gid
-                        changed = True
+                        m[ko] = gid; changed = True
                     break
-        if changed:
-            st.session_state["rk_genre_map"].update(m)
+        if changed: st.session_state["rk_genre_map"].update(m)
         return changed
     except Exception:
         return False
@@ -322,15 +287,14 @@ def _rk_fetch_rank_cached(genre_id: str, topn: int = 20, strip_emoji: bool=True)
     def _clean(s: str) -> str:
         if not strip_emoji: return s
         return re.sub(r"[\U00010000-\U0010ffff]", "", s or "")
-
     if not (requests and app_id):
         return pd.DataFrame([{"rank":i+1,"keyword":_clean(f"[샘플] 키워드 {i+1}"),"shop":"샘플","url":"https://example.com"} for i in range(topn)])
-
     def _do():
         api = "https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628"
         params = {"applicationId": app_id, "genreId": str(genre_id).strip(), "hits": topn}
         if affiliate: params["affiliateId"] = affiliate
-        r = requests.get(api, params=params, timeout=12); r.raise_for_status()
+        r = requests.get(api, params=params, timeout=12)
+        r.raise_for_status()
         items = r.json().get("Items", [])[:topn]
         rows=[]
         for it in items:
@@ -348,40 +312,23 @@ def _rk_fetch_rank_cached(genre_id: str, topn: int = 20, strip_emoji: bool=True)
         return pd.DataFrame([{"rank":i+1,"keyword":_clean(f"[샘플] 키워드 {i+1}"),"shop":"샘플","url":"https://example.com"} for i in range(topn)])
 
 def section_rakuten_ui():
-    st.markdown("""
-    <style>
-      #rk-card [data-testid="stDataFrame"] * { font-size: 0.92rem !important; }
-      #rk-card [data-testid="stDataFrame"] div[role='gridcell']{white-space:normal!important;word-break:break-word!important}
-    </style>
-    """, unsafe_allow_html=True)
     st.markdown('<div id="rk-card">', unsafe_allow_html=True)
-
-    # 첫 진입이면 자동 매핑 시도
     if not st.session_state.get("rk_automap_done", False):
-        if _rk_try_automap():
-            st.success("라쿠텐 장르를 자동 매핑했어요.")
+        if _rk_try_automap(): st.success("라쿠텐 장르 자동 매핑 완료")
         st.session_state["rk_automap_done"] = True
-
-    # 상단 컨트롤
     c1, c2, c3, c4 = st.columns([2,1,1,1])
     with c1:
         cat = st.selectbox("라쿠텐 카테고리",
             ["전체(샘플)","뷰티/코스메틱","의류/패션","가전/디지털","가구/인테리어","식품","생활/건강","스포츠/레저","문구/취미"],
             key="rk_cat")
-    with c2:
-        sample_only = st.checkbox("샘플 보기", value=False, key="rk_sample")
-    with c3:
-        strip_emoji = st.toggle("이모지 제거", value=True, key="rk_strip_emoji")
+    with c2: sample_only = st.checkbox("샘플 보기", value=False, key="rk_sample")
+    with c3: strip_emoji  = st.toggle("이모지 제거", value=True, key="rk_strip_emoji")
     with c4:
         if st.button("자동 매핑(권장)"):
             ok = _rk_try_automap()
-            st.success("자동 매핑 완료!") if ok else st.info("이미 최신 매핑이거나 자동 매핑할 항목이 없어요.")
-
-    # 장르 ID
+            st.success("자동 매핑 완료") if ok else st.info("이미 최신 매핑입니다.")
     genre_id = (st.session_state.get("rk_genre_map", {}).get(cat) or "").strip() or "100283"
     st.caption(f"장르 ID: **{genre_id}**")
-
-    # 데이터
     with st.spinner("라쿠텐 랭킹 불러오는 중…"):
         df = (pd.DataFrame([{"rank":i+1,"keyword":f"[샘플] 키워드 {i+1}","shop":"샘플","url":"https://example.com"} for i in range(20)])
               if sample_only else _rk_fetch_rank_cached(genre_id, topn=20, strip_emoji=strip_emoji))
@@ -394,9 +341,7 @@ def section_rakuten_ui():
     st.dataframe(df[["rank","keyword","shop","url"]], hide_index=True, use_container_width=True, height=430, column_config=colcfg)
     st.download_button("표 CSV 다운로드", data=df.to_csv(index=False).encode("utf-8-sig"),
                        file_name="rakuten_ranking.csv", mime="text/csv")
-
-    # 수동 편집도 가능
-    with st.expander("🔧 장르 매핑 편집 (원하면 직접 덮어쓰기)"):
+    with st.expander("🔧 장르 매핑 편집"):
         cats = ["뷰티/코스메틱","의류/패션","가전/디지털","가구/인테리어","식품","생활/건강","스포츠/레저","문구/취미"]
         g_left, g_right = st.columns(2)
         new_map = dict(st.session_state["rk_genre_map"])
@@ -405,15 +350,11 @@ def section_rakuten_ui():
             with col:
                 val = st.text_input(name, value=new_map.get(name,"100283"), key=f"rk_map_{name}")
                 new_map[name] = (val or "").strip()
-        if st.button("장르 매핑 저장"):
-            st.session_state["rk_genre_map"].update(new_map)
-            st.success("장르 매핑 저장 완료")
+        if st.button("장르 매핑 저장"): st.session_state["rk_genre_map"].update(new_map); st.success("저장 완료")
 
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# =============================================================================
-# 6) Korea Radar (Naver Searchad API)
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+# Korea Radar (Naver Ads Keyword Tool) — with detailed error
+# ─────────────────────────────────────────────────────────────────────────────
 def _naver_signature(ts: str, method: str, uri: str, secret: str) -> str:
     msg = f"{ts}.{method}.{uri}"
     digest = hmac.new(bytes(secret, "utf-8"), bytes(msg, "utf-8"), hashlib.sha256).digest()
@@ -423,28 +364,62 @@ def _naver_keys_from_defaults():
     return NAVER_API_KEY_DEFAULT, NAVER_SECRET_KEY_DEFAULT, NAVER_CUSTOMER_ID_DEFAULT
 
 def _naver_keywordstool(hint_keywords: list[str]) -> pd.DataFrame:
+    """실패 시 st.session_state['naver_err'] 에 상세 오류 저장 + 빈 DF 반환"""
+    st.session_state["naver_err"] = ""
     api_key, sec_key, customer_id = _naver_keys_from_defaults()
     if not (requests and api_key and sec_key and customer_id and hint_keywords):
+        st.session_state["naver_err"] = "필수 키 또는 키워드 누락"
         return pd.DataFrame()
-    base_url="https://api.naver.com"; uri="/keywordstool"; ts = str(round(time.time()*1000))
-    headers = {"X-API-KEY": api_key, "X-Signature": _naver_signature(ts,"GET",uri,sec_key),
-               "X-Timestamp": ts, "X-Customer": customer_id}
-    params={ "hintKeywords": ",".join(hint_keywords), "includeHintKeywords": "0", "showDetail": "1" }
-    r = requests.get(base_url+uri, headers=headers, params=params, timeout=12)
+
+    # 안전하게 최대 5개까지만 전달
+    hints = [k for k in hint_keywords if k]
+    if len(hints) > 5:
+        hints = hints[:5]
+
+    base_url="https://api.naver.com"
+    uri="/keywordstool"
+    ts = str(round(time.time()*1000))
+    headers = {
+        "X-API-KEY": api_key,
+        "X-Signature": _naver_signature(ts, "GET", uri, sec_key),
+        "X-Timestamp": ts,
+        "X-Customer": customer_id,
+    }
+    params={ "hintKeywords": ",".join(hints),
+             "includeHintKeywords": "0", "showDetail": "1" }
     try:
-        r.raise_for_status()
+        r = requests.get(base_url+uri, headers=headers, params=params, timeout=12)
+    except Exception as e:
+        st.session_state["naver_err"] = f"요청 실패: {e}"
+        return pd.DataFrame()
+
+    if r.status_code != 200:
+        # 응답 본문 앞부분만 저장(너무 길면 잘림)
+        body = r.text[:700] if r.text else ""
+        st.session_state["naver_err"] = f"HTTP {r.status_code} — {body}"
+        return pd.DataFrame()
+
+    try:
         data = r.json().get("keywordList", [])
-        if not data: return pd.DataFrame()
+        if not data:
+            st.session_state["naver_err"] = "keywordList 비어있음(권한/쿼터/키워드 확인)"
+            return pd.DataFrame()
         df = pd.DataFrame(data).rename(columns={
-            "relKeyword":"키워드","monthlyPcQcCnt":"PC월간검색수","monthlyMobileQcCnt":"Mobile월간검색수",
-            "monthlyAvePcClkCnt":"PC월평균클릭수","monthlyAveMobileClkCnt":"Mobile월평균클릭수",
-            "monthlyAvePcCtr":"PC월평균클릭률","monthlyAveMobileCtr":"Mobile월평균클릭률",
-            "plAvgDepth":"월평균노출광고수","compIdx":"광고경쟁정도",
+            "relKeyword":"키워드",
+            "monthlyPcQcCnt":"PC월간검색수",
+            "monthlyMobileQcCnt":"Mobile월간검색수",
+            "monthlyAvePcClkCnt":"PC월평균클릭수",
+            "monthlyAveMobileClkCnt":"Mobile월평균클릭수",
+            "monthlyAvePcCtr":"PC월평균클릭률",
+            "monthlyAveMobileCtr":"Mobile월평균클릭률",
+            "plAvgDepth":"월평균노출광고수",
+            "compIdx":"광고경쟁정도",
         }).drop_duplicates(["키워드"]).set_index("키워드").reset_index()
         for c in ["PC월간검색수","Mobile월간검색수","PC월평균클릭수","Mobile월평균클릭수","PC월평균클릭률","Mobile월평균클릭률","월평균노출광고수"]:
-            df[c]=pd.to_numeric(df[c], errors="coerce")
+            df[c] = pd.to_numeric(df[c], errors="coerce")
         return df
-    except Exception:
+    except Exception as e:
+        st.session_state["naver_err"] = f"JSON 파싱 오류: {e}"
         return pd.DataFrame()
 
 def _count_product_from_shopping(keyword: str) -> int|None:
@@ -481,31 +456,41 @@ def section_korea_ui():
     if st.button("레이더 업데이트", use_container_width=False):
         with st.spinner("네이버 키워드도구 조회 중…"):
             df = _naver_keywordstool(kw_list)
+
         if df.empty:
-            st.error("데이터가 없습니다. (API/계정/권한/쿼터 또는 키워드를 확인)")
+            err = st.session_state.get("naver_err","")
+            st.error("데이터가 없습니다. (API/계정/권한/쿼터 또는 키워드 확인)")
+            if err:
+                st.code(err, language="text")
             return
+
         if table_mode.startswith("A"):
             st.dataframe(df, use_container_width=True, height=430)
             st.download_button("CSV 다운로드", df.to_csv(index=False).encode("utf-8-sig"),
                                file_name="korea_keyword_A.csv", mime="text/csv")
             return
+
         df2 = df.copy()
         df2["검색합계"] = (pd.to_numeric(df2["PC월간검색수"], errors="coerce").fillna(0) +
                            pd.to_numeric(df2["Mobile월간검색수"], errors="coerce").fillna(0))
         df2["검색순위"] = df2["검색합계"].rank(ascending=False, method="min")
+
         if table_mode.startswith("B"):
             out = df2.sort_values("검색순위")
             st.dataframe(out, use_container_width=True, height=430)
             st.download_button("CSV 다운로드", out.to_csv(index=False).encode("utf-8-sig"),
                                file_name="korea_keyword_B.csv", mime="text/csv")
             return
+
         if add_product:
             with st.spinner("네이버쇼핑 상품수 수집 중…(키워드 수에 따라 수 분 소요)"):
                 df2["판매상품수"] = [(_count_product_from_shopping(k) or math.nan) for k in df2["키워드"]]
         else:
             df2["판매상품수"] = math.nan
+
         df2["상품수순위"]  = df2["판매상품수"].rank(na_option="bottom", method="min")
         df2["상품발굴대상"] = (df2["검색순위"] + df2["상품수순위"]).rank(na_option="bottom", method="min")
+
         cols = ["키워드","PC월간검색수","Mobile월간검색수","판매상품수",
                 "PC월평균클릭수","Mobile월평균클릭수","PC월평균클릭률","Mobile월평균클릭률",
                 "월평균노출광고수","광고경쟁정도","검색순위","상품수순위","상품발굴대상"]
@@ -514,9 +499,9 @@ def section_korea_ui():
         st.download_button("CSV 다운로드", out.to_csv(index=False).encode("utf-8-sig"),
                            file_name="korea_keyword_C.csv", mime="text/csv")
 
-# =============================================================================
-# 7) Radar Card
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+# Radar Card
+# ─────────────────────────────────────────────────────────────────────────────
 def section_radar():
     st.markdown('<div class="card"><div class="card-title">AI 키워드 레이더</div>', unsafe_allow_html=True)
     tab_domestic, tab_overseas = st.tabs(["국내", "해외"])
@@ -524,9 +509,9 @@ def section_radar():
     with tab_overseas: section_rakuten_ui()
     st.markdown('</div>', unsafe_allow_html=True)
 
-# =============================================================================
-# 8) Other cards
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+# Other cards
+# ─────────────────────────────────────────────────────────────────────────────
 def section_datalab_home():
     st.markdown('<div class="card"><div class="card-title">데이터랩</div>', unsafe_allow_html=True)
     _proxy_iframe_with_title(NAVER_PROXY, "https://datalab.naver.com/", height=860, key="naver_home")
@@ -608,13 +593,11 @@ def section_sellerlife_placeholder():
     st.link_button("직접 열기(새 탭)", "https://sellochomes.co.kr/sellerlife/")
     st.markdown('</div>', unsafe_allow_html=True)
 
-# =============================================================================
-# 9) Layout — row1 ratio 5:7
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+# Layout — row1 ratio 5:7
+# ─────────────────────────────────────────────────────────────────────────────
 _ = _sidebar()
 _responsive_probe()
-vwbin = _get_view_bin()
-
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
 row1_l, row1_r = st.columns([5,7], gap="medium")
