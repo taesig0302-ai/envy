@@ -21,20 +21,31 @@ except Exception:
 st.set_page_config(page_title="ENVY — Season 1 (Dual Proxy Edition)", layout="wide")
 
 # =========================
-# 0) GLOBALS
+# 0) GLOBALS & KEYS
 # =========================
 SHOW_ADMIN_BOX = False
 
+# ---- Cloudflare Workers (프록시) ----
 NAVER_PROXY      = "https://envy-proxy.taesig0302.workers.dev"
 ELEVENST_PROXY   = "https://worker-11stjs.taesig0302.workers.dev"
 ITEMSCOUT_PROXY  = "https://worker-itemscoutjs.taesig0302.workers.dev"
 SELLERLIFE_PROXY = "https://worker-sellerlifejs.taesig0302.workers.dev"
 
-# Rakuten defaults
-RAKUTEN_APP_ID_DEFAULT       = "1043271015809337425"
-RAKUTEN_AFFILIATE_ID_DEFAULT = "4c723498.cbfeca46.4c723499.1deb6f77"
+# ---- Your API Keys (하드코딩) ----
+# Rakuten API
+RAKUTEN_APP_ID       = "1043271015809337425"
+RAKUTEN_AFFILIATE_ID = "4c723498.cbfeca46.4c723499.1deb6f77"
 
-# Simple FX
+# Naver Developers (로그인/일반 Open API — 현재 코드는 표시/향후 확장용)
+NAVER_CLIENT_ID     = "h4mklM2hNLct04BD7sC0"
+NAVER_CLIENT_SECRET = "ltoxUNyKxi"
+
+# Naver Ads / 검색광고 API (키워드도구)
+NAVER_API_KEY     = "0100000000785cf1d8f039b13a5d3c3d1262b84e9ad4a046637e8887bbd003051b0d2a5cdf"
+NAVER_SECRET_KEY  = "AQAAAAB4XPHY8DmxOl08PRJiuE6ao1LN3lh0kF9rOJ4m5b8O5g=="
+NAVER_CUSTOMER_ID = "629744"
+
+# 단위/환율
 CURRENCIES = {
     "USD":{"kr":"미국 달러","symbol":"$","unit":"USD"},
     "EUR":{"kr":"유로","symbol":"€","unit":"EUR"},
@@ -228,7 +239,8 @@ def _sidebar():
 
         st.markdown("### ① 환율 계산기")
         base = st.selectbox("기준 통화", list(CURRENCIES.keys()),
-                            index=list(CURRENCIES.keys()).index(st.session_state["fx_base"]), key="fx_base")
+                            index=list(CURRENCRIES.keys()).index(st.session_state["fx_base"]) if "CURRENCRIES" in globals() else list(CURRENCIES.keys()).index(st.session_state["fx_base"]),
+                            key="fx_base")
         sale_foreign = st.number_input("판매금액 (외화)", value=float(st.session_state["sale_foreign"]),
                                        step=0.01, format="%.2f", key="sale_foreign")
         won = FX_DEFAULT[base] * sale_foreign
@@ -280,12 +292,13 @@ def _sidebar():
 # 5) Rakuten Ranking (no scope radio)
 # =========================
 def _rakuten_keys():
-    app_id = (st.secrets.get("RAKUTEN_APP_ID", "")
-              or st.secrets.get("RAKUTEN_APPLICATION_ID", "")
-              or RAKUTEN_APP_ID_DEFAULT).strip()
-    affiliate = (st.secrets.get("RAKUTEN_AFFILIATE_ID", "")
-                 or st.secrets.get("RAKUTEN_AFFILIATE", "")
-                 or RAKUTEN_AFFILIATE_ID_DEFAULT).strip()
+    # 하드코딩 값 우선 사용, 없으면 st.secrets → 기본값
+    app_id = (RAKUTEN_APP_ID
+              or st.secrets.get("RAKUTEN_APP_ID", "")
+              or st.secrets.get("RAKUTEN_APPLICATION_ID", "")).strip()
+    affiliate = (RAKUTEN_AFFILIATE_ID
+                 or st.secrets.get("RAKUTEN_AFFILIATE_ID", "")
+                 or st.secrets.get("RAKUTEN_AFFILIATE", "")).strip()
     return app_id, affiliate
 
 RK_JP_KEYWORDS = {
@@ -399,13 +412,10 @@ def _naver_signature(timestamp: str, method: str, uri: str, secret: str) -> str:
     return b64.b64encode(digest).decode("utf-8")
 
 def _naver_keys_from_secrets_or_ui():
-    ak = st.secrets.get("NAVER_API_KEY", "")
-    sk = st.secrets.get("NAVER_SECRET_KEY", "")
-    cid= st.secrets.get("NAVER_CUSTOMER_ID", "")
-    ui = st.session_state
-    ak = ak or ui.get("ui_naver_api_key","")
-    sk = sk or ui.get("ui_naver_sec_key","")
-    cid= cid or ui.get("ui_naver_cus_id","")
+    # 하드코딩 → secrets → UI 순서
+    ak = (NAVER_API_KEY or st.secrets.get("NAVER_API_KEY", "") or st.session_state.get("ui_naver_api_key",""))
+    sk = (NAVER_SECRET_KEY or st.secrets.get("NAVER_SECRET_KEY", "") or st.session_state.get("ui_naver_sec_key",""))
+    cid= (NAVER_CUSTOMER_ID or st.secrets.get("NAVER_CUSTOMER_ID", "") or st.session_state.get("ui_naver_cus_id",""))
     return ak.strip(), sk.strip(), str(cid).strip()
 
 def _naver_keywordstool(hint_keywords: list[str]) -> pd.DataFrame:
@@ -491,10 +501,11 @@ def section_korea_ui():
     keywords_txt = st.text_area("키워드(콤마로 구분)", "핸드메이드코트, 남자코트, 여자코트", height=96)
     kw_list = [k.strip() for k in (keywords_txt or "").split(",") if k.strip()]
 
+    # 하드코딩 키가 있으므로 UI 입력칸은 보이되 비워둬도 동작함
     st.markdown("##### API 키(임시 입력) — 네이버 검색광고")
     api_col1, api_col2, api_col3 = st.columns(3)
     with api_col1:
-        st.text_input("NAVER_API_KEY", value="", key="ui_naver_api_key", type="password", help="secrets에 있으면 생략 가능")
+        st.text_input("NAVER_API_KEY", value="", key="ui_naver_api_key", type="password", help="(선택) secrets/하드코딩 우선")
     with api_col2:
         st.text_input("NAVER_SECRET_KEY", value="", key="ui_naver_sec_key", type="password")
     with api_col3:
@@ -557,7 +568,7 @@ def section_korea_ui():
 # =========================
 def section_radar():
     st.markdown('<div class="card"><div class="card-title">AI 키워드 레이더</div>', unsafe_allow_html=True)
-    tab_domestic, tab_overseas = st.tabs(["국내", "해외"])  # 순서/명칭 변경
+    tab_domestic, tab_overseas = st.tabs(["국내", "해외"])
     with tab_domestic:
         section_korea_ui()
     with tab_overseas:
