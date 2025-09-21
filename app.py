@@ -6,7 +6,7 @@
 # - 사이드바 여백/문구 정리: 환산 금액에 통화 기호만 노출
 # - 라쿠텐: 카테고리→GenreID 자동 추정(세션 캐시), rank 2단계 축소, 표 가로 스크롤 제거(강제 래핑 + 폰트 -1단계)
 # - 11번가 카드 높이 균형(라쿠텐 표와 맞춤)
-# ※ secrets.toml에 RAKUTEN_APP_ID(필수), RAKUTEN_AFFILIATE_ID(선택)
+# - 셀러라이프: sellochomes 도메인으로 임베드(요청 반영)
 
 import base64
 from pathlib import Path
@@ -293,12 +293,27 @@ def section_datalab_home():
 
 def section_itemscout():
     st.markdown('<div class="card"><div class="card-title">아이템스카우트</div>', unsafe_allow_html=True)
-    _proxy_iframe(ITEMSCOUT_PROXY, "https://app.itemscout.io/market/keyword", height=760, scroll=True, key="itemscout")
+    _proxy_iframe(
+        ITEMSCOUT_PROXY,
+        "https://app.itemscout.io/market/keyword",
+        height=760,
+        scroll=True,
+        key="itemscout"
+    )
+    # 임베드가 막힐 경우 대비
+    st.link_button("아이템스카우트 직접 열기(새 탭)", "https://app.itemscout.io/market/keyword")
     st.markdown('</div>', unsafe_allow_html=True)
 
 def section_sellerlife():
     st.markdown('<div class="card"><div class="card-title">셀러라이프</div>', unsafe_allow_html=True)
-    _proxy_iframe(SELLERLIFE_PROXY, "https://sellerlife.co.kr/dashboard", height=760, scroll=True, key="sellerlife")
+    _proxy_iframe(
+        SELLERLIFE_PROXY,
+        "https://sellochomes.co.kr/sellerlife/",  # ← 요청한 새 임베드 대상
+        height=760,
+        scroll=True,
+        key="sellerlife"
+    )
+    st.link_button("직접 열기(새 탭)", "https://sellochomes.co.kr/sellerlife/")
     st.markdown('</div>', unsafe_allow_html=True)
 
 def _11st_abest_url():
@@ -336,7 +351,6 @@ RK_JP_KEYWORDS = {
 }
 
 def _rk_guess_genre_by_keyword(jp_keyword: str, hits: int = 30) -> str | None:
-    """IchibaItem/Search로 jp_keyword를 검색해 가장 빈도가 높은 genreId를 추정."""
     app_id, _ = _rakuten_keys()
     if not (requests and app_id and jp_keyword):
         return None
@@ -419,9 +433,7 @@ def section_rakuten():
         guessed = _rk_guess_genre_by_keyword(RK_JP_KEYWORDS[cat])
         if guessed:
             genre_id = guessed
-            # 세션 캐시 갱신
             st.session_state["rk_genre_map"][cat] = genre_id
-            # 미묘한 안내(토스트)
             st.markdown(
                 "<script>window.postMessage({__envy:true,kind:'alert',level:'info',msg:'카테고리에 맞춰 장르를 자동 지정했어요.'},'*');</script>",
                 unsafe_allow_html=True
