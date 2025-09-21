@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# ENVY — Season 1 (Dual Proxy Edition, Radar tabs=국내/해외, Rakuten scope radio removed, row1 ratio 5:7)
+# ENVY — Season 1 (Dual Proxy Edition, Radar tabs=국내/해외, Rakuten mapping editor, NAVER API UI removed)
 
 import base64, time, re, math
 from pathlib import Path
@@ -21,31 +21,30 @@ except Exception:
 st.set_page_config(page_title="ENVY — Season 1 (Dual Proxy Edition)", layout="wide")
 
 # =========================
-# 0) GLOBALS & KEYS
+# 0) KEYS / GLOBALS
 # =========================
-SHOW_ADMIN_BOX = False
+SHOW_ADMIN_BOX = False  # 디버그용
 
-# ---- Cloudflare Workers (프록시) ----
+# ---- Cloudflare Worker proxies
 NAVER_PROXY      = "https://envy-proxy.taesig0302.workers.dev"
 ELEVENST_PROXY   = "https://worker-11stjs.taesig0302.workers.dev"
 ITEMSCOUT_PROXY  = "https://worker-itemscoutjs.taesig0302.workers.dev"
 SELLERLIFE_PROXY = "https://worker-sellerlifejs.taesig0302.workers.dev"
 
-# ---- Your API Keys (하드코딩) ----
-# Rakuten API
-RAKUTEN_APP_ID       = "1043271015809337425"
-RAKUTEN_AFFILIATE_ID = "4c723498.cbfeca46.4c723499.1deb6f77"
+# ---- Rakuten defaults (네가 준 값)
+RAKUTEN_APP_ID_CONST       = "1043271015809337425"
+RAKUTEN_AFFILIATE_ID_CONST = "4c723498.cbfeca46.4c723499.1deb6f77"
 
-# Naver Developers (로그인/일반 Open API — 현재 코드는 표시/향후 확장용)
-NAVER_CLIENT_ID     = "h4mklM2hNLct04BD7sC0"
-NAVER_CLIENT_SECRET = "ltoxUNyKxi"
+# ---- Naver Developers (로그인/일반 Open API; 지금 앱에선 직접 사용 X, 참고용)
+NAVER_CLIENT_ID_CONST     = "h4mklM2hNLct04BD7sC0"
+NAVER_CLIENT_SECRET_CONST = "ltoxUNyKxi"
 
-# Naver Ads / 검색광고 API (키워드도구)
-NAVER_API_KEY     = "0100000000785cf1d8f039b13a5d3c3d1262b84e9ad4a046637e8887bbd003051b0d2a5cdf"
-NAVER_SECRET_KEY  = "AQAAAAB4XPHY8DmxOl08PRJiuE6ao1LN3lh0kF9rOJ4m5b8O5g=="
-NAVER_CUSTOMER_ID = "629744"
+# ---- Naver Ads(검색광고) – 키워드도구 (네가 준 값)
+NAVER_API_KEY_CONST     = "0100000000785cf1d8f039b13a5d3c3d1262b84e9ad4a046637e8887bbd003051b0d2a5cdf"
+NAVER_SECRET_KEY_CONST  = "AQAAAAB4XPHY8DmxOl08PRJiuE6ao1LN3lh0kF9rOJ4m5b8O5g=="
+NAVER_CUSTOMER_ID_CONST = "629744"
 
-# 단위/환율
+# 환율/기본 통화
 CURRENCIES = {
     "USD":{"kr":"미국 달러","symbol":"$","unit":"USD"},
     "EUR":{"kr":"유로","symbol":"€","unit":"EUR"},
@@ -71,7 +70,7 @@ def _ensure_session_defaults():
     ss.setdefault("margin_pct",10.00)
     ss.setdefault("margin_won",10000.0)
 
-    # Rakuten cached genre map (simple)
+    # Rakuten genre map (초기값은 전부 100283 — 필요 시 편집기에서 교체)
     ss.setdefault("rk_genre_map", {
         "전체(샘플)": "100283",
         "뷰티/코스메틱": "100283",
@@ -182,7 +181,7 @@ def _get_view_bin():
         return 3
 
 # =========================
-# 3) Generic proxy iframe
+# 3) Proxy iframe helpers
 # =========================
 def _proxy_iframe(proxy_base: str, target_url: str, height: int = 860, scroll=True, key=None):
     proxy = (proxy_base or "").strip().rstrip("/")
@@ -289,28 +288,16 @@ def _sidebar():
             st.text_input("PROXY_URL(디버그)", key="PROXY_URL", help="Cloudflare Worker 주소 (옵션)")
 
 # =========================
-# 5) Rakuten Ranking (no scope radio)
+# 5) Rakuten Ranking (+ 매핑 편집 + 국내로 내보내기)
 # =========================
 def _rakuten_keys():
-    # 하드코딩 값 우선 사용, 없으면 st.secrets → 기본값
-    app_id = (RAKUTEN_APP_ID
-              or st.secrets.get("RAKUTEN_APP_ID", "")
-              or st.secrets.get("RAKUTEN_APPLICATION_ID", "")).strip()
-    affiliate = (RAKUTEN_AFFILIATE_ID
-                 or st.secrets.get("RAKUTEN_AFFILIATE_ID", "")
-                 or st.secrets.get("RAKUTEN_AFFILIATE", "")).strip()
+    app_id = (st.secrets.get("RAKUTEN_APP_ID", "")
+              or st.secrets.get("RAKUTEN_APPLICATION_ID", "")
+              or RAKUTEN_APP_ID_CONST).strip()
+    affiliate = (st.secrets.get("RAKUTEN_AFFILIATE_ID", "")
+                 or st.secrets.get("RAKUTEN_AFFILIATE", "")
+                 or RAKUTEN_AFFILIATE_ID_CONST).strip()
     return app_id, affiliate
-
-RK_JP_KEYWORDS = {
-    "뷰티/코스메틱": "コスメ",
-    "의류/패션": "ファッション",
-    "가전/디지털": "家電",
-    "가구/인테리어": "インテリア",
-    "식품": "食品",
-    "생활/건강": "日用品",
-    "스포츠/레저": "スポーツ",
-    "문구/취미": "ホビー",
-}
 
 def _retry_backoff(fn, tries=3, base=0.8, factor=2.0):
     last=None
@@ -360,6 +347,7 @@ def _rk_fetch_rank_cached(genre_id: str, topn: int = 20, strip_emoji: bool=True)
         return pd.DataFrame(rows)
 
 def section_rakuten_ui():
+    # 표 스타일(가로 스크롤 제거)
     st.markdown("""
     <style>
       #rk-card [data-testid="stDataFrame"] * { font-size: 0.92rem !important; }
@@ -371,6 +359,8 @@ def section_rakuten_ui():
     """, unsafe_allow_html=True)
 
     st.markdown('<div id="rk-card">', unsafe_allow_html=True)
+
+    # --- UI: 카테고리/옵션 ---
     colB, colC = st.columns([2,1])
     with colB:
         cat = st.selectbox(
@@ -385,11 +375,14 @@ def section_rakuten_ui():
 
     genre_map = st.session_state.get("rk_genre_map", {})
     genre_id = (genre_map.get(cat) or "").strip() or "100283"
+    st.caption(f"장르 ID: {genre_id}")
 
+    # --- 데이터 로딩 ---
     with st.spinner("라쿠텐 랭킹 불러오는 중…"):
         df = (pd.DataFrame([{"rank":i+1,"keyword":f"[샘플] 키워드 {i+1}","shop":"샘플","url":"https://example.com"} for i in range(20)])
               if sample_only else _rk_fetch_rank_cached(genre_id, topn=20, strip_emoji=strip_emoji))
 
+    # --- 표 + CSV ---
     colcfg = {
         "rank": st.column_config.NumberColumn("rank", width="small"),
         "keyword": st.column_config.TextColumn("keyword", width="medium"),
@@ -399,6 +392,22 @@ def section_rakuten_ui():
     st.dataframe(df[["rank","keyword","shop","url"]], hide_index=True, use_container_width=True, height=430, column_config=colcfg)
     st.download_button("표 CSV 다운로드", data=df.to_csv(index=False).encode("utf-8-sig"),
                        file_name="rakuten_ranking.csv", mime="text/csv")
+
+    # --- 국내 탭에서 사용할 수 있도록 세션에 저장 ---
+    st.session_state["rk_last_df"] = df.copy()
+
+    # --- 장르 매핑 편집기 ---
+    with st.expander("🔧 장르 매핑 편집 (GenreID는 여기서만 관리 – 화면엔 숨김)", expanded=False):
+        gm = st.session_state.get("rk_genre_map", {}).copy()
+        cols = st.columns(3)
+        keys = ["뷰티/코스메틱","의류/패션","가전/디지털","가구/인테리어","식품","생활/건강","스포츠/레저","문구/취미"]
+        for i,k in enumerate(keys):
+            with cols[i%3]:
+                gm[k] = st.text_input(k, gm.get(k,"100283"))
+        if st.button("장르 매핑 저장", type="primary"):
+            st.session_state["rk_genre_map"] = gm
+            st.success("장르 매핑이 저장되었습니다. 위에서 카테고리를 다시 선택해 보세요.")
+
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
@@ -411,25 +420,17 @@ def _naver_signature(timestamp: str, method: str, uri: str, secret: str) -> str:
     digest = hmac.new(bytes(secret, "utf-8"), bytes(msg, "utf-8"), hashlib.sha256).digest()
     return b64.b64encode(digest).decode("utf-8")
 
-def _naver_keys_from_secrets_or_ui():
-    # 하드코딩 → secrets → UI 순서
-    ak = (NAVER_API_KEY or st.secrets.get("NAVER_API_KEY", "") or st.session_state.get("ui_naver_api_key",""))
-    sk = (NAVER_SECRET_KEY or st.secrets.get("NAVER_SECRET_KEY", "") or st.session_state.get("ui_naver_sec_key",""))
-    cid= (NAVER_CUSTOMER_ID or st.secrets.get("NAVER_CUSTOMER_ID", "") or st.session_state.get("ui_naver_cus_id",""))
-    return ak.strip(), sk.strip(), str(cid).strip()
+def _naver_keys_from_env():
+    """secrets > 상수 순서로 반환 (UI 입력 제거)"""
+    ak = (st.secrets.get("NAVER_API_KEY", "") or NAVER_API_KEY_CONST).strip()
+    sk = (st.secrets.get("NAVER_SECRET_KEY", "") or NAVER_SECRET_KEY_CONST).strip()
+    cid= (st.secrets.get("NAVER_CUSTOMER_ID", "") or str(NAVER_CUSTOMER_ID_CONST)).strip()
+    return ak, sk, cid
 
 def _naver_keywordstool(hint_keywords: list[str]) -> pd.DataFrame:
-    api_key, sec_key, customer_id = _naver_keys_from_secrets_or_ui()
+    api_key, sec_key, customer_id = _naver_keys_from_env()
     if not (requests and api_key and sec_key and customer_id and hint_keywords):
-        rows=[]
-        ex = ["핸드메이드코트","남자코트","코트","여자핸드메이드코트","40대여성쇼핑몰",
-              "여자결혼식하객룩","브랜드세일","자전거복"]
-        for k in ex:
-            rows.append({"키워드":k,"PC월간검색수":19900,"Mobile월간검색수":149800,
-                         "PC월평균클릭수":90.3,"Mobile월평균클릭수":1279.7,
-                         "PC월평균클릭률":0.48,"Mobile월평균클릭률":0.92,
-                         "월평균노출광고수":15,"광고경쟁정도":"중간"})
-        return pd.DataFrame(rows)
+        return pd.DataFrame()
 
     base_url="https://api.naver.com"
     uri="/keywordstool"
@@ -489,27 +490,28 @@ def _count_product_from_shopping(keyword: str) -> int|None:
         return None
 
 def section_korea_ui():
-    st.caption("※ 분석기간/디바이스는 표시에만 사용됩니다. 검색지표는 네이버 검색광고 API(키워드도구) 기준, 상품수는 네이버쇼핑 ‘전체’ 탭 크롤링 기준입니다.")
+    st.caption("※ 검색지표는 네이버 검색광고 API(키워드도구) 기준, 상품수는 네이버쇼핑 ‘전체’ 탭 크롤링 기준입니다.")
+
     c1, c2, c3 = st.columns([1,1,1])
     with c1:
         months = st.slider("분석기간(개월, 표시용)", 1, 6, 3)
     with c2:
         device = st.selectbox("디바이스", ["all","pc","mo"], index=0)
     with c3:
-        src = st.selectbox("키워드 소스", ["직접 입력"], index=0)
+        src = st.selectbox("키워드 소스", ["직접 입력", "라쿠텐 상위 20 추출"], index=0)
 
-    keywords_txt = st.text_area("키워드(콤마로 구분)", "핸드메이드코트, 남자코트, 여자코트", height=96)
-    kw_list = [k.strip() for k in (keywords_txt or "").split(",") if k.strip()]
-
-    # 하드코딩 키가 있으므로 UI 입력칸은 보이되 비워둬도 동작함
-    st.markdown("##### API 키(임시 입력) — 네이버 검색광고")
-    api_col1, api_col2, api_col3 = st.columns(3)
-    with api_col1:
-        st.text_input("NAVER_API_KEY", value="", key="ui_naver_api_key", type="password", help="(선택) secrets/하드코딩 우선")
-    with api_col2:
-        st.text_input("NAVER_SECRET_KEY", value="", key="ui_naver_sec_key", type="password")
-    with api_col3:
-        st.text_input("NAVER_CUSTOMER_ID", value="", key="ui_naver_cus_id")
+    # 소스별 키워드 준비
+    if src == "직접 입력":
+        keywords_txt = st.text_area("키워드(콤마로 구분)", "핸드메이드코트, 남자코트, 여자코트", height=96)
+        kw_list = [k.strip() for k in (keywords_txt or "").split(",") if k.strip()]
+    else:
+        rk_df = st.session_state.get("rk_last_df")
+        if rk_df is None or rk_df.empty:
+            st.warning("라쿠텐 표가 아직 없습니다. 먼저 해외 탭(라쿠텐)에서 표를 불러오세요.")
+            kw_list = []
+        else:
+            kw_list = rk_df["keyword"].astype(str).head(20).tolist()
+            st.text_area("자동 추출된 키워드", value=", ".join(kw_list), height=96)
 
     opt1, opt2 = st.columns([1,1])
     with opt1:
@@ -518,10 +520,14 @@ def section_korea_ui():
         table_mode = st.radio("표 모드", ["A(검색지표)","B(검색+순위)","C(검색+상품수+스코어)"], horizontal=True)
 
     if st.button("레이더 업데이트", use_container_width=False):
+        if not kw_list:
+            st.warning("키워드를 입력하거나 라쿠텐에서 가져오세요.")
+            return
+
         with st.spinner("네이버 키워드도구 조회 중…"):
             df = _naver_keywordstool(kw_list)
         if df.empty:
-            st.warning("데이터가 없습니다. API 키/계정 또는 키워드를 확인하세요.")
+            st.error("데이터가 없습니다. (API/계정/권한/쿼터 또는 키워드를 확인)")
             return
 
         if table_mode.startswith("A"):
@@ -564,7 +570,7 @@ def section_korea_ui():
                            file_name="korea_keyword_C.csv", mime="text/csv")
 
 # =========================
-# 7) Radar Card (tabs: 국내 -> 해외)
+# 7) Radar Card (국내/해외 탭)
 # =========================
 def section_radar():
     st.markdown('<div class="card"><div class="card-title">AI 키워드 레이더</div>', unsafe_allow_html=True)
@@ -674,7 +680,7 @@ vwbin = _get_view_bin()
 
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
-# 1행: 레이더(5) + 데이터랩(7)
+# 1행
 row1_l, row1_r = st.columns([5,7], gap="medium")
 with row1_l:
     section_radar()
@@ -683,7 +689,7 @@ with row1_r:
 
 st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
 
-# 2행: 11번가 / (번역 상 + 상품명 하) / 아이템스카우트 / 셀러라이프
+# 2행
 c1, c2, c3, c4 = st.columns([3,3,3,3], gap="medium")
 with c1:
     section_11st()
