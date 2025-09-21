@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-# ENVY — Season 1 (Dual Proxy Edition, Responsive + Alerts, No-HScroll)
+# ENVY — Season 1 (Dual Proxy Edition, Responsive + Alerts, No-HScroll, Auto-Genre)
 # - 반응형 카드 레이아웃
 # - 전역 알림(토스트)
 # - 데이터랩 2중 스크롤 제거 + 탭 제목 수신(워커가 지원 시)
 # - 사이드바 여백/문구 정리: 환산 금액에 통화 기호만 노출
-# - 라쿠텐: rank 2단계 축소 + 표 가로 스크롤 제거(강제 래핑 + 폰트 -1단계)
+# - 라쿠텐: 카테고리→GenreID 자동 추정(세션 캐시), rank 2단계 축소, 표 가로 스크롤 제거(강제 래핑 + 폰트 -1단계)
 # - 11번가 카드 높이 균형(라쿠텐 표와 맞춤)
+# ※ secrets.toml에 RAKUTEN_APP_ID(필수), RAKUTEN_AFFILIATE_ID(선택)
 
 import base64
 from pathlib import Path
@@ -37,7 +38,7 @@ ELEVENST_PROXY   = "https://worker-11stjs.taesig0302.workers.dev"
 ITEMSCOUT_PROXY  = "https://worker-itemscoutjs.taesig0302.workers.dev"
 SELLERLIFE_PROXY = "https://worker-sellerlifejs.taesig0302.workers.dev"
 
-# 라쿠텐 키(먼저 secrets 사용, 없으면 기본)
+# 라쿠텐 키(먼저 secrets 사용, 없으면 기본 — 데모용)
 RAKUTEN_APP_ID_DEFAULT       = "1043271015809337425"
 RAKUTEN_AFFILIATE_ID_DEFAULT = "4c723498.cbfeca46.4c723499.1deb6f77"
 
@@ -66,7 +67,7 @@ def _ensure_session_defaults():
     ss.setdefault("margin_mode","퍼센트")
     ss.setdefault("margin_pct",10.00)
     ss.setdefault("margin_won",10000.0)
-    # 라쿠텐 장르 매핑(표시 비노출, Expander에서만 수정)
+    # 라쿠텐 장르 매핑(표시 비노출, 자동 추정 결과가 여기 세션에 캐시됨)
     ss.setdefault("rk_genre_map", {
         "전체(샘플)": "100283",
         "뷰티/코스메틱": "100283",
@@ -241,9 +242,9 @@ def _sidebar():
         sale_foreign = st.number_input("판매금액 (외화)", value=float(st.session_state["sale_foreign"]),
                                        step=0.01, format="%.2f", key="sale_foreign")
         won = FX_DEFAULT[base] * sale_foreign
-        # 통화명(한글) 제거, 심플하게 기호만
         st.markdown(
-            f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b><span style="opacity:.75;font-weight:700"> ({CURRENCIES[base]["symbol"]})</span></div>',
+            f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b>'
+            f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[base]["symbol"]})</span></div>',
             unsafe_allow_html=True
         )
         st.caption(f"환율 기준: {FX_DEFAULT[base]:,.2f} ₩/{CURRENCIES[base]['unit']}")
@@ -311,7 +312,7 @@ def section_11st():
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
-# 5) 라쿠텐 랭킹
+# 5) 라쿠텐 (자동 장르 추정 + 랭킹)
 # =========================
 def _rakuten_keys():
     app_id = (st.secrets.get("RAKUTEN_APP_ID", "")
@@ -321,6 +322,42 @@ def _rakuten_keys():
                  or st.secrets.get("RAKUTEN_AFFILIATE", "")
                  or RAKUTEN_AFFILIATE_ID_DEFAULT).strip()
     return app_id, affiliate
+
+# 카테고리 → 일본어 키워드(자동 장르 추정에 사용)
+RK_JP_KEYWORDS = {
+    "뷰티/코스메틱": "コスメ",
+    "의류/패션": "ファッション",
+    "가전/디지털": "家電",
+    "가구/인테리어": "インテリア",
+    "식품": "食品",
+    "생활/건강": "日用品",
+    "스포츠/레저": "スポーツ",
+    "문구/취미": "ホビー",
+}
+
+def _rk_guess_genre_by_keyword(jp_keyword: str, hits: int = 30) -> str | None:
+    """IchibaItem/Search로 jp_keyword를 검색해 가장 빈도가 높은 genreId를 추정."""
+    app_id, _ = _rakuten_keys()
+    if not (requests and app_id and jp_keyword):
+        return None
+    try:
+        r = requests.get(
+            "https://app.rakuten.co.jp/services/api/IchibaItem/Search/20170706",
+            params={"applicationId": app_id, "keyword": jp_keyword, "hits": hits, "imageFlag": 0},
+            timeout=10
+        )
+        r.raise_for_status()
+        items = [it.get("Item", {}) for it in r.json().get("Items", [])]
+        freq = {}
+        for it in items:
+            gid = str(it.get("genreId") or "")
+            if gid:
+                freq[gid] = freq.get(gid, 0) + 1
+        if not freq:
+            return None
+        return max(freq.items(), key=lambda kv: kv[1])[0]
+    except Exception:
+        return None
 
 def _rk_fetch_rank(genre_id: str, topn: int = 20) -> pd.DataFrame:
     app_id, affiliate = _rakuten_keys()
@@ -373,29 +410,34 @@ def section_rakuten():
     with colC:
         sample_only = st.checkbox("샘플 보기", value=False, key="rk_sample")
 
+    # --- 장르 결정 로직 (자동 추정 + 세션 캐시) ---
     genre_map = st.session_state.get("rk_genre_map", {})
-    genre_id = (genre_map.get(cat) or "100283").strip()
+    genre_id = (genre_map.get(cat) or "").strip()
 
-    with st.expander("🔧 장르 매핑 편집 (GenreID는 여기서만 관리 — 화면에는 숨김)", expanded=False):
-        new_map = {}
-        cols = st.columns(3)
-        cats = ["전체(샘플)","뷰티/코스메틱","의류/패션","가전/디지털","가구/인테리어","식품","생활/건강","스포츠/레저","문구/취미"]
-        for i, c in enumerate(cats):
-            with cols[i % 3]:
-                val = st.text_input(f"{c} → GenreID", value=genre_map.get(c, "100283"), key=f"rk_map_{c}")
-                new_map[c] = val.strip()
-        if st.button("매핑 저장", use_container_width=False, key="rk_save_map"):
-            st.session_state["rk_genre_map"] = new_map
-            st.success("장르 매핑을 저장했습니다.")
+    need_auto = (not genre_id) or (genre_id == "100283" and cat != "전체(샘플)")
+    if need_auto and cat in RK_JP_KEYWORDS:
+        guessed = _rk_guess_genre_by_keyword(RK_JP_KEYWORDS[cat])
+        if guessed:
+            genre_id = guessed
+            # 세션 캐시 갱신
+            st.session_state["rk_genre_map"][cat] = genre_id
+            # 미묘한 안내(토스트)
+            st.markdown(
+                "<script>window.postMessage({__envy:true,kind:'alert',level:'info',msg:'카테고리에 맞춰 장르를 자동 지정했어요.'},'*');</script>",
+                unsafe_allow_html=True
+            )
+    if not genre_id:
+        genre_id = "100283"
 
+    # 데이터 로드
     if sample_only:
         df = pd.DataFrame(
             [{"rank": i+1, "keyword": f"[샘플] 키워드 {i+1}", "shop": "샘플샵", "url": "https://example.com"} for i in range(20)]
         )
     else:
-        df = _rk_fetch_rank(genre_id or "100283", topn=20)
+        df = _rk_fetch_rank(genre_id, topn=20)
 
-    # rank 2단계 축소 + 전체 폭을 줄여 가로 스크롤 가능성 억제
+    # rank 2단계 축소 + 폭 조정
     colcfg = {
         "rank": st.column_config.NumberColumn("rank", width="small"),
         "keyword": st.column_config.TextColumn("keyword", width="medium"),
