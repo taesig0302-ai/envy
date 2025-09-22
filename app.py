@@ -732,46 +732,183 @@ def _stopwords_manager_ui(compact: bool = False):
                 st.error(f"가져오기 실패: {e}")
 
 # =========================
-# 9) 상품명 생성기 (네이버 스마트스토어 SEO 규칙 적용)
+# 9) 상품명 생성기 (스마트스토어 규칙 + 금칙어/브랜드 보호 • 필터 선적용판)
+# =========================
+import re
+import pandas as pd
+import streamlit as st
+
+# ---- 9-0) 금칙어 베이스: 패턴 기반 위험군(네가 준 리스트에서 비브랜드 범주를 포괄) ----
+#  - 음란/성인물/성기·성행위
+#  - 불법/범죄/몰카/무기
+#  - 의약 성분(시부트라민/…필 계열 등) 및 향정 의심
+#  - 정치·국가 민감어(북한/공화국 등)
+#  - 아동/임산부 등 민감 맥락
+#  - 노골적 비속어
+#  - 과도한 약속/효능 기만 우려 단어 일부
+PATTERN_STOPWORDS = [
+    # 음란/성인/성행위
+    r"포르노", r"성인(게임|비디오)?", r"섹스", r"섹도구", r"콘돔", r"오나홀",
+    r"사정지연", r"애널", r"음란", r"음모", r"음부", r"성기", r"성교", r"최음", r"흥분젤",
+    r"야한", r"색스|섹쓰|쎅스|쌕스",
+    # 불법/범죄/무기/몰카
+    r"불법", r"몰카", r"도촬", r"총|권총|투시경|칼|새총", r"도난",
+    # 의약/향정·다이어트 약물/프리섹스 약물
+    r"(시부트라민|sibutramine)", r"(실데나필|sildenafil)", r"(타다라필|tadalafil)",
+    r"(바데나필|vardenafil)", r"(데나필|denafil)", r"(요힘빈|yohimbin?e?)",
+    r"(에페드린|ephedrine)", r"(DMAA|DMBA|DNP)", r"(멜라토닌|melatonin)",
+    r"(에페드라|ephedra)", r"(빈포세틴|vinpocetine)", r"(디메틸|dimethyl)",
+    r"(하이드록시|hydroxy)\w*denafil", r"(프로폭시|propoxy)\w*denafil",
+    # 민감 정치/국가
+    r"북한|공화국|인민공화국|DPRK|국기", 
+    # 아동·임산부·신생아 민감
+    r"아동", r"임산부", r"신생아",
+    # 비속어/저품질
+    r"보지|불알|꼬추|젖탱이|젖꼭지",
+    # 기만/효능 과장 가능 단어(선택적으로 차단)
+    r"정력|확대크림|사기급|최강|완치",
+]
+
+# ---- 9-1) (선반영) 네가 준 목록에서 '비브랜드'로만 보이는 대표 단어 일부(요지부동 핵심군) ----
+SEEDED_NONBRAND_LITERALS = [
+    # 일부만 발췌·정규화(브랜드성 제외) — 이미 위 패턴으로 대부분 커버되지만 안전망으로 추가
+    "강간","살인","도촬","몰카","군사","총","권총","누드","음경","항문","성교","성생활",
+    "성감대","성기능부전개선","사정지연","애널","섹도구","섹스","포르노","포르노걸",
+    "요힘빈","요힘베","시부트라민","실데나필","타다라필","바데나필","데나필","하이드록시호모실데나필",
+    "하이드록시홍데나필","하이드록시바데나필","디메틸치오실데나필","디메칠실데나필",
+    "디치오프로필카보데나필","디메틸시부트라민","디데스메틸시부트라민","디메틸", "하이드록시",
+    "멜라토닌","빈포세틴","에페드린","DMAA","DMBA","DNP","수면제","히로뽕",
+    "아동","임산부","신생아","북한","공화국","인민공화국",
+    "보지","불알","꼬추","젖탱이","젖꼭지","음란","음모",
+]
+
+# ---- 9-2) 사용자가 보낸 풀 리스트를 추가로 붙일 수 있는 훅(여기 붙이면 자동 필터링 후 합치기) ----
+USER_BLOB_EXTRA = r"""
+# ⬇ 여기에 추가 금칙어 붙여넣기(선택). 붙이면 자동으로 '브랜드성'은 버리고 '비브랜드'만 합쳐짐.
+""".strip()
+
+
+# =========================
+# 금칙어 처리 로직 (브랜드 분리/보호 + 비브랜드만 적용)
 # =========================
 
+# 브랜드 휴리스틱(브랜드성 추정되면 필터에서 제외)
+_BRAND_ASCII_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9\-\& ]{1,24}$")
+_BRAND_KO_SUFFIX = (
+    "스","즈","코","마","니","로렌","코어스","라코스테","로에베","로엠","르메르","로맨틱크라운",
+    "카민스키","프레스토","프리미엄","스톤","아일랜드","나이키","아디다스","뉴발란스",
+    "샤넬","루이비통","구찌","프라다","디올","몽클레어","스타벅스","라인프렌즈","헬로키티","포켓몬",
+)
+HARD_NONBRAND = {
+    # 브랜드 여부 무관 강제 차단(법/정책 리스크가 큰 군)
+    "포르노","섹스","섹도구","오나홀","사정지연","애널","음란","음모","음부","성기","성교","최음",
+    "히로뽕","대마","수면제","시부트라민","실데나필","타다라필","바데나필","데나필","몰카","도촬","총","권총",
+    "북한","공화국","인민공화국","강간","살인","아동","임산부","신생아",
+}
+
+def _is_brandish(term: str) -> bool:
+    t = (term or "").strip()
+    if not t: return False
+    if _BRAND_ASCII_RE.match(t):
+        return True
+    if any(t.endswith(suf) for suf in _BRAND_KO_SUFFIX):
+        return True
+    return False
+
+def _extract_nonbrand_from_blob(blob: str) -> list[str]:
+    raw = [x.strip() for x in (blob or "").splitlines()]
+    raw = [x for x in raw if x and not x.startswith("#")]
+    uniq = list(dict.fromkeys(raw))
+    nonbrands = []
+    for w in uniq:
+        if w in HARD_NONBRAND:
+            nonbrands.append(w); continue
+        if not _is_brandish(w):
+            nonbrands.append(w)
+    return nonbrands
+
+# 패턴 → 컴파일
+PATTERN_RE = re.compile("|".join(PATTERN_STOPWORDS), re.IGNORECASE)
+# 리터럴(비브랜드) → 정규식
+_MIN_PART = 2
+def _compile_literals(words: list[str]) -> re.Pattern:
+    pats=[]
+    for w in words:
+        w=w.strip()
+        if not w: continue
+        if len(w) < _MIN_PART: continue
+        pats.append(re.escape(w))
+    if not pats:
+        return re.compile(r"$^\b$")
+    return re.compile("|".join(pats), re.IGNORECASE)
+
+# 사용자가 보낸 리스트(추가분)를 비브랜드로만 추출
+USER_EXTRA_NONBRAND = _extract_nonbrand_from_blob(USER_BLOB_EXTRA)
+LITERAL_RE = _compile_literals(sorted(set(SEEDED_NONBRAND_LITERALS + USER_EXTRA_NONBRAND)))
+
+def _apply_stopwords_nonbrand(text: str, brand_allow: set[str] | None = None) -> str:
+    """비브랜드 금칙어만 제거/치환. brand_allow(브랜드 단어)는 보호."""
+    brand_allow = {*(brand_allow or set())}
+    marker_l, marker_r = "«", "»"
+    protected_map={}
+    def _protect(match):
+        tok = match.group(0)
+        key = f"{marker_l}{len(protected_map)}{marker_r}"
+        protected_map[key]=tok
+        return key
+
+    out = text
+    if brand_allow:
+        for b in sorted(brand_allow, key=len, reverse=True):
+            if not b: continue
+            out = re.sub(rf"(?i)\b{re.escape(b)}\b", _protect, out)
+
+    # 패턴/리터럴 모두 적용
+    out = PATTERN_RE.sub(" ", out)
+    out = LITERAL_RE.sub(" ", out)
+    out = re.sub(r"\s+", " ", out).strip()
+
+    for key,val in protected_map.items():
+        out = out.replace(key, val)
+    return out
+
+def _dedupe_double_brands(title: str) -> str:
+    """단순 토큰 중복 제거(브랜드 이중 표기 줄이기)"""
+    tokens = title.split()
+    seen=set(); out=[]
+    for t in tokens:
+        low = t.lower()
+        if low in seen:
+            continue
+        seen.add(low); out.append(t)
+    return " ".join(out)
+
+# ---- 길이 보정 유틸(문자/바이트) ----
 def _truncate_by_bytes(text: str, max_bytes: int = 50) -> str:
-    """UTF-8 바이트 기준으로 안전하게 50바이트 이내로 잘라내기"""
     raw = text.encode("utf-8")
     if len(raw) <= max_bytes:
         return text
     cut = raw[:max_bytes]
-    # 멀티바이트 중간 잘림 방지
     while True:
         try:
-            s = cut.decode("utf-8")
-            break
+            s = cut.decode("utf-8"); break
         except UnicodeDecodeError:
             cut = cut[:-1]
-            if not cut:
-                return ""
-    # 단어 경계에서 한번 더 정리
-    import re
+            if not cut: return ""
     m = re.match(r"^(.{1,})[\s\|\·\-]", s[::-1])
     if m:
         s2 = m.group(1)[::-1].rstrip()
         return s2 + "…"
     return s.rstrip() + "…"
 
-
 def _smart_truncate(text: str, max_len: int, min_len: int) -> str:
-    """문자 수 기준으로 안전하게 잘라내기"""
     if len(text) > max_len:
         return text[: max_len - 1] + "…"
-    if len(text) < min_len:
-        # 부족하면 그대로 반환 (추가 확장은 다른 로직에서)
-        return text
     return text
 
-
+# ---- 9-3) 메인 UI ----
 def section_title_generator():
-    st.markdown('<div class="card"><div class="card-title">상품명 생성기 (스마트스토어 규칙)</div>', unsafe_allow_html=True)
-
+    st.markdown('<div class="card"><div class="card-title">상품명 생성기 (스마트스토어 규칙 + 금칙어)</div>', unsafe_allow_html=True)
     with st.container():
         cA, cB = st.columns([1, 2])
         with cA:
@@ -782,7 +919,6 @@ def section_title_generator():
 
         a, b, c = st.columns([1, 1, 1])
         with a:
-            # 기본값: 최소 30자 / 최대 50자
             max_len = st.slider("최대 글자수(스마트스토어)", 30, 50, 50, 1, key="seo_maxlen")
         with b:
             target_min = st.slider("최소 글자수(스마트스토어)", 30, 50, 30, 1, key="seo_minlen")
@@ -802,13 +938,16 @@ def section_title_generator():
                 else:
                     seq = [brand] + at_list + [k]
 
-                # 공백 고정
+                # 1) 공백 고정으로 합치기
                 raw_title = " ".join([p for p in seq if p])
 
-                # 문자 단위 트렁케이트
-                final = _smart_truncate(raw_title, max_len, target_min)
+                # 2) 금칙어 적용(브랜드 보호) + 중복 브랜드 토큰 정리
+                brand_allow = {brand.strip()} | {kk for kk in kw_list if not kk or _is_brandish(kk)}
+                final = _apply_stopwords_nonbrand(raw_title, brand_allow=brand_allow)
+                final = _dedupe_double_brands(final)
 
-                # 바이트 단위 트렁케이트 (50바이트 제한)
+                # 3) 길이 보정(문자 → 바이트)
+                final = _smart_truncate(final, max_len, target_min)
                 if len(final.encode("utf-8")) > 50:
                     final = _truncate_by_bytes(final, 50)
 
@@ -823,17 +962,14 @@ def section_title_generator():
                     char_len = len(t)
                     byte_len = len(t.encode("utf-8"))
                     warn = []
-                    if char_len < 30:
-                        warn.append("30자 미만")
-                    if byte_len > 50:
-                        warn.append("50바이트 초과")
+                    if char_len < 30: warn.append("30자 미만")
+                    if byte_len > 50: warn.append("50바이트 초과")
                     badge = "" if not warn else " — " + " / ".join([f":red[{w}]" for w in warn])
                     st.markdown(
                         f"**{i}.** {t}  <span style='opacity:.7'>(문자 {char_len}/50 · 바이트 {byte_len}/50)</span>{badge}",
                         unsafe_allow_html=True,
                     )
 
-                # CSV 다운로드
                 out_df = pd.DataFrame({"title": titles})
                 st.download_button(
                     "CSV 다운로드",
@@ -842,13 +978,24 @@ def section_title_generator():
                     mime="text/csv",
                 )
 
-                # 요약 리포트
                 st.caption(
-                    f"요약 · 문자 길이(최소/평균/최대): {min(lens)}/{sum(lens)//len(lens)}/{max(lens)} · "
+                    f"요약 · 문자(최소/평균/최대): {min(lens)}/{sum(lens)//len(lens)}/{max(lens)} · "
                     f"바이트(최소/평균/최대): {min(blens)}/{sum(blens)//len(blens)}/{max(blens)}"
                 )
             else:
-                st.warning("생성된 상품명이 없습니다. (입력값 확인)")
+                st.warning("생성된 상품명이 없습니다. (입력값/금칙어로 모두 걸러졌을 수 있음)")
+
+        with st.expander("🔧 금칙어 상태(관리용)", expanded=False):
+            # 모니터링용 요약
+            lit_count = len(sorted(set(SEEDED_NONBRAND_LITERALS + USER_EXTRA_NONBRAND)))
+            st.caption(f"패턴 금칙어: {len(PATTERN_STOPWORDS)}개 · 리터럴 금칙어: {lit_count}개")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.text_area("패턴 금칙어(정규식)", "\n".join(PATTERN_STOPWORDS), height=220)
+            with col2:
+                show_lits = sorted(set(SEEDED_NONBRAND_LITERALS + USER_EXTRA_NONBRAND))[:500]
+                st.text_area("리터럴 금칙어(비브랜드 적용 대상)", "\n".join(show_lits), height=220)
+
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
