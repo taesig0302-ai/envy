@@ -991,6 +991,3 @@ with c3:
     section_sellerlife_placeholder()
 
 st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
-
-# 외부 금칙어 관리자(선택)
-section_stopwords_manager()
