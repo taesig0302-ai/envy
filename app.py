@@ -305,12 +305,10 @@ def _sidebar():
                             # 1) 선택 언어로 번역
                             out_main = _GT(source=src_code, target=tgt_code).translate(text_in or "")
                             st.text_area(f"결과 ({tgt_label})", value=out_main, height=120, key="sb_tr_out_main")
-
                             # 2) 한국어 추가 결과(타겟이 한국어가 아닐 때만)
                             if tgt_code != "ko":
                                 out_ko = _GT(source=tgt_code, target="ko").translate(out_main or "")
                                 st.text_area("결과 (한국어)", value=out_ko, height=120, key="sb_tr_out_ko")
-
                         except Exception as e:
                             st.error(f"번역 중 오류: {e}")
 
@@ -324,39 +322,51 @@ def _sidebar():
         # 번역기 토글 OFF → 계산기들 표시
         # ─────────────────────────────────────────────
 
+        # 세션값 안전 읽기(방어)
+        fx_base = st.session_state.get("fx_base", "USD")
+        sale_foreign = float(st.session_state.get("sale_foreign", 1.0))
+        m_base = st.session_state.get("m_base", "USD")
+        purchase_foreign = float(st.session_state.get("purchase_foreign", 0.0))
+        card_fee_pct = float(st.session_state.get("card_fee_pct", 4.0))
+        market_fee_pct = float(st.session_state.get("market_fee_pct", 14.0))
+        shipping_won = float(st.session_state.get("shipping_won", 0.0))
+        margin_mode = st.session_state.get("margin_mode", "퍼센트")
+        margin_pct = float(st.session_state.get("margin_pct", 10.0))
+        margin_won = float(st.session_state.get("margin_won", 10000.0))
+
         # ① 환율 계산기
         with st.expander("💱 환율 계산기", expanded=True):
-            base = st.selectbox(
+            fx_base = st.selectbox(
                 "기준 통화", list(CURRENCIES.keys()),
-                index=list(CURRENCIES.keys()).index(st.session_state["fx_base"]),
+                index=list(CURRENCIES.keys()).index(fx_base),
                 key="fx_base"
             )
             sale_foreign = st.number_input(
-                "판매금액 (외화)", value=float(st.session_state["sale_foreign"]),
+                "판매금액 (외화)", value=float(sale_foreign),
                 step=0.01, format="%.2f", key="sale_foreign"
             )
-            won = FX_DEFAULT[base] * sale_foreign
+            won = FX_DEFAULT[fx_base] * sale_foreign
             st.markdown(
                 f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b>'
-                f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[base]["symbol"]})</span></div>',
+                f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[fx_base]["symbol"]})</span></div>',
                 unsafe_allow_html=True
             )
-            st.caption(f"환율 기준: {FX_DEFAULT[base]:,.2f} ₩/{CURRENCIES[base]['unit']}")
+            st.caption(f"환율 기준: {FX_DEFAULT[fx_base]:,.2f} ₩/{CURRENCIES[fx_base]['unit']}")
 
         # ② 마진 계산기
         with st.expander("📈 마진 계산기", expanded=True):
             m_base = st.selectbox(
                 "매입 통화", list(CURRENCIES.keys()),
-                index=list(CURRENCIES.keys()).index(st.session_state["m_base"]),
+                index=list(CURRENCIES.keys()).index(m_base),
                 key="m_base"
             )
             purchase_foreign = st.number_input(
-                "매입금액 (외화)", value=float(st.session_state["purchase_fore행"]),
-                step=0.01, format="%.2f", key="purchase_foreign"
+                "매입금액 (외화)", value=float(purchase_foreign),
+                step=0.01, format="%.2f", key="purchase_foreign"   # ← 오타 수정!!
             )
 
             base_cost_won = FX_DEFAULT[m_base]*purchase_foreign if purchase_foreign > 0 \
-                            else FX_DEFAULT[st.session_state["fx_base"]]*st.session_state["sale_foreign"]
+                            else FX_DEFAULT[st.session_state.get("fx_base","USD")]*st.session_state.get("sale_foreign",1.0)
             st.markdown(
                 f'<div class="pill pill-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>',
                 unsafe_allow_html=True
@@ -364,35 +374,35 @@ def _sidebar():
 
             c1, c2 = st.columns(2)
             with c1:
-                card_fee = st.number_input(
-                    "카드수수료(%)", value=float(st.session_state["card_fee_pct"]),
+                card_fee_pct = st.number_input(
+                    "카드수수료(%)", value=float(card_fee_pct),
                     step=0.01, format="%.2f", key="card_fee_pct"
                 )
             with c2:
-                market_fee = st.number_input(
-                    "마켓수수료(%)", value=float(st.session_state["market_fee_pct"]),
+                market_fee_pct = st.number_input(
+                    "마켓수수료(%)", value=float(market_fee_pct),
                     step=0.01, format="%.2f", key="market_fee_pct"
                 )
             shipping_won = st.number_input(
-                "배송비(₩)", value=float(st.session_state["shipping_won"]),
+                "배송비(₩)", value=float(shipping_won),
                 step=100.0, format="%.0f", key="shipping_won"
             )
 
-            mode = st.radio("마진 방식", ["퍼센트","플러스"], horizontal=True, key="margin_mode")
-            if mode == "퍼센트":
+            margin_mode = st.radio("마진 방식", ["퍼센트","플러스"], horizontal=True, key="margin_mode")
+            if margin_mode == "퍼센트":
                 margin_pct = st.number_input(
-                    "마진율 (%)", value=float(st.session_state["margin_pct"]),
+                    "마진율 (%)", value=float(margin_pct),
                     step=0.01, format="%.2f", key="margin_pct"
                 )
-                target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)*(1+margin_pct/100) + shipping_won
+                target_price = base_cost_won*(1+card_fee_pct/100)*(1+market_fee_pct/100)*(1+margin_pct/100) + shipping_won
                 margin_value = target_price - base_cost_won
                 desc = f"{margin_pct:.2f}%"
             else:
                 margin_won = st.number_input(
-                    "마진액 (₩)", value=float(st.session_state["margin_won"]),
+                    "마진액 (₩)", value=float(margin_won),
                     step=100.0, format="%.0f", key="margin_won"
                 )
-                target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100) + margin_won + shipping_won
+                target_price = base_cost_won*(1+card_fee_pct/100)*(1+market_fee_pct/100) + margin_won + shipping_won
                 margin_value = margin_won
                 desc = f"+{margin_won:,.0f}"
 
