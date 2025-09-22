@@ -41,7 +41,7 @@ DEFAULT_KEYS = {
     # NAVER Searchad(검색광고 API / 키워드도구)
     "NAVER_API_KEY":        "0100000000785cf1d8f039b13a5d3c3d1262b84e9ad4a046637e8887bbd003051b0d2a5cdf",
     "NAVER_SECRET_KEY":     "AQAAAAB4XPHY8DmxOl08PRJiuE6ao1LN3lh0kF9rOJ4m5b8O5g==",
-    "NAVER_CUSTOMER_ID":    "629744",
+    "NAVER_CUSTOMER_ID":    "2274338",
     # NAVER Developers (DataLab Open API)
     "NAVER_CLIENT_ID":      "h4mklM2hNLct04BD7sC0",
     "NAVER_CLIENT_SECRET":  "ltoxUNyKxi",
