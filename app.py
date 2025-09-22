@@ -877,58 +877,39 @@ def section_radar():
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
-# 9) Other cards  (FULL REPLACE)
+# 9) 상품명 생성기 (네이버 SEO + 금칙어)
 # =========================
-def _11st_abest_url():
-    return ("https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160&_ts=%d" % int(time.time()))
 
-def section_11st():
-    st.markdown('<div class="card"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>', unsafe_allow_html=True)
-    _proxy_iframe(ELEVENST_PROXY, _11st_abest_url(), height=900, scroll=True, key="abest")
-    st.markdown('</div>', unsafe_allow_html=True)
+# ===== Stopwords (전역/카테고리) =====
+STOPWORDS_GLOBAL = [
+    "무료배송","무배","초특가","특가","핫딜","최신","최신형","역대급","당일발송","당일배송",
+    "최저가","세일","SALE","이벤트","사은품","증정","쿠폰","정가","파손","환불","교환",
+    "재고","품절","한정수량","MUSTBUY","강추","추천","🔥","💥","⭐","BEST","베스트"
+]
 
-LANG_LABELS = {"auto":"자동 감지","ko":"한국어","en":"영어","ja":"일본어","zh-CN":"중국어(간체)","zh-TW":"중국어(번체)","vi":"베트남어","th":"태국어","id":"인도네시아어","de":"독일어","fr":"프랑스어","es":"스페인어","it":"이탈리아어","pt":"포르투갈어"}
-def _code(x): return {v:k for k,v in LANG_LABELS.items()}.get(x, x)
+STOPWORDS_BY_CAT = {
+    "패션의류":   ["루즈핏","빅사이즈","초슬림","극세사","초경량","왕오버","몸매보정"],
+    "패션잡화":   ["무료각인","사은품지급","세트증정"],
+    "뷰티/미용":  ["정품보장","병행수입","벌크","리필만","샘플","테스터"],
+    "생활/건강":  ["공용","비매품","리퍼","리퍼비시"],
+    "디지털/가전": ["관부가세","부가세","해외직구","리퍼","리퍼비시","벌크"],
+    "스포츠/레저": ["무료조립","가성비갑"],
+}
 
-def section_translator():
-    st.markdown('<div class="card"><div class="card-title">구글 번역기</div>', unsafe_allow_html=True)
-    c1, c2 = st.columns([1,1])
-    with c1:
-        src = st.selectbox("원문", list(LANG_LABELS.values()), index=list(LANG_LABELS.keys()).index("auto"))
-        text_in = st.text_area("입력", height=180)
-    with c2:
-        tgt = st.selectbox("번역", list(LANG_LABELS.values()), index=list(LANG_LABELS.keys()).index("en"))
-        if st.button("번역", use_container_width=False):
-            if not GoogleTranslator:
-                st.warning("deep-translator 설치/런타임 문제")
-            else:
-                out = GoogleTranslator(source=_code(src), target=_code(tgt)).translate(text_in or "")
-                if _code(tgt) != "ko" and out.strip():
-                    try:
-                        ko_hint = GoogleTranslator(source=_code(tgt), target="ko").translate(out)
-                        st.text_area("번역 결과", value=f"{out}\n{ko_hint}", height=180)
-                    except Exception:
-                        st.text_area("번역 결과", value=out, height=180)
-                else:
-                    st.text_area("번역 결과", value=out, height=180)
-    st.markdown('</div>', unsafe_allow_html=True)
 
 def section_title_generator():
     """
-    상품명 생성기 (네이버 SEO + 검색량 기반 자동 확장)
-    - 구분자 옵션 제거, 공백 고정
-    - 번호 매기기 출력
+    상품명 생성기 (네이버 SEO + 검색량 기반 확장 + 금칙어 엔진)
     """
     import re, math
 
-    st.markdown('<div class="card"><div class="card-title">상품명 생성기 (네이버 SEO 자동 확장)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="card"><div class="card-title">상품명 생성기 (네이버 SEO 자동 확장 + 금칙어)</div>', unsafe_allow_html=True)
 
-    # --- utils ---
+    # ---------- 유틸 ----------
     def _norm(s: str) -> str:
         s = (s or "").strip()
         s = re.sub(r"[ \t\u3000]+", " ", s)
-        s = re.sub(r"\s{2,}", " ", s)
-        return s
+        return re.sub(r"\s{2,}", " ", s)
 
     def _dedup(tokens):
         seen=set(); out=[]
@@ -938,17 +919,6 @@ def section_title_generator():
             key=t.lower()
             if key in seen: continue
             seen.add(key); out.append(t)
-        return out
-
-    def _remove_stop(tokens, stopset):
-        bad_parts=["무료배송","초특가","핫딜","최신형","쇼핑몰","특가"]
-        out=[]
-        for t in tokens:
-            tt=_norm(t)
-            if not tt: continue
-            if tt in stopset: continue
-            if any(bp in tt for bp in bad_parts): continue
-            out.append(tt)
         return out
 
     def _smart_truncate(title: str, max_len: int, must_keep_prefix: str = "") -> str:
@@ -976,12 +946,45 @@ def section_title_generator():
         sep = "" if not curr else " "
         return len(_norm(curr+sep+piece))>max_len
 
-    # --- inputs ---
-    cA, cB = st.columns([1,2])
-    with cA:
+    # 금칙어 처리
+    def _compile_stopwords(global_list, cate_list, user_str, replace_pairs):
+        stop = set()
+        for s in global_list + (cate_list or []):
+            s=_norm(s)
+            if s: stop.add(s.lower())
+        user = [_norm(x) for x in (user_str or "").split(",") if _norm(x)]
+        for s in user:
+            stop.add(s.lower())
+        # 부분일치 정규식
+        part = [re.escape(s) for s in stop if len(s)>=2]
+        part_re = re.compile("|".join(part), flags=re.IGNORECASE) if part else None
+        # 치환 dict
+        repl = {}
+        for pair in replace_pairs:
+            src=_norm(pair.split("=>")[0] if "=>" in pair else pair)
+            dst=_norm(pair.split("=>")[1]) if "=>" in pair else ""
+            if src: repl[src.lower()] = dst
+        return stop, part_re, repl
+
+    def _apply_stopwords(tokens, stop_exact, stop_part_re, repl_map, aggressive=False):
+        out=[]; removed=[]
+        for t in tokens:
+            raw=t; low=t.lower()
+            if low in stop_exact: removed.append(raw); continue
+            if low in repl_map:
+                t=repl_map[low]; low=t.lower()
+                if not t: removed.append(raw); continue
+            if aggressive and stop_part_re and stop_part_re.search(t):
+                removed.append(raw); continue
+            out.append(t)
+        return _dedup(out), removed
+
+    # ---------- 입력 ----------
+    left, right = st.columns([1,2])
+    with left:
         brand = st.text_input("브랜드", placeholder="예: Apple / 샤오미 / 무지", key="seo_brand")
         attrs = st.text_input("속성(콤마, 선택)", placeholder="예: 공식, 정품, 한정판", key="seo_attrs")
-    with cB:
+    with right:
         kws_input = st.text_input("핵심 키워드(콤마)", placeholder="예: 노트북 스탠드, 접이식, 알루미늄", key="seo_kws")
 
     a,b,c = st.columns([1,1,1])
@@ -992,38 +995,39 @@ def section_title_generator():
     with c:
         order = st.selectbox("순서", ["브랜드-키워드-속성","키워드-브랜드-속성","브랜드-속성-키워드"], index=0, key="seo_order")
 
-    e,f = st.columns([1,1])
-    with e:
+    row2a, row2b = st.columns([1,1])
+    with row2a:
         use_naver = st.toggle("네이버 SEO 모드", value=True, key="seo_use_naver")
-    with f:
         auto_expand = st.toggle("검색량 기반 자동 확장", value=True, key="seo_autoexpand")
+        topn = st.slider("생성 개수(상위)", 3, 20, 10, 1, key="seo_topn")
+    with row2b:
+        cat_for_stop = st.selectbox("금칙어 카테고리", ["(없음)"]+list(STOPWORDS_BY_CAT.keys()), index=0, key="stop_cat")
+        user_stop = st.text_input("사용자 금칙어(콤마)", value="정품,무료배송,최신,인기,특가", key="seo_stop")
+        user_repl = st.text_input("치환 규칙(콤마, src=>dst)", value="무배=> ,무료배송=> ,정품=>", key="seo_repl")
+        aggressive = st.toggle("공격적 부분일치 제거", value=False, key="stop_aggr")
 
-    stopwords_txt = st.text_input("추가 금칙어(콤마)", value="정품,무료배송,최신,인기,특가", key="seo_stop")
-    topn = st.slider("생성 개수(상위)", 3, 20, 10, 1, key="seo_topn")
-
-    # --- run ---
-    if st.button("상품명 생성 (SEO 자동 확장)", key="seo_run"):
-        kw_list=[k.strip() for k in (kws_input or "").split(",") if k.strip()]
+    # ---------- 실행 ----------
+    if st.button("상품명 생성 (SEO + 금칙어)", key="seo_run"):
+        kw_list=[_norm(k) for k in (kws_input or "").split(",") if _norm(k)]
         if not kw_list:
-            st.warning("핵심 키워드를 1개 이상 입력하세요.")
-            st.markdown('</div>', unsafe_allow_html=True); return
+            st.warning("핵심 키워드를 1개 이상 입력하세요."); return
 
-        stopset=set(_norm(s) for s in (stopwords_txt or "").split(",") if _norm(s))
-        joiner = " "  # ← 공백 고정
+        cate = STOPWORDS_BY_CAT.get(cat_for_stop, []) if cat_for_stop and cat_for_stop!="(없음)" else []
+        replace_pairs=[x.strip() for x in (user_repl or "").split(",") if x.strip()]
+        stop_exact, stop_part_re, repl_map = _compile_stopwords(STOPWORDS_GLOBAL, cate, user_stop, replace_pairs)
 
+        joiner=" "
         ranked_kws=kw_list; naver_table=None
         if use_naver:
             with st.spinner("네이버 키워드 지표 조회 중…"):
                 df_raw=_naver_keywordstool(kw_list)
-            if df_raw.empty:
-                st.info("네이버 지표를 가져오지 못했습니다. 입력 키워드만 사용합니다.")
-            else:
+            if not df_raw.empty:
                 naver_table=_score_keywords(df_raw)
                 ranked_kws=naver_table["키워드"].tolist()
 
         brand_norm=_norm(brand)
         attrs_norm=_dedup([_norm(a) for a in (attrs or "").split(",") if _norm(a)])
-        attrs_norm=_remove_stop(attrs_norm, stopset) if attrs_norm else []
+        attrs_norm, _=_apply_stopwords(attrs_norm, stop_exact, stop_part_re, repl_map, aggressive)
 
         def _base_seq(primary_kw: str):
             if order=="브랜드-키워드-속성":
@@ -1035,62 +1039,50 @@ def section_title_generator():
             else:
                 seq=[brand_norm]+attrs_norm+[primary_kw]
                 prefix=_norm((brand_norm+" "+primary_kw).strip())
-            return _dedup([t for t in seq if t]), prefix
+            seq=_dedup([t for t in seq if _norm(t)])
+            seq,_=_apply_stopwords(seq, stop_exact, stop_part_re, repl_map, aggressive)
+            return seq, prefix
 
         titles=[]; used=set()
         for primary in ranked_kws:
             primary=_norm(primary)
-            if not primary or primary in stopset: continue
-
-            seq, prefix=_base_seq(primary)
+            if not primary: continue
+            pk_list,_=_apply_stopwords([primary], stop_exact, stop_part_re, repl_map, aggressive)
+            if not pk_list: continue
+            primary=pk_list[0]
+            seq,prefix=_base_seq(primary)
             title=(joiner.join(seq)).strip()
-            title=_norm(title)
-
             expanded=title
-            if auto_expand and len(expanded)<target_min and use_naver and ranked_kws:
+            if auto_expand and len(expanded)<target_min:
                 for cand in ranked_kws:
-                    cnd=_norm(cand)
-                    if not cnd or cnd.lower()==primary.lower(): continue
-                    if cnd in stopset: continue
+                    if cand.lower()==primary.lower(): continue
+                    cand_list,_=_apply_stopwords([cand], stop_exact, stop_part_re, repl_map, aggressive)
+                    if not cand_list: continue
+                    cnd=cand_list[0]
                     if re.search(re.escape(cnd), expanded, flags=re.IGNORECASE): continue
-                    if _would_overflow(expanded, cnd, max_len): continue
+                    if _would_overflow(expanded,cnd,max_len): continue
                     expanded=_norm(expanded+joiner+cnd)
                     if len(expanded)>=target_min: break
-
-            final_title=_smart_truncate(expanded, max_len=max_len, must_keep_prefix=prefix)
-            key=final_title.lower()
+            final=_smart_truncate(expanded, max_len, must_keep_prefix=prefix)
+            key=final.lower()
             if key in used: continue
-            used.add(key); titles.append(final_title)
+            used.add(key); titles.append(final)
             if len(titles)>=topn: break
 
         if naver_table is not None and not naver_table.empty:
-            with st.expander("📊 사용된 네이버 지표(정렬 근거)", expanded=False):
-                cols=["키워드","PC월간검색수","Mobile월간검색수","광고경쟁정도","SEO점수"]
-                st.dataframe(naver_table[cols], use_container_width=True, height=260)
+            with st.expander("📊 네이버 지표", expanded=False):
+                st.dataframe(naver_table[["키워드","PC월간검색수","Mobile월간검색수","광고경쟁정도","SEO점수"]],
+                             use_container_width=True, height=260)
 
         if titles:
             st.success(f"생성 완료 · {len(titles)}건")
-            for i, t in enumerate(titles, 1):
+            for i,t in enumerate(titles,1):
                 st.markdown(f"**{i}.** {t}")
             out_df=pd.DataFrame({"title":titles})
-            st.download_button("CSV 다운로드", data=out_df.to_csv(index=False).encode("utf-8-sig"),
-                               file_name="titles_seo_auto_expand.csv", mime="text/csv")
+            st.download_button("CSV 다운로드", out_df.to_csv(index=False).encode("utf-8-sig"),
+                               file_name="titles_seo_stopwords.csv", mime="text/csv")
         else:
             st.warning("생성된 상품명이 없습니다. (금칙어/중복/길이 제한/입력값 확인)")
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-def section_itemscout_placeholder():
-    st.markdown('<div class="card"><div class="card-title">아이템스카우트</div>', unsafe_allow_html=True)
-    st.info("임베드 보류 중입니다. 아래 버튼으로 원본 페이지를 새 탭에서 여세요.")
-    st.link_button("아이템스카우트 직접 열기(새 탭)", "https://app.itemscout.io/market/keyword")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-def section_sellerlife_placeholder():
-    st.markdown('<div class="card"><div class="card-title">셀러라이프</div>', unsafe_allow_html=True)
-    st.info("임베드 보류 중입니다. 아래 버튼으로 원본 페이지를 새 탭에서 여세요.")
-    st.link_button("직접 열기(새 탭)", "https://sellochomes.co.kr/sellerlife/")
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
 # 10) Layout — row1: 레이더 | (카테고리 or 직접입력) | 생성기
