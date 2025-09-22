@@ -829,6 +829,32 @@ with row1_r:
     section_category_keyword_lab()
 
 st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
+def section_keyword_trend_widget():
+    # 카드 헤더
+    st.markdown('<div class="card"><div class="card-title">키워드 트렌드 (직접 입력)</div>', unsafe_allow_html=True)
+
+    # 입력 UI
+    kwtxt   = st.text_input("키워드(콤마)", "가방, 원피스", key="kw_txt")
+    unit    = st.selectbox("단위", ["week", "month"], index=0, key="kw_unit")
+    months  = st.slider("조회기간(개월)", 1, 12, 3, key="kw_months")
+
+    # 조회 버튼
+    if st.button("트렌드 조회", key="kw_run"):
+        start = (dt.date.today() - dt.timedelta(days=30*months)).strftime("%Y-%m-%d")
+        end   = dt.date.today().strftime("%Y-%m-%d")
+
+        kws = [k.strip() for k in (kwtxt or "").split(",") if k.strip()]
+        groups = [{"groupName": k, "keywords": [k]} for k in kws]
+
+        df = _datalab_trend(groups, start, end, time_unit=unit)
+
+        if df.empty:
+            st.error("DataLab 트렌드 응답이 비어 있어요. (Client ID/Secret, 권한/쿼터/날짜/단위 확인)")
+        else:
+            st.dataframe(df, use_container_width=True, height=260)
+            st.line_chart(df.set_index("날짜"))
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # 2행: 11번가 / (번역 상 + 상품명 하) / 아이템스카우트 / 셀러라이프
 c1, c2, c3, c4 = st.columns([3,3,3,3], gap="medium")
