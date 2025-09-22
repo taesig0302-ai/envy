@@ -238,7 +238,7 @@ def _proxy_iframe_with_title(proxy_base: str, target_url: str, height: int = 860
     st.components.v1.html(html, height=h+56, scrolling=False)
 
 # =========================
-# 4) Sidebar (calculator + theme)
+# 4) Sidebar (calculator + theme + 번역기 토글)
 # =========================
 def _sidebar():
     _ensure_session_defaults()
@@ -250,22 +250,34 @@ def _sidebar():
         lp = Path(__file__).parent / "logo.png"
         if lp.exists():
             b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
-            st.markdown(f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>',
+                unsafe_allow_html=True
+            )
 
-        # 상단 토글 2개 (다크모드 / 번역기)
+        # 상단 토글 (다크모드 + 번역기)
         c1, c2 = st.columns(2)
         with c1:
-            st.toggle("🌓 다크", value=(st.session_state.get("theme","light")=="dark"),
-                      on_change=_toggle_theme, key="__theme_toggle")
+            st.toggle("🌓 다크",
+                      value=(st.session_state.get("theme","light")=="dark"),
+                      on_change=_toggle_theme,
+                      key="__theme_toggle")
         with c2:
             st.toggle("🌐 번역기", value=False, key="__show_translator")
 
-        # ① 환율 계산기 (Expander)
+        # ───────────────────────────────
+        # ① 환율 계산기
+        # ───────────────────────────────
         with st.expander("💱 환율 계산기", expanded=True):
-            base = st.selectbox("기준 통화", list(CURRENCIES.keys()),
-                                index=list(CURRENCIES.keys()).index(st.session_state["fx_base"]), key="fx_base")
-            sale_foreign = st.number_input("판매금액 (외화)", value=float(st.session_state["sale_foreign"]),
-                                           step=0.01, format="%.2f", key="sale_foreign")
+            base = st.selectbox(
+                "기준 통화", list(CURRENCIES.keys()),
+                index=list(CURRENCIES.keys()).index(st.session_state["fx_base"]),
+                key="fx_base"
+            )
+            sale_foreign = st.number_input(
+                "판매금액 (외화)", value=float(st.session_state["sale_foreign"]),
+                step=0.01, format="%.2f", key="sale_foreign"
+            )
             won = FX_DEFAULT[base] * sale_foreign
             st.markdown(
                 f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b>'
@@ -274,59 +286,110 @@ def _sidebar():
             )
             st.caption(f"환율 기준: {FX_DEFAULT[base]:,.2f} ₩/{CURRENCIES[base]['unit']}")
 
-        # ② 마진 계산기 (Expander)
+        # ───────────────────────────────
+        # ② 마진 계산기
+        # ───────────────────────────────
         with st.expander("📈 마진 계산기", expanded=True):
-            m_base = st.selectbox("매입 통화", list(CURRENCIES.keys()),
-                                  index=list(CURRENCENCIES.keys()).index(st.session_state["m_base"]) if False
-                                  else list(CURRENCIES.keys()).index(st.session_state["m_base"]), key="m_base")
-            purchase_foreign = st.number_input("매입금액 (외화)", value=float(st.session_state["purchase_foreign"]),
-                                               step=0.01, format="%.2f", key="purchase_foreign")
+            m_base = st.selectbox(
+                "매입 통화", list(CURRENCIES.keys()),
+                index=list(CURRENCIES.keys()).index(st.session_state["m_base"]),
+                key="m_base"
+            )
+            purchase_foreign = st.number_input(
+                "매입금액 (외화)", value=float(st.session_state["purchase_foreign"]),
+                step=0.01, format="%.2f", key="purchase_foreign"
+            )
 
-            base_cost_won = FX_DEFAULT[m_base]*purchase_foreign if purchase_foreign>0 \
+            base_cost_won = FX_DEFAULT[m_base]*purchase_foreign if purchase_foreign > 0 \
                             else FX_DEFAULT[st.session_state["fx_base"]]*st.session_state["sale_foreign"]
-            st.markdown(f'<div class="pill pill-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="pill pill-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>',
+                unsafe_allow_html=True
+            )
 
             c1, c2 = st.columns(2)
             with c1:
-                card_fee = st.number_input("카드수수료(%)", value=float(st.session_state["card_fee_pct"]),
-                                           step=0.01, format="%.2f", key="card_fee_pct")
+                card_fee = st.number_input(
+                    "카드수수료(%)", value=float(st.session_state["card_fee_pct"]),
+                    step=0.01, format="%.2f", key="card_fee_pct"
+                )
             with c2:
-                market_fee = st.number_input("마켓수수료(%)", value=float(st.session_state["market_fee_pct"]),
-                                             step=0.01, format="%.2f", key="market_fee_pct")
-            shipping_won = st.number_input("배송비(₩)", value=float(st.session_state["shipping_won"]),
-                                           step=100.0, format="%.0f", key="shipping_won")
+                market_fee = st.number_input(
+                    "마켓수수료(%)", value=float(st.session_state["market_fee_pct"]),
+                    step=0.01, format="%.2f", key="market_fee_pct"
+                )
+            shipping_won = st.number_input(
+                "배송비(₩)", value=float(st.session_state["shipping_won"]),
+                step=100.0, format="%.0f", key="shipping_won"
+            )
 
             mode = st.radio("마진 방식", ["퍼센트","플러스"], horizontal=True, key="margin_mode")
-            if mode=="퍼센트":
-                margin_pct = st.number_input("마진율 (%)", value=float(st.session_state["margin_pct"]),
-                                             step=0.01, format="%.2f", key="margin_pct")
-                target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)*(1+margin_pct/100)+shipping_won
+            if mode == "퍼센트":
+                margin_pct = st.number_input(
+                    "마진율 (%)", value=float(st.session_state["margin_pct"]),
+                    step=0.01, format="%.2f", key="margin_pct"
+                )
+                target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)*(1+margin_pct/100) + shipping_won
                 margin_value = target_price - base_cost_won
                 desc = f"{margin_pct:.2f}%"
             else:
-                margin_won = st.number_input("마진액 (₩)", value=float(st.session_state["margin_won"]),
-                                             step=100.0, format="%.0f", key="margin_won")
-                target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)+margin_won+shipping_won
+                margin_won = st.number_input(
+                    "마진액 (₩)", value=float(st.session_state["margin_won"]),
+                    step=100.0, format="%.0f", key="margin_won"
+                )
+                target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100) + margin_won + shipping_won
                 margin_value = margin_won
                 desc = f"+{margin_won:,.0f}"
 
-            st.markdown(f'<div class="pill pill-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="pill pill-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="pill pill-blue">판매가: <b>{target_price:,.2f} 원</b></div>',
+                unsafe_allow_html=True
+            )
+            st.markdown(
+                f'<div class="pill pill-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>',
+                unsafe_allow_html=True
+            )
 
-        # ③ 번역기: 토글 ON일 때만 렌더 (사이드바 길이 최소화)
+        # ───────────────────────────────
+        # ③ 번역기 (토글 ON일 때만 표시)
+        # ───────────────────────────────
         if st.session_state.get("__show_translator", False):
             with st.expander("🌐 구글 번역기", expanded=True):
-                src = st.selectbox("원문 언어", list(LANG_LABELS.values()),
-                                   index=list(LANG_LABELS.keys()).index("auto"), key="sb_tr_src")
-                tgt = st.selectbox("번역 언어", list(LANG_LABELS.values()),
-                                   index=list(LANG_LABELS.keys()).index("en"), key="sb_tr_tgt")
+                LANG_LABELS_SB = {
+                    "auto":"자동 감지","ko":"한국어","en":"영어","ja":"일본어",
+                    "zh-CN":"중국어(간체)","zh-TW":"중국어(번체)","vi":"베트남어",
+                    "th":"태국어","id":"인도네시아어","de":"독일어","fr":"프랑스어",
+                    "es":"스페인어","it":"이탈리아어","pt":"포르투갈어"
+                }
+                def _code_sb(x): return {v:k for k,v in LANG_LABELS_SB.items()}.get(x, x)
+
+                src_label = st.selectbox("원문 언어", list(LANG_LABELS_SB.values()),
+                                         index=list(LANG_LABELS_SB.keys()).index("auto"), key="sb_tr_src")
+                tgt_label = st.selectbox("번역 언어", list(LANG_LABELS_SB.values()),
+                                         index=list(LANG_LABELS_SB.keys()).index("en"), key="sb_tr_tgt")
                 text_in = st.text_area("텍스트", height=120, key="sb_tr_in")
+
                 if st.button("번역 실행", key="sb_tr_btn"):
-                    if not GoogleTranslator:
-                        st.warning("deep-translator 설치/런타임 문제")
+                    try:
+                        from deep_translator import GoogleTranslator as _GT
+                    except Exception:
+                        _GT = None
+
+                    if not _GT:
+                        st.error("deep-translator 설치 필요 또는 런타임 문제")
                     else:
-                        out = GoogleTranslator(source=_code(src), target=_code(tgt)).translate(text_in or "")
-                        st.text_area("결과", value=out, height=120, key="sb_tr_out")
+                        try:
+                            src_code = _code_sb(src_label)
+                            tgt_code = _code_sb(tgt_label)
+                            out = _GT(source=src_code, target=tgt_code).translate(text_in or "")
+                            st.text_area("결과", value=out, height=120, key="sb_tr_out")
+                        except Exception as e:
+                            st.error(f"번역 중 오류: {e}")
+
+        # 관리자 디버그
+        if SHOW_ADMIN_BOX:
+            st.divider()
+            st.text_input("PROXY_URL(디버그)", key="PROXY_URL", help="Cloudflare Worker 주소 (옵션)")
 
 # =========================
 # 5) Rakuten Ranking
