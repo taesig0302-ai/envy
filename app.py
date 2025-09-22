@@ -732,203 +732,124 @@ def _stopwords_manager_ui(compact: bool = False):
                 st.error(f"가져오기 실패: {e}")
 
 # =========================
-# 9) 상품명 생성기 (네이버 SEO + 금칙어 탭 통합)
+# 9) 상품명 생성기 (네이버 스마트스토어 SEO 규칙 적용)
 # =========================
+
+def _truncate_by_bytes(text: str, max_bytes: int = 50) -> str:
+    """UTF-8 바이트 기준으로 안전하게 50바이트 이내로 잘라내기"""
+    raw = text.encode("utf-8")
+    if len(raw) <= max_bytes:
+        return text
+    cut = raw[:max_bytes]
+    # 멀티바이트 중간 잘림 방지
+    while True:
+        try:
+            s = cut.decode("utf-8")
+            break
+        except UnicodeDecodeError:
+            cut = cut[:-1]
+            if not cut:
+                return ""
+    # 단어 경계에서 한번 더 정리
+    import re
+    m = re.match(r"^(.{1,})[\s\|\·\-]", s[::-1])
+    if m:
+        s2 = m.group(1)[::-1].rstrip()
+        return s2 + "…"
+    return s.rstrip() + "…"
+
+
+def _smart_truncate(text: str, max_len: int, min_len: int) -> str:
+    """문자 수 기준으로 안전하게 잘라내기"""
+    if len(text) > max_len:
+        return text[: max_len - 1] + "…"
+    if len(text) < min_len:
+        # 부족하면 그대로 반환 (추가 확장은 다른 로직에서)
+        return text
+    return text
+
+
 def section_title_generator():
-    import re, math
-    st.markdown('<div class="card"><div class="card-title">상품명 생성기 (네이버 SEO 자동 확장 + 금칙어)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="card"><div class="card-title">상품명 생성기 (스마트스토어 규칙)</div>', unsafe_allow_html=True)
 
-    # === 탭 구성 ===
-    tab_gen, tab_stop = st.tabs(["생성기", "금칙어 관리"])
+    with st.container():
+        cA, cB = st.columns([1, 2])
+        with cA:
+            brand = st.text_input("브랜드", placeholder="예: Apple / 샤오미 / 무지")
+            attrs = st.text_input("속성(콤마, 선택)", placeholder="예: 공식, 정품, 한정판")
+        with cB:
+            kws = st.text_input("키워드(콤마)", placeholder="예: 노트북 스탠드, 접이식, 알루미늄")
 
-    # ---------- 금칙어 관리자 탭 ----------
-    with tab_stop:
-        _stopwords_manager_ui(compact=True)
-
-    # ---------- 생성기 탭 ----------
-    with tab_gen:
-        def _norm(s: str) -> str:
-            s = (s or "").strip()
-            s = re.sub(r"[ \t\u3000]+", " ", s)
-            return re.sub(r"\s{2,}", " ", s)
-
-        def _dedup(tokens):
-            seen=set(); out=[]
-            for t in tokens:
-                t=_norm(t)
-                if not t: continue
-                key=t.lower()
-                if key in seen: continue
-                seen.add(key); out.append(t)
-            return out
-
-        def _smart_truncate(title: str, max_len: int, must_keep_prefix: str = "") -> str:
-            title=_norm(title)
-            if len(title)<=max_len: return title
-            if must_keep_prefix and title.startswith(must_keep_prefix):
-                return title[:max_len-1]+"…"
-            cut=title[:max_len+1]
-            m=re.search(r"(.{0,"+str(max_len)+r"})(?:[\s\|\·\-]|$)", cut)
-            if m and m.group(1):
-                out=m.group(1).rstrip()
-                return out+("…" if len(out)<len(title) else "")
-            return title[:max_len-1]+"…"
-
-        def _score_keywords(df: pd.DataFrame) -> pd.DataFrame:
-            tmp=df.copy()
-            for c in ["PC월간검색수","Mobile월간검색수","광고경쟁정도"]:
-                tmp[c]=pd.to_numeric(tmp[c], errors="coerce").fillna(0.0)
-            tmp["검색합계"]=tmp["PC월간검색수"]+tmp["Mobile월간검색수"]
-            tmp["경쟁도"]=tmp["광고경쟁정도"].clip(lower=0, upper=1)
-            tmp["SEO점수"]=tmp["검색합계"].apply(lambda x: math.log1p(x))*(1.0-tmp["경쟁도"])
-            return tmp.sort_values(["SEO점수","검색합계"], ascending=[False,False])
-
-        def _would_overflow(curr: str, piece: str, max_len: int) -> bool:
-            sep = "" if not curr else " "
-            return len(_norm(curr+sep+piece))>max_len
-
-        def _compile_stopwords(global_list, cate_list, user_str, replace_pairs):
-            stop = set()
-            for s in global_list + (cate_list or []):
-                s=_norm(s)
-                if s: stop.add(s.lower())
-            user = [_norm(x) for x in (user_str or "").split(",") if _norm(x)]
-            for s in user: stop.add(s.lower())
-            part = [re.escape(s) for s in stop if len(s)>=2]
-            part_re = re.compile("|".join(part), flags=re.IGNORECASE) if part else None
-            repl = {}
-            for pair in replace_pairs:
-                src=_norm(pair.split("=>")[0] if "=>" in pair else pair)
-                dst=_norm(pair.split("=>")[1]) if "=>" in pair else ""
-                if src: repl[src.lower()] = dst
-            return stop, part_re, repl
-
-        def _apply_stopwords(tokens, stop_exact, stop_part_re, repl_map, aggressive=False, whitelist_set=None):
-            out=[]; removed=[]
-            wl = set(map(str.lower, whitelist_set or []))
-            for t in tokens:
-                raw=t
-                if t and t.lower() in wl:
-                    out.append(t); continue
-                low=t.lower()
-                if low in stop_exact: removed.append(raw); continue
-                if low in repl_map:
-                    t=repl_map[low]; low=t.lower()
-                    if not t: removed.append(raw); continue
-                if aggressive and stop_part_re and stop_part_re.search(t):
-                    removed.append(raw); continue
-                out.append(t)
-            return _dedup(out), removed
-
-        # 입력
-        left, right = st.columns([1,2])
-        with left:
-            brand = st.text_input("브랜드", placeholder="예: Apple / 샤오미 / 무지", key="seo_brand")
-            attrs = st.text_input("속성(콤마, 선택)", placeholder="예: 공식, 정품, 한정판", key="seo_attrs")
-        with right:
-            kws_input = st.text_input("핵심 키워드(콤마)", placeholder="예: 노트북 스탠드, 접이식, 알루미늄", key="seo_kws")
-
-        a,b,c = st.columns([1,1,1])
+        a, b, c = st.columns([1, 1, 1])
         with a:
-            max_len = st.slider("최대 글자수", 40, 70, 50, 1, key="seo_maxlen")
+            # 기본값: 최소 30자 / 최대 50자
+            max_len = st.slider("최대 글자수(스마트스토어)", 30, 50, 50, 1, key="seo_maxlen")
         with b:
-            target_min = st.slider("목표 최소 글자수", 40, 60, 45, 1, key="seo_minlen")
+            target_min = st.slider("최소 글자수(스마트스토어)", 30, 50, 30, 1, key="seo_minlen")
         with c:
-            order = st.selectbox("순서", ["브랜드-키워드-속성","키워드-브랜드-속성","브랜드-속성-키워드"], index=0, key="seo_order")
+            order = st.selectbox("순서", ["브랜드-키워드-속성", "키워드-브랜드-속성", "브랜드-속성-키워드"], index=0)
 
-        row2a, row2b = st.columns([1,1])
-        with row2a:
-            use_naver   = st.toggle("네이버 SEO 모드", value=True, key="seo_use_naver")
-            auto_expand = st.toggle("검색량 기반 자동 확장", value=True, key="seo_autoexpand")
-            topn        = st.slider("생성 개수(상위)", 3, 20, 10, 1, key="seo_topn")
-        with row2b:
-            cat_for_stop = st.selectbox("금칙어 카테고리", ["(없음)"]+list(STOPWORDS_BY_CAT.keys()), index=0, key="stop_cat")
-            user_stop    = st.text_input("사용자 금칙어(콤마)", value="정품,무료배송,최신,인기,특가", key="seo_stop")
-            user_repl    = st.text_input("치환 규칙(콤마, src=>dst)", value="무배=> ,무료배송=> ,정품=> ", key="seo_repl")
-            saved_aggr   = bool(st.session_state.get("STOP_AGGR", False))
-            aggressive   = st.toggle("공격적 부분일치 제거", value=saved_aggr, key="stop_aggr")
+        if st.button("상품명 생성"):
+            kw_list = [k.strip() for k in (kws or "").split(",") if k.strip()]
+            at_list = [a.strip() for a in (attrs or "").split(",") if a.strip()]
+            titles = []
 
-        # 실행
-        if st.button("상품명 생성 (SEO + 금칙어)", key="seo_run"):
-            kw_list=[_norm(k) for k in (kws_input or "").split(",") if _norm(k)]
-            if not kw_list:
-                st.warning("핵심 키워드를 1개 이상 입력하세요."); return
-
-            saved_global    = st.session_state.get("STOP_GLOBAL", STOPWORDS_GLOBAL)
-            saved_by_cat    = st.session_state.get("STOP_BY_CAT", STOPWORDS_BY_CAT)
-            saved_whitelist = st.session_state.get("STOP_WHITELIST", [])
-            saved_replace   = st.session_state.get("STOP_REPLACE", ["무배=> ", "무료배송=> ", "정품=> "])
-
-            cate = saved_by_cat.get(cat_for_stop, []) if cat_for_stop and cat_for_stop!="(없음)" else []
-            replace_pairs = [x.strip() for x in (user_repl or "").split(",") if x.strip()] or list(saved_replace)
-            stop_exact, stop_part_re, repl_map = _compile_stopwords(saved_global, cate, user_stop, replace_pairs)
-
-            ranked_kws=kw_list; naver_table=None
-            if use_naver:
-                with st.spinner("네이버 키워드 지표 조회 중…"):
-                    df_raw=_naver_keywordstool(kw_list)
-                if not df_raw.empty:
-                    naver_table=_score_keywords(df_raw)
-                    ranked_kws=naver_table["키워드"].tolist()
+            for k in kw_list:
+                if order == "브랜드-키워드-속성":
+                    seq = [brand, k] + at_list
+                elif order == "키워드-브랜드-속성":
+                    seq = [k, brand] + at_list
                 else:
-                    st.info("네이버 지표를 가져오지 못했습니다. 입력 키워드만 사용합니다.")
+                    seq = [brand] + at_list + [k]
 
-            brand_norm=_norm(brand)
-            attrs_norm=_dedup([_norm(a) for a in (attrs or "").split(",") if _norm(a)])
-            attrs_norm,_=_apply_stopwords(attrs_norm, stop_exact, stop_part_re, repl_map, aggressive, saved_whitelist)
+                # 공백 고정
+                raw_title = " ".join([p for p in seq if p])
 
-            def _base_seq(primary_kw: str):
-                if order=="브랜드-키워드-속성":
-                    seq=[brand_norm, primary_kw]+attrs_norm;  prefix=_norm((brand_norm+" "+primary_kw).strip())
-                elif order=="키워드-브랜드-속성":
-                    seq=[primary_kw, brand_norm]+attrs_norm;  prefix=_norm((primary_kw+" "+brand_norm).strip())
-                else:
-                    seq=[brand_norm]+attrs_norm+[primary_kw]; prefix=_norm((brand_norm+" "+primary_kw).strip())
-                seq=_dedup([t for t in seq if _norm(t)])
-                seq,_=_apply_stopwords(seq, stop_exact, stop_part_re, repl_map, aggressive, saved_whitelist)
-                return seq, prefix
+                # 문자 단위 트렁케이트
+                final = _smart_truncate(raw_title, max_len, target_min)
 
-            titles=[]; used=set(); joiner=" "
-            for primary in ranked_kws:
-                primary=_norm(primary)
-                if not primary: continue
-                pk_list,_=_apply_stopwords([primary], stop_exact, stop_part_re, repl_map, aggressive, saved_whitelist)
-                if not pk_list: continue
-                primary=pk_list[0]
-                seq, prefix = _base_seq(primary)
-                title=(joiner.join(seq)).strip()
-                expanded=title
-                if auto_expand and len(expanded)<target_min:
-                    for cand in ranked_kws:
-                        cnd=_norm(cand)
-                        if not cnd or cnd.lower()==primary.lower(): continue
-                        cand_list,_=_apply_stopwords([cnd], stop_exact, stop_part_re, repl_map, aggressive, saved_whitelist)
-                        if not cand_list: continue
-                        cnd=cand_list[0]
-                        if re.search(re.escape(cnd), expanded, flags=re.IGNORECASE): continue
-                        if _would_overflow(expanded, cnd, max_len): continue
-                        expanded=_norm(expanded+" "+cnd)
-                        if len(expanded)>=target_min: break
-                final=_smart_truncate(expanded, max_len, must_keep_prefix=prefix)
-                key=final.lower()
-                if key in used: continue
-                used.add(key); titles.append(final)
-                if len(titles)>=topn: break
+                # 바이트 단위 트렁케이트 (50바이트 제한)
+                if len(final.encode("utf-8")) > 50:
+                    final = _truncate_by_bytes(final, 50)
 
-            if naver_table is not None and not naver_table.empty:
-                with st.expander("📊 사용된 네이버 지표(정렬 근거)", expanded=False):
-                    cols=["키워드","PC월간검색수","Mobile월간검색수","광고경쟁정도","SEO점수"]
-                    st.dataframe(naver_table[cols], use_container_width=True, height=260)
+                titles.append(final)
 
             if titles:
                 st.success(f"생성 완료 · {len(titles)}건")
+                lens = [len(t) for t in titles]
+                blens = [len(t.encode("utf-8")) for t in titles]
+
                 for i, t in enumerate(titles, 1):
-                    st.markdown(f"**{i}.** {t}")
-                out_df=pd.DataFrame({"title":titles})
-                st.download_button("CSV 다운로드", data=out_df.to_csv(index=False).encode("utf-8-sig"),
-                                   file_name="titles_seo_stopwords.csv", mime="text/csv")
+                    char_len = len(t)
+                    byte_len = len(t.encode("utf-8"))
+                    warn = []
+                    if char_len < 30:
+                        warn.append("30자 미만")
+                    if byte_len > 50:
+                        warn.append("50바이트 초과")
+                    badge = "" if not warn else " — " + " / ".join([f":red[{w}]" for w in warn])
+                    st.markdown(
+                        f"**{i}.** {t}  <span style='opacity:.7'>(문자 {char_len}/50 · 바이트 {byte_len}/50)</span>{badge}",
+                        unsafe_allow_html=True,
+                    )
+
+                # CSV 다운로드
+                out_df = pd.DataFrame({"title": titles})
+                st.download_button(
+                    "CSV 다운로드",
+                    data=out_df.to_csv(index=False).encode("utf-8-sig"),
+                    file_name="titles_smartstore.csv",
+                    mime="text/csv",
+                )
+
+                # 요약 리포트
+                st.caption(
+                    f"요약 · 문자 길이(최소/평균/최대): {min(lens)}/{sum(lens)//len(lens)}/{max(lens)} · "
+                    f"바이트(최소/평균/최대): {min(blens)}/{sum(blens)//len(blens)}/{max(blens)}"
+                )
             else:
-                st.warning("생성된 상품명이 없습니다. (금칙어/중복/길이 제한/입력값 확인)")
+                st.warning("생성된 상품명이 없습니다. (입력값 확인)")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
 # 10) 기타 카드
