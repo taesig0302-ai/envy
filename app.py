@@ -826,6 +826,8 @@ def section_translator():
 def section_title_generator():
     """
     상품명 생성기 (네이버 SEO + 검색량 기반 자동 확장)
+    - 구분자 옵션 제거, 공백 고정
+    - 번호 매기기 출력
     """
     import re, math
 
@@ -880,8 +882,8 @@ def section_title_generator():
         tmp["SEO점수"]=tmp["검색합계"].apply(lambda x: math.log1p(x))*(1.0-tmp["경쟁도"])
         return tmp.sort_values(["SEO점수","검색합계"], ascending=[False,False])
 
-    def _would_overflow(curr: str, piece: str, joiner: str, max_len: int) -> bool:
-        sep = "" if not curr else (joiner if joiner!=" " else " ")
+    def _would_overflow(curr: str, piece: str, max_len: int) -> bool:
+        sep = "" if not curr else " "
         return len(_norm(curr+sep+piece))>max_len
 
     # --- inputs ---
@@ -892,24 +894,21 @@ def section_title_generator():
     with cB:
         kws_input = st.text_input("핵심 키워드(콤마)", placeholder="예: 노트북 스탠드, 접이식, 알루미늄", key="seo_kws")
 
-    a,b,c,d = st.columns([1,1,1,1])
+    a,b,c = st.columns([1,1,1])
     with a:
         max_len = st.slider("최대 글자수", 40, 70, 50, 1, key="seo_maxlen")
     with b:
         target_min = st.slider("목표 최소 글자수", 40, 60, 45, 1, key="seo_minlen")
     with c:
-        joiner = st.selectbox("구분자", [" ", " | ", " · ", " - "], index=0, key="seo_joiner")
-    with d:
         order = st.selectbox("순서", ["브랜드-키워드-속성","키워드-브랜드-속성","브랜드-속성-키워드"], index=0, key="seo_order")
 
-    e,f,g = st.columns([1,1,2])
+    e,f = st.columns([1,1])
     with e:
         use_naver = st.toggle("네이버 SEO 모드", value=True, key="seo_use_naver")
     with f:
         auto_expand = st.toggle("검색량 기반 자동 확장", value=True, key="seo_autoexpand")
-    with g:
-        stopwords_txt = st.text_input("추가 금칙어(콤마)", value="정품,무료배송,최신,인기,특가", key="seo_stop")
 
+    stopwords_txt = st.text_input("추가 금칙어(콤마)", value="정품,무료배송,최신,인기,특가", key="seo_stop")
     topn = st.slider("생성 개수(상위)", 3, 20, 10, 1, key="seo_topn")
 
     # --- run ---
@@ -920,6 +919,7 @@ def section_title_generator():
             st.markdown('</div>', unsafe_allow_html=True); return
 
         stopset=set(_norm(s) for s in (stopwords_txt or "").split(",") if _norm(s))
+        joiner = " "  # ← 공백 고정
 
         ranked_kws=kw_list; naver_table=None
         if use_naver:
@@ -953,7 +953,7 @@ def section_title_generator():
             if not primary or primary in stopset: continue
 
             seq, prefix=_base_seq(primary)
-            title=(" ".join(seq) if joiner==" " else joiner.join(seq)).strip()
+            title=(joiner.join(seq)).strip()
             title=_norm(title)
 
             expanded=title
@@ -963,9 +963,8 @@ def section_title_generator():
                     if not cnd or cnd.lower()==primary.lower(): continue
                     if cnd in stopset: continue
                     if re.search(re.escape(cnd), expanded, flags=re.IGNORECASE): continue
-                    if _would_overflow(expanded, cnd, joiner, max_len): continue
-                    sep = "" if not expanded else (joiner if joiner!=" " else " ")
-                    expanded=_norm(expanded+sep+cnd)
+                    if _would_overflow(expanded, cnd, max_len): continue
+                    expanded=_norm(expanded+joiner+cnd)
                     if len(expanded)>=target_min: break
 
             final_title=_smart_truncate(expanded, max_len=max_len, must_keep_prefix=prefix)
@@ -1004,9 +1003,8 @@ def section_sellerlife_placeholder():
     st.markdown('</div>', unsafe_allow_html=True)
 
 
-
 # =========================
-# 10) Layout — row1: Radar | (카테고리 or 직접 입력)
+# 10) Layout — row1: Radar(8) | Category(5) | TitleGen(3)
 # =========================
 _ = _sidebar()
 _responsive_probe()
@@ -1014,29 +1012,26 @@ vwbin = _get_view_bin()
 
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
-# 1행: 레이더(좌) + 탭(우: 카테고리 / 직접 입력)
-row1_l, row1_r = st.columns([8, 8], gap="medium")
-with row1_l:
+# 1행: 레이더(8) + 카테고리(5) + 상품명 생성기(3)
+row1_a, row1_b, row1_c = st.columns([8, 5, 3], gap="medium")
+with row1_a:
     section_radar()
-
-with row1_r:
-    # 한 공간에서 모드 전환
-    tab_cat, tab_direct = st.tabs(["카테고리", "직접 입력"])
-    with tab_cat:
-        section_category_keyword_lab()    # 기존 카테고리→Top20 + 트렌드
-    with tab_direct:
-        section_keyword_trend_widget()    # 기존 직접 입력 트렌드 위젯
+with row1_b:
+    section_category_keyword_lab()
+with row1_c:
+    section_title_generator()
 
 st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
 
-# 2행: 11번가 / (번역 상 + 상품명 하) / 아이템스카우트 / 셀러라이프
+# 2행: 11번가 / 번역 / (직접 입력 트렌드) / 아이템스카우트 / 셀러라이프
+# 필요에 따라 칼럼 수 조정 가능. 여기서는 기존 4열 유지 + 직접입력을 번역 밑에 배치.
 c1, c2, c3, c4 = st.columns([3, 3, 3, 3], gap="medium")
 with c1:
     section_11st()
 with c2:
     section_translator()
     st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
-    section_title_generator()
+    section_keyword_trend_widget()  # ← 직접 입력 트렌드 위젯은 2행으로 이동
 with c3:
     section_itemscout_placeholder()
 with c4:
