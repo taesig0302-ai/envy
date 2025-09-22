@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
-# ENVY — Season 1 (Dual Proxy Edition, Radar tabs=국내/해외, Rakuten scope radio removed, row1 ratio 5:7)
-# 마지막 패치: 국내 레이더 API 입력칸 제거 + 카테고리→TOP20+트렌드(DataLab) + 라쿠텐 매핑 Expander
-# + DataLab endDate=어제 강제/불필요 파라미터 생략(빈 응답 방지) 패치
+# ENVY — Season 1 (Dual Proxy Edition, Radar tabs=국내/해외, Rakuten scope radio removed, row1 ratio 8:5:3)
+# 마지막 패치:
+# - 사이드바: 다크 + 번역기 토글(ON: 번역기 위/펼침, 환율·마진 접힘 / OFF: 환율·마진 펼침, 번역기 아래)
+# - 상품명 생성기: 네이버 SEO 자동 확장 + 금칙어(전역/카테/화이트리스트/치환/부분일치) 연동
+# - 금칙어 리스트 관리자(현업용) 추가: 프리셋/가져오기·내려받기
 
-import base64, time, re, math, json, datetime as dt
+import base64, time, re, math, json, io, datetime as dt
 from pathlib import Path
 from urllib.parse import quote
 
@@ -43,11 +45,10 @@ DEFAULT_KEYS = {
     "NAVER_API_KEY":        "0100000000785cf1d8f039b13a5d3c3d1262b84e9ad4a046637e8887bbd003051b0d2a5cdf",
     "NAVER_SECRET_KEY":     "AQAAAAB4XPHY8DmxOl08PRJiuE6ao1LN3lh0kF9rOJ4m5b8O5g==",
     "NAVER_CUSTOMER_ID":    "2274338",
-    # NAVER Developers (DataLab Open API)  ← 여기 교체
+    # NAVER Developers (DataLab Open API)
     "NAVER_CLIENT_ID":      "nBay2VW6uz7E4bZnZ2y9",
     "NAVER_CLIENT_SECRET":  "LNuLh1E3e1",
 }
-
 
 def _get_key(name: str) -> str:
     return (st.secrets.get(name, "") or DEFAULT_KEYS.get(name, "")).strip()
@@ -60,6 +61,45 @@ CURRENCIES = {
     "CNY":{"kr":"중국 위안","symbol":"元","unit":"CNY"},
 }
 FX_DEFAULT = {"USD":1400.0,"EUR":1500.0,"JPY":10.0,"CNY":200.0}
+
+# =========================
+# Stopwords — 전역/카테고리 + 프리셋
+# =========================
+STOPWORDS_GLOBAL = [
+    # 광고/행사/가격 과장
+    "무료배송","무배","초특가","특가","핫딜","최저가","세일","sale","이벤트","사은품","증정",
+    "쿠폰","역대급","역대가","폭탄세일","원가","정가","파격","초대박","할인폭","혜택가",
+    # 운영/AS 리스크
+    "파손","환불","교환","재고","품절","한정수량","긴급","급처","특판",
+    # 과도한 마케팅 표현/이모지
+    "mustbuy","강추","추천","추천템","🔥","💥","⭐","best","베스트"
+]
+
+STOPWORDS_BY_CAT = {
+    "패션의류":   ["루즈핏","빅사이즈","초슬림","극세사","초경량","왕오버","몸매보정"],
+    "패션잡화":   ["무료각인","사은품지급","세트증정"],
+    "뷰티/미용":  ["정품보장","병행수입","벌크","리필만","샘플","테스터"],
+    "생활/건강":  ["공용","비매품","리퍼","리퍼비시"],
+    "디지털/가전": ["관부가세","부가세","해외직구","리퍼","리퍼비시","벌크"],
+    "스포츠/레저": ["무료조립","가성비갑"],
+}
+
+STOP_PRESETS = {
+    "네이버_안전기본": {
+        "global": STOPWORDS_GLOBAL,
+        "by_cat": STOPWORDS_BY_CAT,
+        "whitelist": [],
+        "replace": ["무배=> ", "무료배송=> ", "정품=> "],
+        "aggressive": False
+    },
+    "광고표현_강력차단": {
+        "global": STOPWORDS_GLOBAL + ["초강력","초저가","극강","혜자","대란","품절임박","완판임박","마감임박"],
+        "by_cat": STOPWORDS_BY_CAT,
+        "whitelist": [],
+        "replace": ["무배=> ", "무료배송=> ", "정품=> ", "할인=> "],
+        "aggressive": True
+    }
+}
 
 # =========================
 # 1) UI defaults & CSS
@@ -78,7 +118,14 @@ def _ensure_session_defaults():
     ss.setdefault("margin_pct",10.00)
     ss.setdefault("margin_won",10000.0)
 
-    # Rakuten cached genre map (기본값은 100283 샘플)
+    # Stopwords manager 초기값
+    ss.setdefault("STOP_GLOBAL", list(STOPWORDS_GLOBAL))
+    ss.setdefault("STOP_BY_CAT", dict(STOPWORDS_BY_CAT))
+    ss.setdefault("STOP_WHITELIST", [])
+    ss.setdefault("STOP_REPLACE", ["무배=> ", "무료배송=> ", "정품=> "])
+    ss.setdefault("STOP_AGGR", False)
+
+    # Rakuten cached genre map (샘플 기본값)
     ss.setdefault("rk_genre_map", {
         "전체(샘플)": "100283",
         "뷰티/코스메틱": "100283",
@@ -131,12 +178,9 @@ def _inject_css():
                    box-shadow:0 2px 8px rgba(0,0,0,.12);border:1px solid rgba(0,0,0,.06)}}
       .logo-circle img{{width:100%;height:100%;object-fit:cover}}
 
-      /* Rakuten table tweaks */
       #rk-card [data-testid="stDataFrame"] * {{ font-size: 0.92rem !important; }}
       #rk-card [data-testid="stDataFrame"] div[role='grid']{{ overflow-x: hidden !important; }}
-      #rk-card [data-testid="stDataFrame"] div[role='gridcell']{{
-        white-space: normal !important; word-break: break-word !important; overflow-wrap: anywhere !important;
-      }}
+      #rk-card [data-testid="stDataFrame"] div[role='gridcell']{{ white-space: normal !important; word-break: break-word !important; overflow-wrap: anywhere !important; }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -241,53 +285,39 @@ def _proxy_iframe_with_title(proxy_base: str, target_url: str, height: int = 860
 # 4) Sidebar (theme + translator toggle + calculators)
 # =========================
 def _sidebar():
-    _ensure_session_defaults()
-    _inject_css()
-    _inject_alert_center()
+    _ensure_session_defaults(); _inject_css(); _inject_alert_center()
 
     with st.sidebar:
         # 로고
         lp = Path(__file__).parent / "logo.png"
         if lp.exists():
             b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
-            st.markdown(
-                f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>',
-                unsafe_allow_html=True
-            )
+            st.markdown(f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>', unsafe_allow_html=True)
 
-        # 상단 토글 (다크모드 + 번역기)
+        # 상단 토글
         c1, c2 = st.columns(2)
         with c1:
-            st.toggle("🌓 다크",
-                      value=(st.session_state.get("theme","light")=="dark"),
-                      on_change=_toggle_theme,
-                      key="__theme_toggle")
+            st.toggle("🌓 다크", value=(st.session_state.get("theme","light")=="dark"),
+                      on_change=_toggle_theme, key="__theme_toggle")
         with c2:
             st.toggle("🌐 번역기", value=False, key="__show_translator")
 
         show_tr = st.session_state.get("__show_translator", False)
 
-        # ─────────────────────────────
-        # 번역기 UI 블록 (함수화)
-        # ─────────────────────────────
+        # ----- Blocks -----
         def translator_block(expanded=True):
             with st.expander("🌐 구글 번역기", expanded=expanded):
                 LANG_LABELS_SB = {
-                    "auto":"자동 감지","ko":"한국어","en":"영어","ja":"일본어",
-                    "zh-CN":"중국어(간체)","zh-TW":"중국어(번체)","vi":"베트남어",
-                    "th":"태국어","id":"인도네시아어","de":"독일어","fr":"프랑스어",
-                    "es":"스페인어","it":"이탈리아어","pt":"포르투갈어"
+                    "auto":"자동 감지","ko":"한국어","en":"영어","ja":"일본어","zh-CN":"중국어(간체)",
+                    "zh-TW":"중국어(번체)","vi":"베트남어","th":"태국어","id":"인도네시아어",
+                    "de":"독일어","fr":"프랑스어","es":"스페인어","it":"이탈리아어","pt":"포르투갈어"
                 }
                 def _code_sb(x): return {v:k for k,v in LANG_LABELS_SB.items()}.get(x, x)
 
-                src_label = st.selectbox(
-                    "원문 언어", list(LANG_LABELS_SB.values()),
-                    index=list(LANG_LABELS_SB.keys()).index("auto"), key="sb_tr_src"
-                )
-                tgt_label = st.selectbox(
-                    "번역 언어", list(LANG_LABELS_SB.values()),
-                    index=list(LANG_LABELS_SB.keys()).index("ko"), key="sb_tr_tgt"
-                )
+                src_label = st.selectbox("원문 언어", list(LANG_LABELS_SB.values()),
+                                         index=list(LANG_LABELS_SB.keys()).index("auto"), key="sb_tr_src")
+                tgt_label = st.selectbox("번역 언어", list(LANG_LABELS_SB.values()),
+                                         index=list(LANG_LABELS_SB.keys()).index("ko"), key="sb_tr_tgt")
                 text_in = st.text_area("텍스트", height=120, key="sb_tr_in")
 
                 if st.button("번역 실행", key="sb_tr_btn"):
@@ -299,8 +329,7 @@ def _sidebar():
                         st.error("deep-translator 설치 필요 또는 런타임 문제")
                     else:
                         try:
-                            src_code = _code_sb(src_label)
-                            tgt_code = _code_sb(tgt_label)
+                            src_code = _code_sb(src_label); tgt_code = _code_sb(tgt_label)
                             out_main = _GT(source=src_code, target=tgt_code).translate(text_in or "")
                             st.text_area(f"결과 ({tgt_label})", value=out_main, height=120, key="sb_tr_out_main")
                             if tgt_code != "ko":
@@ -309,18 +338,14 @@ def _sidebar():
                         except Exception as e:
                             st.error(f"번역 중 오류: {e}")
 
-        # ─────────────────────────────
-        # 환율/마진 계산기 블록 (함수화)
-        # ─────────────────────────────
         def fx_block(expanded=True):
             with st.expander("💱 환율 계산기", expanded=expanded):
-                fx_base = st.session_state.get("fx_base", "USD")
-                sale_foreign = float(st.session_state.get("sale_foreign", 1.0))
                 fx_base = st.selectbox("기준 통화", list(CURRENCIES.keys()),
-                                       index=list(CURRENCIES.keys()).index(fx_base), key="fx_base")
-                sale_foreign = st.number_input("판매금액 (외화)", value=sale_foreign,
+                                       index=list(CURRENCIES.keys()).index(st.session_state.get("fx_base","USD")),
+                                       key="fx_base")
+                sale_foreign = st.number_input("판매금액 (외화)", value=float(st.session_state.get("sale_foreign",1.0)),
                                                step=0.01, format="%.2f", key="sale_foreign")
-                won = FX_DEFAULT[fx_base] * sale_foreign
+                won = FX_DEFAULT[fx_base]*sale_foreign
                 st.markdown(
                     f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b>'
                     f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[fx_base]["symbol"]})</span></div>',
@@ -330,55 +355,40 @@ def _sidebar():
 
         def margin_block(expanded=True):
             with st.expander("📈 마진 계산기", expanded=expanded):
-                m_base = st.session_state.get("m_base", "USD")
-                purchase_foreign = float(st.session_state.get("purchase_foreign", 0.0))
-                card_fee_pct = float(st.session_state.get("card_fee_pct", 4.0))
-                market_fee_pct = float(st.session_state.get("market_fee_pct", 14.0))
-                shipping_won = float(st.session_state.get("shipping_won", 0.0))
-                margin_mode = st.session_state.get("margin_mode", "퍼센트")
-                margin_pct = float(st.session_state.get("margin_pct", 10.0))
-                margin_won = float(st.session_state.get("margin_won", 10000.0))
-
                 m_base = st.selectbox("매입 통화", list(CURRENCIES.keys()),
-                                      index=list(CURRENCIES.keys()).index(m_base), key="m_base")
-                purchase_foreign = st.number_input("매입금액 (외화)", value=purchase_foreign,
+                                      index=list(CURRENCIES.keys()).index(st.session_state.get("m_base","USD")),
+                                      key="m_base")
+                purchase_foreign = st.number_input("매입금액 (외화)",
+                                                   value=float(st.session_state.get("purchase_foreign",0.0)),
                                                    step=0.01, format="%.2f", key="purchase_foreign")
-
-                base_cost_won = FX_DEFAULT[m_base]*purchase_foreign if purchase_foreign > 0 \
+                base_cost_won = FX_DEFAULT[m_base]*purchase_foreign if purchase_foreign>0 \
                                 else FX_DEFAULT[st.session_state.get("fx_base","USD")]*st.session_state.get("sale_foreign",1.0)
                 st.markdown(f'<div class="pill pill-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
 
                 c1, c2 = st.columns(2)
                 with c1:
-                    card_fee_pct = st.number_input("카드수수료(%)", value=card_fee_pct,
-                                                   step=0.01, format="%.2f", key="card_fee_pct")
+                    card_fee = st.number_input("카드수수료(%)", value=float(st.session_state.get("card_fee_pct",4.0)),
+                                               step=0.01, format="%.2f", key="card_fee_pct")
                 with c2:
-                    market_fee_pct = st.number_input("마켓수수료(%)", value=market_fee_pct,
-                                                     step=0.01, format="%.2f", key="market_fee_pct")
-                shipping_won = st.number_input("배송비(₩)", value=shipping_won,
+                    market_fee = st.number_input("마켓수수료(%)", value=float(st.session_state.get("market_fee_pct",14.0)),
+                                                 step=0.01, format="%.2f", key="market_fee_pct")
+                shipping_won = st.number_input("배송비(₩)", value=float(st.session_state.get("shipping_won",0.0)),
                                                step=100.0, format="%.0f", key="shipping_won")
-
-                margin_mode = st.radio("마진 방식", ["퍼센트","플러스"], horizontal=True, key="margin_mode")
-                if margin_mode == "퍼센트":
-                    margin_pct = st.number_input("마진율 (%)", value=margin_pct,
+                mode = st.radio("마진 방식", ["퍼센트","플러스"], horizontal=True, key="margin_mode")
+                if mode=="퍼센트":
+                    margin_pct = st.number_input("마진율 (%)", value=float(st.session_state.get("margin_pct",10.0)),
                                                  step=0.01, format="%.2f", key="margin_pct")
-                    target_price = base_cost_won*(1+card_fee_pct/100)*(1+market_fee_pct/100)*(1+margin_pct/100)+shipping_won
-                    margin_value = target_price - base_cost_won
-                    desc = f"{margin_pct:.2f}%"
+                    target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)*(1+margin_pct/100)+shipping_won
+                    margin_value = target_price - base_cost_won; desc=f"{margin_pct:.2f}%"
                 else:
-                    margin_won = st.number_input("마진액 (₩)", value=margin_won,
+                    margin_won = st.number_input("마진액 (₩)", value=float(st.session_state.get("margin_won",10000.0)),
                                                  step=100.0, format="%.0f", key="margin_won")
-                    target_price = base_cost_won*(1+card_fee_pct/100)*(1+market_fee_pct/100)+margin_won+shipping_won
-                    margin_value = margin_won
-                    desc = f"+{margin_won:,.0f}"
-
+                    target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)+margin_won+shipping_won
+                    margin_value = margin_won; desc=f"+{margin_won:,.0f}"
                 st.markdown(f'<div class="pill pill-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
                 st.markdown(f'<div class="pill pill-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>', unsafe_allow_html=True)
 
-        # ─────────────────────────────
-        # ON → 번역기 위쪽 / 계산기 접힘
-        # OFF → 계산기 열림 / 번역기 아래 접힘
-        # ─────────────────────────────
+        # ON → 번역기 위/펼침, 계산기 접힘 | OFF → 계산기 펼침, 번역기 아래 접힘
         if show_tr:
             translator_block(expanded=True)
             fx_block(expanded=False)
@@ -388,39 +398,17 @@ def _sidebar():
             margin_block(expanded=True)
             translator_block(expanded=False)
 
-        # 관리자 디버그
         if SHOW_ADMIN_BOX:
             st.divider()
             st.text_input("PROXY_URL(디버그)", key="PROXY_URL", help="Cloudflare Worker 주소 (옵션)")
 
 # =========================
-# 5) Rakuten Ranking
+# 5) Rakuten Ranking (원본 유지)
 # =========================
 def _rakuten_keys():
     app_id = _get_key("RAKUTEN_APP_ID")
     affiliate = _get_key("RAKUTEN_AFFILIATE_ID")
     return app_id, affiliate
-
-RK_JP_KEYWORDS = {
-    "뷰티/코스메틱": "コスメ",
-    "의류/패션": "ファッション",
-    "가전/디지털": "家電",
-    "가구/인테리어": "インテリア",
-    "식품": "食品",
-    "생활/건강": "日用品",
-    "스포츠/레저": "スポーツ",
-    "문구/취미": "ホビー",
-}
-
-def _retry_backoff(fn, tries=3, base=0.8, factor=2.0):
-    last=None
-    for i in range(tries):
-        try:
-            return fn()
-        except Exception as e:
-            last=e
-            time.sleep(base*(factor**i))
-    raise last
 
 @st.cache_data(ttl=900, show_spinner=False)
 def _rk_fetch_rank_cached(genre_id: str, topn: int = 20, strip_emoji: bool=True) -> pd.DataFrame:
@@ -453,7 +441,7 @@ def _rk_fetch_rank_cached(genre_id: str, topn: int = 20, strip_emoji: bool=True)
         return pd.DataFrame(rows)
 
     try:
-        return _retry_backoff(_do)
+        return _do()
     except Exception:
         rows=[{"rank":i+1,"keyword":_clean(f"[샘플] 키워드 {i+1} ハロウィン 秋 🍂"),
                "shop":"샘플","url":"https://example.com"} for i in range(topn)]
@@ -463,23 +451,16 @@ def section_rakuten_ui():
     st.markdown('<div id="rk-card">', unsafe_allow_html=True)
     colB, colC = st.columns([2,1])
     with colB:
-        cat = st.selectbox(
-            "라쿠텐 카테고리",
-            ["전체(샘플)","뷰티/코스메틱","의류/패션","가전/디지털","가구/인테리어","식품","생활/건강","스포츠/레저","문구/취미"],
-            key="rk_cat"
-        )
+        cat = st.selectbox("라쿠텐 카테고리",
+                           ["전체(샘플)","뷰티/코스메틱","의류/패션","가전/디지털","가구/인테리어","식품","생활/건강","스포츠/레저","문구/취미"], key="rk_cat")
     with colC:
         sample_only = st.checkbox("샘플 보기", value=False, key="rk_sample")
-
     strip_emoji = st.toggle("이모지 제거", value=True, key="rk_strip_emoji")
-
     genre_map = st.session_state.get("rk_genre_map", {})
     genre_id = (genre_map.get(cat) or "").strip() or "100283"
-
     with st.spinner("라쿠텐 랭킹 불러오는 중…"):
         df = (pd.DataFrame([{"rank":i+1,"keyword":f"[샘플] 키워드 {i+1}","shop":"샘플","url":"https://example.com"} for i in range(20)])
               if sample_only else _rk_fetch_rank_cached(genre_id, topn=20, strip_emoji=strip_emoji))
-
     colcfg = {
         "rank": st.column_config.NumberColumn("rank", width="small"),
         "keyword": st.column_config.TextColumn("keyword", width="medium"),
@@ -500,64 +481,44 @@ def section_rakuten_ui():
             for k in ["가전/디지털","식품","생활/건강","전체(샘플)"]:
                 st.session_state["rk_genre_map"][k] = st.text_input(k, st.session_state["rk_genre_map"].get(k,"100283"), key=f"rk_{k}")
         st.info("세션에 저장됩니다. 앱 재실행 시 초기값으로 돌아올 수 있어요.")
-
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
 # 6) Korea Radar (Naver Searchad API)
 # =========================
 import hashlib, hmac, base64 as b64
-
 def _naver_signature(timestamp: str, method: str, uri: str, secret: str) -> str:
     msg = f"{timestamp}.{method}.{uri}"
     digest = hmac.new(bytes(secret, "utf-8"), bytes(msg, "utf-8"), hashlib.sha256).digest()
     return b64.b64encode(digest).decode("utf-8")
 
 def _naver_keys_from_secrets():
-    ak = _get_key("NAVER_API_KEY")
-    sk = _get_key("NAVER_SECRET_KEY")
-    cid= _get_key("NAVER_CUSTOMER_ID")
+    ak = _get_key("NAVER_API_KEY"); sk = _get_key("NAVER_SECRET_KEY"); cid= _get_key("NAVER_CUSTOMER_ID")
     return ak.strip(), sk.strip(), str(cid).strip()
 
 def _naver_keywordstool(hint_keywords: list[str]) -> pd.DataFrame:
     api_key, sec_key, customer_id = _naver_keys_from_secrets()
     if not (requests and api_key and sec_key and customer_id and hint_keywords):
         return pd.DataFrame()
-
-    base_url="https://api.naver.com"
-    uri="/keywordstool"
-    ts = str(round(time.time()*1000))
+    base_url="https://api.naver.com"; uri="/keywordstool"; ts = str(round(time.time()*1000))
     headers = {
-        "X-API-KEY": api_key,
-        "X-Signature": _naver_signature(ts, "GET", uri, sec_key),
-        "X-Timestamp": ts,
-        "X-Customer": customer_id,
+        "X-API-KEY": api_key, "X-Signature": _naver_signature(ts, "GET", uri, sec_key),
+        "X-Timestamp": ts, "X-Customer": customer_id,
     }
-    params={ "hintKeywords": ",".join(hint_keywords),
-             "includeHintKeywords": "0", "showDetail": "1" }
+    params={ "hintKeywords": ",".join(hint_keywords), "includeHintKeywords": "0", "showDetail": "1" }
     r = requests.get(base_url+uri, headers=headers, params=params, timeout=12)
     try:
         r.raise_for_status()
-        data = r.json().get("keywordList", [])
+        data = r.json().get("keywordList", [])[:200]
         if not data: return pd.DataFrame()
-        df = pd.DataFrame(data)
-        df = df.rename(columns={
-            "relKeyword":"키워드",
-            "monthlyPcQcCnt":"PC월간검색수",
-            "monthlyMobileQcCnt":"Mobile월간검색수",
-            "monthlyAvePcClkCnt":"PC월평균클릭수",
-            "monthlyAveMobileClkCnt":"Mobile월평균클릭수",
-            "monthlyAvePcCtr":"PC월평균클릭률",
-            "monthlyAveMobileCtr":"Mobile월평균클릭률",
-            "plAvgDepth":"월평균노출광고수",
-            "compIdx":"광고경쟁정도",
-        })
-        df = df.drop_duplicates(["키워드"]).set_index("키워드").reset_index()
-        num_cols=["PC월간검색수","Mobile월간검색수",
-                  "PC월평균클릭수","Mobile월평균클릭수",
-                  "PC월평균클릭률","Mobile월평균클릭률","월평균노출광고수"]
-        for c in num_cols:
-            df[c]=pd.to_numeric(df[c], errors="coerce")
+        df = pd.DataFrame(data).rename(columns={
+            "relKeyword":"키워드","monthlyPcQcCnt":"PC월간검색수","monthlyMobileQcCnt":"Mobile월간검색수",
+            "monthlyAvePcClkCnt":"PC월평균클릭수","monthlyAveMobileClkCnt":"Mobile월평균클릭수",
+            "monthlyAvePcCtr":"PC월평균클릭률","monthlyAveMobileCtr":"Mobile월평균클릭률",
+            "plAvgDepth":"월평균노출광고수","compIdx":"광고경쟁정도",
+        }).drop_duplicates(["키워드"]).set_index("키워드").reset_index()
+        num_cols=["PC월간검색수","Mobile월간검색수","PC월평균클릭수","Mobile월평균클릭수","PC월평균클릭률","Mobile월평균클릭률","월평균노출광고수"]
+        for c in num_cols: df[c]=pd.to_numeric(df[c], errors="coerce")
         return df
     except Exception:
         return pd.DataFrame()
@@ -566,8 +527,7 @@ def _count_product_from_shopping(keyword: str) -> int|None:
     if not requests: return None
     try:
         url=f"https://search.shopping.naver.com/search/all?where=all&frm=NVSCTAB&query={quote(keyword)}"
-        r=requests.get(url, timeout=10)
-        r.raise_for_status()
+        r=requests.get(url, timeout=10); r.raise_for_status()
         from bs4 import BeautifulSoup
         soup = BeautifulSoup(r.text, "html.parser")
         a_tags = soup.select("a.subFilter_filter__3Y-uy")
@@ -647,63 +607,30 @@ def section_korea_ui():
                            file_name="korea_keyword_C.csv", mime="text/csv")
 
 # =========================
-# 7) DataLab Trend (Open API) + Category → Top20 UI (+ Direct Trend Widget / Debug)
+# 7) DataLab Trend (Open API) + Category → Top20 UI (+ Direct Trend)
 # =========================
 @st.cache_data(ttl=1800, show_spinner=False)
 def _datalab_trend(groups: list, start_date: str, end_date: str,
                    time_unit: str = "week", device: str = "", gender: str = "", ages: list | None = None) -> pd.DataFrame:
-    """
-    Naver DataLab 검색어 트렌드.
-    groups 예: [{"groupName":"키워드","keywords":["키워드"]}, ...] (최대 5개)
-    """
     if not requests:
         return pd.DataFrame()
-
-    cid  = _get_key("NAVER_CLIENT_ID")
-    csec = _get_key("NAVER_CLIENT_SECRET")
-    if not (cid and csec):
-        return pd.DataFrame()
-
-    # ---- Referer 헤더 (WEB 환경용) ----
-    ref = _get_key("NAVER_WEB_REFERER").strip()
-    if not ref:
-        # 캡처하신 streamlit.app URL로 자동 대체(원하는 경우 실제 도메인으로 바꿔도 됨)
-        ref = "https://2vrc9owdssnberky8hssf7.streamlit.app"
-
-    # DataLab 제약: group 최대 5개
+    cid  = _get_key("NAVER_CLIENT_ID"); csec = _get_key("NAVER_CLIENT_SECRET")
+    if not (cid and csec): return pd.DataFrame()
+    ref = _get_key("NAVER_WEB_REFERER").strip() or "https://2vrc9owdssnberky8hssf7.streamlit.app"
     groups = (groups or [])[:5]
-
     url = "https://openapi.naver.com/v1/datalab/search"
-    headers = {
-        "X-Naver-Client-Id": cid,
-        "X-Naver-Client-Secret": csec,
-        "Content-Type": "application/json; charset=utf-8",
-        "Referer": ref,  # 중요!
-    }
-    payload = {
-        "startDate": start_date, "endDate": end_date, "timeUnit": time_unit,
-        "keywordGroups": groups
-    }
-    if device: payload["device"] = device
-    if gender: payload["gender"] = gender
-    if ages:   payload["ages"]   = ages
-
+    headers = {"X-Naver-Client-Id": cid, "X-Naver-Client-Secret": csec, "Content-Type": "application/json; charset=utf-8", "Referer": ref}
+    payload = {"startDate": start_date, "endDate": end_date, "timeUnit": time_unit, "keywordGroups": groups}
     r = requests.post(url, headers=headers, data=json.dumps(payload), timeout=12)
     try:
         r.raise_for_status()
-        js = r.json()
-        out = []
+        js = r.json(); out=[]
         for gr in js.get("results", []):
-            name = gr.get("title") or (gr.get("keywords") or [""])[0]  # title 없으면 첫 키워드
+            name = gr.get("title") or (gr.get("keywords") or [""])[0]
             tmp = pd.DataFrame(gr.get("data", []))
-            if tmp.empty:
-                continue
-            tmp["keyword"] = name
-            out.append(tmp)
-
-        if not out:
-            return pd.DataFrame()
-
+            if tmp.empty: continue
+            tmp["keyword"] = name; out.append(tmp)
+        if not out: return pd.DataFrame()
         big = pd.concat(out, ignore_index=True)
         big.rename(columns={"period": "날짜", "ratio": "검색지수"}, inplace=True)
         pivot = big.pivot_table(index="날짜", columns="keyword", values="검색지수", aggfunc="mean")
@@ -712,8 +639,6 @@ def _datalab_trend(groups: list, start_date: str, end_date: str,
     except Exception:
         return pd.DataFrame()
 
-
-# 카테고리별 Seed 키워드 → Top20 선별에 사용
 SEED_MAP = {
     "패션의류":   ["원피스","코트","니트","셔츠","블라우스"],
     "패션잡화":   ["가방","지갑","모자","스카프","벨트"],
@@ -725,7 +650,6 @@ SEED_MAP = {
 
 def section_category_keyword_lab():
     st.markdown('<div class="card"><div class="card-title">카테고리 → 키워드 Top20 & 트렌드</div>', unsafe_allow_html=True)
-
     cA, cB, cC = st.columns([1,1,1])
     with cA:
         cat = st.selectbox("카테고리", list(SEED_MAP.keys()))
@@ -733,40 +657,25 @@ def section_category_keyword_lab():
         time_unit = st.selectbox("단위", ["week", "month"], index=0)
     with cC:
         months = st.slider("조회기간(개월)", 1, 12, 3)
-
-    # DataLab 기간 (권장: 끝일은 '어제')
     start = (dt.date.today() - dt.timedelta(days=30 * months)).strftime("%Y-%m-%d")
     end   = (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
 
-    # Top20 표 (네이버 검색광고 키워드도구)
     seeds = SEED_MAP.get(cat, [])
     df = _naver_keywordstool(seeds)
     if df.empty:
         st.warning("키워드도구 응답이 비었습니다. (API/권한/쿼터 확인)")
-        st.markdown('</div>', unsafe_allow_html=True)
-        return
-
-    # 합계 기준 상위 20 추출
-    df["검색합계"] = pd.to_numeric(df["PC월간검색수"], errors="coerce").fillna(0) + \
-                     pd.to_numeric(df["Mobile월간검색수"], errors="coerce").fillna(0)
+        st.markdown('</div>', unsafe_allow_html=True); return
+    df["검색합계"] = pd.to_numeric(df["PC월간검색수"], errors="coerce").fillna(0) + pd.to_numeric(df["Mobile월간검색수"], errors="coerce").fillna(0)
     top20 = df.sort_values("검색합계", ascending=False).head(20).reset_index(drop=True)
 
-    st.dataframe(
-        top20[["키워드","검색합계","PC월간검색수","Mobile월간검색수","월평균노출광고수","광고경쟁정도"]],
-        use_container_width=True, height=340
-    )
-    st.download_button(
-        "CSV 다운로드",
-        top20.to_csv(index=False).encode("utf-8-sig"),
-        file_name=f"category_{cat}_top20.csv",
-        mime="text/csv"
-    )
+    st.dataframe(top20[["키워드","검색합계","PC월간검색수","Mobile월간검색수","월평균노출광고수","광고경쟁정도"]],
+                 use_container_width=True, height=340)
+    st.download_button("CSV 다운로드", top20.to_csv(index=False).encode("utf-8-sig"),
+                       file_name=f"category_{cat}_top20.csv", mime="text/csv")
 
-    # 라인차트 (상위 N개, DataLab Open API)
     topk = st.slider("라인차트 키워드 수", 3, 10, 5, help="상위 N개 키워드만 트렌드를 그립니다.")
     kws = top20["키워드"].head(topk).tolist()
     groups = [{"groupName": k, "keywords": [k]} for k in kws]
-
     ts = _datalab_trend(groups, start, end, time_unit=time_unit)
     if ts.empty:
         st.info("DataLab 트렌드 응답이 비어 있어요. (Client ID/Secret, Referer/환경, 날짜/단위 확인)")
@@ -775,93 +684,24 @@ def section_category_keyword_lab():
             st.line_chart(ts.set_index("날짜"))
         except Exception:
             st.dataframe(ts, use_container_width=True, height=260)
-
     st.markdown('</div>', unsafe_allow_html=True)
 
-
 def section_keyword_trend_widget():
-    """키워드 직접 입력 → DataLab 트렌드 라인차트"""
     st.markdown('<div class="card"><div class="card-title">키워드 트렌드 (직접 입력)</div>', unsafe_allow_html=True)
-
     kwtxt  = st.text_input("키워드(콤마)", "가방, 원피스", key="kw_txt")
     unit   = st.selectbox("단위", ["week", "month"], index=0, key="kw_unit")
     months = st.slider("조회기간(개월)", 1, 12, 3, key="kw_months")
-
     if st.button("트렌드 조회", key="kw_run"):
         start = (dt.date.today() - dt.timedelta(days=30 * months)).strftime("%Y-%m-%d")
         end   = (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
-
         kws = [k.strip() for k in (kwtxt or "").split(",") if k.strip()]
         groups = [{"groupName": k, "keywords": [k]} for k in kws][:5]
-
         df = _datalab_trend(groups, start, end, time_unit=unit)
-
         if df.empty:
             st.error("DataLab 트렌드 응답이 비어 있어요. (Client ID/Secret, Referer/환경, 권한/쿼터/날짜/단위 확인)")
         else:
             st.dataframe(df, use_container_width=True, height=260)
             st.line_chart(df.set_index("날짜"))
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-
-def section_datalab_debug():
-    """DataLab 호출 상태를 즉석에서 점검하는 작은 위젯(선택 사용)."""
-    st.markdown('<div class="card"><div class="card-title">🧪 DataLab 연결 진단</div>', unsafe_allow_html=True)
-
-    c1, c2 = st.columns([1,1])
-    with c1:
-        unit = st.selectbox("단위", ["week","month"], index=0, key="dbg_unit")
-    with c2:
-        months = st.slider("기간(개월)", 1, 12, 3, key="dbg_months")
-
-    start = (dt.date.today() - dt.timedelta(days=30*months)).strftime("%Y-%m-%d")
-    end   = (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
-
-    kws = st.text_input("테스트 키워드(콤마)", "원피스, 코트", key="dbg_kws")
-    show_raw = st.checkbox("RAW 응답 보기", value=False, key="dbg_raw")
-
-    if st.button("DataLab 테스트 호출", key="dbg_btn"):
-        groups = [{"groupName":k.strip(), "keywords":[k.strip()]}
-                  for k in (kws or "").split(",") if k.strip()][:5]
-
-        try:
-            st.cache_data.clear()
-        except Exception:
-            pass
-
-        df = _datalab_trend(groups, start, end, time_unit=unit)
-        if not df.empty:
-            st.success(f"성공! {len(df)}행 수신")
-            st.dataframe(df.head(), use_container_width=True, height=220)
-            try:
-                st.line_chart(df.set_index("날짜"))
-            except Exception:
-                pass
-        else:
-            # RAW 호출로 상태/본문 확인
-            try:
-                cid  = _get_key("NAVER_CLIENT_ID")
-                csec = _get_key("NAVER_CLIENT_SECRET")
-                ref  = _get_key("NAVER_WEB_REFERER").strip() or "https://2vrc9owdssnberky8hssf7.streamlit.app"
-                url  = "https://openapi.naver.com/v1/datalab/search"
-                headers = {
-                    "X-Naver-Client-Id": cid,
-                    "X-Naver-Client-Secret": csec,
-                    "Content-Type": "application/json; charset=utf-8",
-                    "Referer": ref,
-                }
-                payload = {"startDate": start, "endDate": end, "timeUnit": unit, "keywordGroups": groups}
-                r = requests.post(url, headers=headers, data=json.dumps(payload), timeout=12)
-                st.error(f"실패: DataLab 응답이 비었습니다. (status {r.status_code})")
-                if show_raw:
-                    st.caption("요청 페이로드")
-                    st.code(json.dumps(payload, ensure_ascii=False, indent=2))
-                    st.caption("응답 RAW")
-                    st.code(r.text[:4000])
-            except Exception as e:
-                st.error(f"요청 중 예외: {e}")
-
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
@@ -877,35 +717,12 @@ def section_radar():
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
-# 9) 상품명 생성기 (네이버 SEO + 금칙어)
+# 9) 상품명 생성기 (네이버 SEO + 금칙어 연동)
 # =========================
-
-# ===== Stopwords (전역/카테고리) =====
-STOPWORDS_GLOBAL = [
-    "무료배송","무배","초특가","특가","핫딜","최신","최신형","역대급","당일발송","당일배송",
-    "최저가","세일","SALE","이벤트","사은품","증정","쿠폰","정가","파손","환불","교환",
-    "재고","품절","한정수량","MUSTBUY","강추","추천","🔥","💥","⭐","BEST","베스트"
-]
-
-STOPWORDS_BY_CAT = {
-    "패션의류":   ["루즈핏","빅사이즈","초슬림","극세사","초경량","왕오버","몸매보정"],
-    "패션잡화":   ["무료각인","사은품지급","세트증정"],
-    "뷰티/미용":  ["정품보장","병행수입","벌크","리필만","샘플","테스터"],
-    "생활/건강":  ["공용","비매품","리퍼","리퍼비시"],
-    "디지털/가전": ["관부가세","부가세","해외직구","리퍼","리퍼비시","벌크"],
-    "스포츠/레저": ["무료조립","가성비갑"],
-}
-
-
 def section_title_generator():
-    """
-    상품명 생성기 (네이버 SEO + 검색량 기반 확장 + 금칙어 엔진)
-    """
     import re, math
+    st.markdown('<div class="card"><div class="card-title">상품명 생성기 (네이버 SEO 자동 확장 + 금칙어 연동)</div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="card"><div class="card-title">상품명 생성기 (네이버 SEO 자동 확장 + 금칙어)</div>', unsafe_allow_html=True)
-
-    # ---------- 유틸 ----------
     def _norm(s: str) -> str:
         s = (s or "").strip()
         s = re.sub(r"[ \t\u3000]+", " ", s)
@@ -914,7 +731,7 @@ def section_title_generator():
     def _dedup(tokens):
         seen=set(); out=[]
         for t in tokens:
-            t=_norm(t)
+            t=_norm(t); 
             if not t: continue
             key=t.lower()
             if key in seen: continue
@@ -946,19 +763,15 @@ def section_title_generator():
         sep = "" if not curr else " "
         return len(_norm(curr+sep+piece))>max_len
 
-    # 금칙어 처리
     def _compile_stopwords(global_list, cate_list, user_str, replace_pairs):
         stop = set()
         for s in global_list + (cate_list or []):
-            s=_norm(s)
+            s=_norm(s); 
             if s: stop.add(s.lower())
         user = [_norm(x) for x in (user_str or "").split(",") if _norm(x)]
-        for s in user:
-            stop.add(s.lower())
-        # 부분일치 정규식
+        for s in user: stop.add(s.lower())
         part = [re.escape(s) for s in stop if len(s)>=2]
         part_re = re.compile("|".join(part), flags=re.IGNORECASE) if part else None
-        # 치환 dict
         repl = {}
         for pair in replace_pairs:
             src=_norm(pair.split("=>")[0] if "=>" in pair else pair)
@@ -966,10 +779,14 @@ def section_title_generator():
             if src: repl[src.lower()] = dst
         return stop, part_re, repl
 
-    def _apply_stopwords(tokens, stop_exact, stop_part_re, repl_map, aggressive=False):
+    def _apply_stopwords(tokens, stop_exact, stop_part_re, repl_map, aggressive=False, whitelist_set=None):
         out=[]; removed=[]
+        wl = set(map(str.lower, whitelist_set or []))
         for t in tokens:
-            raw=t; low=t.lower()
+            raw=t
+            if t and t.lower() in wl:
+                out.append(t); continue
+            low=t.lower()
             if low in stop_exact: removed.append(raw); continue
             if low in repl_map:
                 t=repl_map[low]; low=t.lower()
@@ -979,7 +796,7 @@ def section_title_generator():
             out.append(t)
         return _dedup(out), removed
 
-    # ---------- 입력 ----------
+    # 입력
     left, right = st.columns([1,2])
     with left:
         brand = st.text_input("브랜드", placeholder="예: Apple / 샤오미 / 무지", key="seo_brand")
@@ -997,26 +814,31 @@ def section_title_generator():
 
     row2a, row2b = st.columns([1,1])
     with row2a:
-        use_naver = st.toggle("네이버 SEO 모드", value=True, key="seo_use_naver")
+        use_naver   = st.toggle("네이버 SEO 모드", value=True, key="seo_use_naver")
         auto_expand = st.toggle("검색량 기반 자동 확장", value=True, key="seo_autoexpand")
-        topn = st.slider("생성 개수(상위)", 3, 20, 10, 1, key="seo_topn")
+        topn        = st.slider("생성 개수(상위)", 3, 20, 10, 1, key="seo_topn")
     with row2b:
         cat_for_stop = st.selectbox("금칙어 카테고리", ["(없음)"]+list(STOPWORDS_BY_CAT.keys()), index=0, key="stop_cat")
-        user_stop = st.text_input("사용자 금칙어(콤마)", value="정품,무료배송,최신,인기,특가", key="seo_stop")
-        user_repl = st.text_input("치환 규칙(콤마, src=>dst)", value="무배=> ,무료배송=> ,정품=>", key="seo_repl")
-        aggressive = st.toggle("공격적 부분일치 제거", value=False, key="stop_aggr")
+        user_stop    = st.text_input("사용자 금칙어(콤마)", value="정품,무료배송,최신,인기,특가", key="seo_stop")
+        user_repl    = st.text_input("치환 규칙(콤마, src=>dst)", value="무배=> ,무료배송=> ,정품=> ", key="seo_repl")
+        saved_aggr   = bool(st.session_state.get("STOP_AGGR", False))
+        aggressive   = st.toggle("공격적 부분일치 제거", value=saved_aggr, key="stop_aggr")
 
-    # ---------- 실행 ----------
+    # 실행
     if st.button("상품명 생성 (SEO + 금칙어)", key="seo_run"):
         kw_list=[_norm(k) for k in (kws_input or "").split(",") if _norm(k)]
         if not kw_list:
             st.warning("핵심 키워드를 1개 이상 입력하세요."); return
 
-        cate = STOPWORDS_BY_CAT.get(cat_for_stop, []) if cat_for_stop and cat_for_stop!="(없음)" else []
-        replace_pairs=[x.strip() for x in (user_repl or "").split(",") if x.strip()]
-        stop_exact, stop_part_re, repl_map = _compile_stopwords(STOPWORDS_GLOBAL, cate, user_stop, replace_pairs)
+        saved_global    = st.session_state.get("STOP_GLOBAL", STOPWORDS_GLOBAL)
+        saved_by_cat    = st.session_state.get("STOP_BY_CAT", STOPWORDS_BY_CAT)
+        saved_whitelist = st.session_state.get("STOP_WHITELIST", [])
+        saved_replace   = st.session_state.get("STOP_REPLACE", ["무배=> ", "무료배송=> ", "정품=> "])
 
-        joiner=" "
+        cate = saved_by_cat.get(cat_for_stop, []) if cat_for_stop and cat_for_stop!="(없음)" else []
+        replace_pairs = [x.strip() for x in (user_repl or "").split(",") if x.strip()] or list(saved_replace)
+        stop_exact, stop_part_re, repl_map = _compile_stopwords(saved_global, cate, user_stop, replace_pairs)
+
         ranked_kws=kw_list; naver_table=None
         if use_naver:
             with st.spinner("네이버 키워드 지표 조회 중…"):
@@ -1024,44 +846,44 @@ def section_title_generator():
             if not df_raw.empty:
                 naver_table=_score_keywords(df_raw)
                 ranked_kws=naver_table["키워드"].tolist()
+            else:
+                st.info("네이버 지표를 가져오지 못했습니다. 입력 키워드만 사용합니다.")
 
         brand_norm=_norm(brand)
         attrs_norm=_dedup([_norm(a) for a in (attrs or "").split(",") if _norm(a)])
-        attrs_norm, _=_apply_stopwords(attrs_norm, stop_exact, stop_part_re, repl_map, aggressive)
+        attrs_norm,_=_apply_stopwords(attrs_norm, stop_exact, stop_part_re, repl_map, aggressive, saved_whitelist)
 
         def _base_seq(primary_kw: str):
             if order=="브랜드-키워드-속성":
-                seq=[brand_norm, primary_kw]+attrs_norm
-                prefix=_norm((brand_norm+" "+primary_kw).strip())
+                seq=[brand_norm, primary_kw]+attrs_norm;  prefix=_norm((brand_norm+" "+primary_kw).strip())
             elif order=="키워드-브랜드-속성":
-                seq=[primary_kw, brand_norm]+attrs_norm
-                prefix=_norm((primary_kw+" "+brand_norm).strip())
+                seq=[primary_kw, brand_norm]+attrs_norm;  prefix=_norm((primary_kw+" "+brand_norm).strip())
             else:
-                seq=[brand_norm]+attrs_norm+[primary_kw]
-                prefix=_norm((brand_norm+" "+primary_kw).strip())
+                seq=[brand_norm]+attrs_norm+[primary_kw]; prefix=_norm((brand_norm+" "+primary_kw).strip())
             seq=_dedup([t for t in seq if _norm(t)])
-            seq,_=_apply_stopwords(seq, stop_exact, stop_part_re, repl_map, aggressive)
+            seq,_=_apply_stopwords(seq, stop_exact, stop_part_re, repl_map, aggressive, saved_whitelist)
             return seq, prefix
 
-        titles=[]; used=set()
+        titles=[]; used=set(); joiner=" "
         for primary in ranked_kws:
             primary=_norm(primary)
             if not primary: continue
-            pk_list,_=_apply_stopwords([primary], stop_exact, stop_part_re, repl_map, aggressive)
+            pk_list,_=_apply_stopwords([primary], stop_exact, stop_part_re, repl_map, aggressive, saved_whitelist)
             if not pk_list: continue
             primary=pk_list[0]
-            seq,prefix=_base_seq(primary)
+            seq, prefix = _base_seq(primary)
             title=(joiner.join(seq)).strip()
             expanded=title
             if auto_expand and len(expanded)<target_min:
                 for cand in ranked_kws:
-                    if cand.lower()==primary.lower(): continue
-                    cand_list,_=_apply_stopwords([cand], stop_exact, stop_part_re, repl_map, aggressive)
+                    cnd=_norm(cand)
+                    if not cnd or cnd.lower()==primary.lower(): continue
+                    cand_list,_=_apply_stopwords([cnd], stop_exact, stop_part_re, repl_map, aggressive, saved_whitelist)
                     if not cand_list: continue
                     cnd=cand_list[0]
                     if re.search(re.escape(cnd), expanded, flags=re.IGNORECASE): continue
-                    if _would_overflow(expanded,cnd,max_len): continue
-                    expanded=_norm(expanded+joiner+cnd)
+                    if _would_overflow(expanded, cnd, max_len): continue
+                    expanded=_norm(expanded+" "+cnd)
                     if len(expanded)>=target_min: break
             final=_smart_truncate(expanded, max_len, must_keep_prefix=prefix)
             key=final.lower()
@@ -1070,23 +892,129 @@ def section_title_generator():
             if len(titles)>=topn: break
 
         if naver_table is not None and not naver_table.empty:
-            with st.expander("📊 네이버 지표", expanded=False):
-                st.dataframe(naver_table[["키워드","PC월간검색수","Mobile월간검색수","광고경쟁정도","SEO점수"]],
-                             use_container_width=True, height=260)
+            with st.expander("📊 사용된 네이버 지표(정렬 근거)", expanded=False):
+                cols=["키워드","PC월간검색수","Mobile월간검색수","광고경쟁정도","SEO점수"]
+                st.dataframe(naver_table[cols], use_container_width=True, height=260)
 
         if titles:
             st.success(f"생성 완료 · {len(titles)}건")
-            for i,t in enumerate(titles,1):
+            for i, t in enumerate(titles, 1):
                 st.markdown(f"**{i}.** {t}")
             out_df=pd.DataFrame({"title":titles})
-            st.download_button("CSV 다운로드", out_df.to_csv(index=False).encode("utf-8-sig"),
+            st.download_button("CSV 다운로드", data=out_df.to_csv(index=False).encode("utf-8-sig"),
                                file_name="titles_seo_stopwords.csv", mime="text/csv")
         else:
             st.warning("생성된 상품명이 없습니다. (금칙어/중복/길이 제한/입력값 확인)")
 
 # =========================
-# 10) Layout — row1: 레이더 | (카테고리 or 직접입력) | 생성기
-#                 row2: 11번가 | 아이템스카우트 | 셀러라이프
+# 10) 기타 카드
+# =========================
+def _11st_abest_url():
+    return ("https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160&_ts=%d" % int(time.time()))
+
+def section_11st():
+    st.markdown('<div class="card"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>', unsafe_allow_html=True)
+    _proxy_iframe(ELEVENST_PROXY, _11st_abest_url(), height=900, scroll=True, key="abest")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+def section_itemscout_placeholder():
+    st.markdown('<div class="card"><div class="card-title">아이템스카우트</div>', unsafe_allow_html=True)
+    st.info("임베드 보류 중입니다. 아래 버튼으로 원본 페이지를 새 탭에서 여세요.")
+    st.link_button("아이템스카우트 직접 열기(새 탭)", "https://app.itemscout.io/market/keyword")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+def section_sellerlife_placeholder():
+    st.markdown('<div class="card"><div class="card-title">셀러라이프</div>', unsafe_allow_html=True)
+    st.info("임베드 보류 중입니다. 아래 버튼으로 원본 페이지를 새 탭에서 여세요.")
+    st.link_button("직접 열기(새 탭)", "https://sellochomes.co.kr/sellerlife/")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# =========================
+# Stopwords Manager — 금칙어 리스트 관리자(현업용)
+# =========================
+def section_stopwords_manager():
+    st.markdown('<div class="card"><div class="card-title">금칙어 리스트 관리자 (현업용)</div>', unsafe_allow_html=True)
+
+    ss = st.session_state
+    ss.setdefault("STOP_GLOBAL", list(STOPWORDS_GLOBAL))
+    ss.setdefault("STOP_BY_CAT", dict(STOPWORDS_BY_CAT))
+    ss.setdefault("STOP_WHITELIST", [])
+    ss.setdefault("STOP_REPLACE", ["무배=> ", "무료배송=> ", "정품=> "])
+    ss.setdefault("STOP_AGGR", False)
+
+    with st.expander("🔧 프리셋", expanded=False):
+        preset = st.selectbox("프리셋", list(STOP_PRESETS.keys()))
+        if st.button("프리셋 불러오기"):
+            obj = STOP_PRESETS[preset]
+            ss["STOP_GLOBAL"]    = list(obj.get("global", []))
+            ss["STOP_BY_CAT"]    = dict(obj.get("by_cat", {}))
+            ss["STOP_WHITELIST"] = list(obj.get("whitelist", []))
+            ss["STOP_REPLACE"]   = list(obj.get("replace", []))
+            ss["STOP_AGGR"]      = bool(obj.get("aggressive", False))
+            st.success(f"프리셋 ‘{preset}’ 적용 완료")
+
+    tab_global, tab_cat, tab_white, tab_replace, tab_io = st.tabs(
+        ["전역 금칙어", "카테고리 금칙어", "화이트리스트", "치환 규칙", "가져오기/내려받기"]
+    )
+
+    with tab_global:
+        txt = st.text_area("전역 금칙어 (콤마)", value=",".join(ss["STOP_GLOBAL"]), height=120)
+        if st.button("저장(전역)"):
+            ss["STOP_GLOBAL"] = [t.strip() for t in txt.split(",") if t.strip()]
+            st.success("전역 금칙어 저장 완료")
+
+    with tab_cat:
+        all_cats = sorted(set(list(ss["STOP_BY_CAT"].keys()) + list(STOPWORDS_BY_CAT.keys()))) or \
+                   ["패션의류","패션잡화","뷰티/미용","생활/건강","디지털/가전","스포츠/레저"]
+        cat = st.selectbox("카테고리", all_cats)
+        curr = ",".join(ss["STOP_BY_CAT"].get(cat, []))
+        new  = st.text_area("해당 카테고리 금칙어 (콤마)", value=curr, height=120, key=f"stop_cat_{cat}")
+        c1, c2 = st.columns([1,1])
+        with c1:
+            if st.button("저장(카테고리)", key=f"stop_save_cat_{cat}"):
+                ss["STOP_BY_CAT"][cat] = [t.strip() for t in new.split(",") if t.strip()]
+                st.success(f"{cat} 저장 완료")
+        with c2:
+            ss["STOP_AGGR"] = st.toggle("공격적 부분일치 제거", value=bool(ss["STOP_AGGR"]), key="stop_aggr_ui")
+
+    with tab_white:
+        wt = st.text_area("화이트리스트(허용, 콤마)", value=",".join(ss["STOP_WHITELIST"]), height=100)
+        if st.button("저장(화이트리스트)"):
+            ss["STOP_WHITELIST"] = [t.strip() for t in wt.split(",") if t.strip()]
+            st.success("화이트리스트 저장 완료")
+
+    with tab_replace:
+        rp = st.text_area("치환 규칙 (형식: src=>dst, 콤마)", value=",".join(ss["STOP_REPLACE"]), height=100)
+        if st.button("저장(치환)"):
+            ss["STOP_REPLACE"] = [t.strip() for t in rp.split(",") if t.strip()]
+            st.success("치환 규칙 저장 완료")
+
+    with tab_io:
+        payload = {
+            "global": ss["STOP_GLOBAL"],
+            "by_cat": ss["STOP_BY_CAT"],
+            "whitelist": ss["STOP_WHITELIST"],
+            "replace": ss["STOP_REPLACE"],
+            "aggressive": bool(ss["STOP_AGGR"]),
+        }
+        st.download_button("설정 내려받기(JSON)",
+                           data=json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"),
+                           file_name="stopwords_profile.json", mime="application/json")
+        up = st.file_uploader("설정 가져오기(JSON)", type=["json"])
+        if up:
+            try:
+                obj = json.load(io.TextIOWrapper(up, encoding="utf-8"))
+                ss["STOP_GLOBAL"]    = list(obj.get("global", ss["STOP_GLOBAL"]))
+                ss["STOP_BY_CAT"]    = dict(obj.get("by_cat", ss["STOP_BY_CAT"]))
+                ss["STOP_WHITELIST"] = list(obj.get("whitelist", ss["STOP_WHITELIST"]))
+                ss["STOP_REPLACE"]   = list(obj.get("replace", ss["STOP_REPLACE"]))
+                ss["STOP_AGGR"]      = bool(obj.get("aggressive", ss["STOP_AGGR"]))
+                st.success("설정 가져오기 완료")
+            except Exception as e:
+                st.error(f"가져오기 실패: {e}")
+
+# =========================
+# 11) Layout — row1: Radar | (카테고리 or 직접 입력) | 상품명 생성기
 # =========================
 _ = _sidebar()
 _responsive_probe()
@@ -1110,10 +1038,15 @@ with row1_c:
 st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
 
 # 2행
-c1, c2, c3 = st.columns([4, 4, 4], gap="medium")
+c1, c2, c3 = st.columns([3, 3, 3], gap="medium")
 with c1:
     section_11st()
 with c2:
     section_itemscout_placeholder()
 with c3:
     section_sellerlife_placeholder()
+
+st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
+
+# 금칙어 관리자 (현업용)
+section_stopwords_manager()
