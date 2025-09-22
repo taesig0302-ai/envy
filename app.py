@@ -1013,7 +1013,7 @@ vwbin = _get_view_bin()
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
 # 1행: 레이더(8) + 카테고리(4) + 상품명 생성기(4)
-row1_a, row1_b, row1_c = st.columns([8, 5, 3], gap="medium")
+row1_a, row1_b, row1_c = st.columns([8, 4, 4], gap="medium")
 with row1_a:
     section_radar()
 with row1_b:
