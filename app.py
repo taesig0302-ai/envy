@@ -553,11 +553,11 @@ def section_korea_ui():
                            file_name="korea_keyword_C.csv", mime="text/csv")
 
 # =========================
-# 7) DataLab Trend (Open API) + Category → Top20 UI (+ Debug)
+# 7) DataLab Trend (Open API) + Category → Top20 UI (+ Direct Trend Widget / Debug)
 # =========================
 @st.cache_data(ttl=1800, show_spinner=False)
-def _datalab_trend(groups:list, start_date:str, end_date:str,
-                   time_unit:str="week", device:str="", gender:str="", ages:list|None=None) -> pd.DataFrame:
+def _datalab_trend(groups: list, start_date: str, end_date: str,
+                   time_unit: str = "week", device: str = "", gender: str = "", ages: list | None = None) -> pd.DataFrame:
     """
     Naver DataLab 검색어 트렌드.
     groups 예: [{"groupName":"키워드","keywords":["키워드"]}, ...]
@@ -588,10 +588,9 @@ def _datalab_trend(groups:list, start_date:str, end_date:str,
     try:
         r.raise_for_status()
         js = r.json()
-        out=[]
+        out = []
         for gr in js.get("results", []):
-            # title이 없으면 첫 키워드를 fallback으로 사용
-            name = gr.get("title") or (gr.get("keywords") or [""])[0]
+            name = gr.get("title") or (gr.get("keywords") or [""])[0]  # title 없으면 첫 키워드
             tmp = pd.DataFrame(gr.get("data", []))
             if tmp.empty:
                 continue
@@ -602,8 +601,7 @@ def _datalab_trend(groups:list, start_date:str, end_date:str,
             return pd.DataFrame()
 
         big = pd.concat(out, ignore_index=True)
-        big.rename(columns={"period":"날짜","ratio":"검색지수"}, inplace=True)
-        # pivot: 날짜 x keyword
+        big.rename(columns={"period": "날짜", "ratio": "검색지수"}, inplace=True)
         pivot = big.pivot_table(index="날짜", columns="keyword", values="검색지수", aggfunc="mean")
         pivot = pivot.reset_index().sort_values("날짜")
         return pivot
@@ -629,13 +627,13 @@ def section_category_keyword_lab():
     with cA:
         cat = st.selectbox("카테고리", list(SEED_MAP.keys()))
     with cB:
-        time_unit = st.selectbox("단위", ["week","month"], index=0)
+        time_unit = st.selectbox("단위", ["week", "month"], index=0)
     with cC:
         months = st.slider("조회기간(개월)", 1, 12, 3)
 
-    # DataLab 기간
-    start = (dt.date.today() - dt.timedelta(days=30*months)).strftime("%Y-%m-%d")
-    end   = dt.date.today().strftime("%Y-%m-%d")
+    # DataLab 기간 (끝일은 '어제' 권장)
+    start = (dt.date.today() - dt.timedelta(days=30 * months)).strftime("%Y-%m-%d")
+    end   = (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
 
     # Top20 표 (네이버 검색광고 키워드도구)
     seeds = SEED_MAP.get(cat, [])
@@ -664,7 +662,7 @@ def section_category_keyword_lab():
     # 라인차트 (상위 N개, DataLab Open API)
     topk = st.slider("라인차트 키워드 수", 3, 10, 5, help="상위 N개 키워드만 트렌드를 그립니다.")
     kws = top20["키워드"].head(topk).tolist()
-    groups = [{"groupName":k, "keywords":[k]} for k in kws]
+    groups = [{"groupName": k, "keywords": [k]} for k in kws]
 
     ts = _datalab_trend(groups, start, end, time_unit=time_unit)
     if ts.empty:
@@ -674,6 +672,32 @@ def section_category_keyword_lab():
             st.line_chart(ts.set_index("날짜"))
         except Exception:
             st.dataframe(ts, use_container_width=True, height=260)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+def section_keyword_trend_widget():
+    """키워드 직접 입력 → DataLab 트렌드 라인차트"""
+    st.markdown('<div class="card"><div class="card-title">키워드 트렌드 (직접 입력)</div>', unsafe_allow_html=True)
+
+    kwtxt  = st.text_input("키워드(콤마)", "가방, 원피스", key="kw_txt")
+    unit   = st.selectbox("단위", ["week", "month"], index=0, key="kw_unit")
+    months = st.slider("조회기간(개월)", 1, 12, 3, key="kw_months")
+
+    if st.button("트렌드 조회", key="kw_run"):
+        start = (dt.date.today() - dt.timedelta(days=30 * months)).strftime("%Y-%m-%d")
+        end   = (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
+
+        kws = [k.strip() for k in (kwtxt or "").split(",") if k.strip()]
+        groups = [{"groupName": k, "keywords": [k]} for k in kws]
+
+        df = _datalab_trend(groups, start, end, time_unit=unit)
+
+        if df.empty:
+            st.error("DataLab 트렌드 응답이 비어 있어요. (Client ID/Secret, 권한/쿼터/날짜/단위 확인)")
+        else:
+            st.dataframe(df, use_container_width=True, height=260)
+            st.line_chart(df.set_index("날짜"))
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -688,15 +712,14 @@ def section_datalab_debug():
     with c2:
         months = st.slider("기간(개월)", 1, 12, 3, key="dbg_months")
 
-    start = (dt.date.today() - dt.timedelta(days=30*months)).strftime("%Y-%m-%d")
-    end   = dt.date.today().strftime("%Y-%m-%d")
+    start = (dt.date.today() - dt.timedelta(days=30 * months)).strftime("%Y-%m-%d")
+    end   = (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
 
     kws = st.text_input("테스트 키워드(콤마)", "원피스, 코트", key="dbg_kws")
 
     if st.button("DataLab 테스트 호출", key="dbg_btn"):
-        groups = [{"groupName":k.strip(), "keywords":[k.strip()]}
+        groups = [{"groupName": k.strip(), "keywords": [k.strip()]}
                   for k in (kws or "").split(",") if k.strip()]
-        # 캐시 무시하고 강제 호출
         try:
             st.cache_data.clear()
         except Exception:
@@ -715,6 +738,7 @@ def section_datalab_debug():
 
     st.markdown('</div>', unsafe_allow_html=True)
 
+
 # =========================
 # 8) Radar Card (tabs: 국내 -> 해외)
 # =========================
@@ -726,6 +750,7 @@ def section_radar():
     with tab_overseas:
         section_rakuten_ui()
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 # =========================
 # 9) Other cards
@@ -787,14 +812,14 @@ def section_title_generator():
             if not kw_list:
                 st.warning("키워드가 비었습니다.")
             else:
-                titles=[]
+                titles = []
                 for k in kw_list:
-                    if order=="브랜드-키워드-속성": seq=[brand, k]+at_list
-                    elif order=="키워드-브랜드-속성": seq=[k,brand]+at_list
-                    else: seq=[brand]+at_list+[k]
-                    title = " ".join([p for p in seq if p]) if joiner==" " else joiner.join([p for p in seq if p])
-                    if len(title)>max_len:
-                        title = title[:max_len-1]+"…"
+                    if order == "브랜드-키워드-속성": seq = [brand, k] + at_list
+                    elif order == "키워드-브랜드-속성": seq = [k, brand] + at_list
+                    else: seq = [brand] + at_list + [k]
+                    title = " ".join([p for p in seq if p]) if joiner == " " else joiner.join([p for p in seq if p])
+                    if len(title) > max_len:
+                        title = title[:max_len-1] + "…"
                     titles.append(title)
                 st.success(f"총 {len(titles)}건")
                 st.write("\n".join(titles))
@@ -812,8 +837,9 @@ def section_sellerlife_placeholder():
     st.link_button("직접 열기(새 탭)", "https://sellochomes.co.kr/sellerlife/")
     st.markdown('</div>', unsafe_allow_html=True)
 
+
 # =========================
-# 10) Layout — row1 ratio 5:7 (Radar : Category Keyword Lab)
+# 10) Layout — row1 ratio 5:7 (Radar : Category Keyword Lab + Direct Trend)
 # =========================
 _ = _sidebar()
 _responsive_probe()
@@ -821,43 +847,19 @@ vwbin = _get_view_bin()
 
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
-# 1행: 레이더(5) + 카테고리 키워드 랩(7)
-row1_l, row1_r = st.columns([5,7], gap="medium")
+# 1행: 레이더(5) + 카테고리 키워드 랩(7) + 직접 입력 위젯
+row1_l, row1_r = st.columns([5, 7], gap="medium")
 with row1_l:
     section_radar()
 with row1_r:
     section_category_keyword_lab()
+    st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
+    section_keyword_trend_widget()   # ← 직접 입력 트렌드 위젯
 
 st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
-def section_keyword_trend_widget():
-    # 카드 헤더
-    st.markdown('<div class="card"><div class="card-title">키워드 트렌드 (직접 입력)</div>', unsafe_allow_html=True)
-
-    # 입력 UI
-    kwtxt   = st.text_input("키워드(콤마)", "가방, 원피스", key="kw_txt")
-    unit    = st.selectbox("단위", ["week", "month"], index=0, key="kw_unit")
-    months  = st.slider("조회기간(개월)", 1, 12, 3, key="kw_months")
-
-    # 조회 버튼
-    if st.button("트렌드 조회", key="kw_run"):
-        start = (dt.date.today() - dt.timedelta(days=30*months)).strftime("%Y-%m-%d")
-        end   = dt.date.today().strftime("%Y-%m-%d")
-
-        kws = [k.strip() for k in (kwtxt or "").split(",") if k.strip()]
-        groups = [{"groupName": k, "keywords": [k]} for k in kws]
-
-        df = _datalab_trend(groups, start, end, time_unit=unit)
-
-        if df.empty:
-            st.error("DataLab 트렌드 응답이 비어 있어요. (Client ID/Secret, 권한/쿼터/날짜/단위 확인)")
-        else:
-            st.dataframe(df, use_container_width=True, height=260)
-            st.line_chart(df.set_index("날짜"))
-
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # 2행: 11번가 / (번역 상 + 상품명 하) / 아이템스카우트 / 셀러라이프
-c1, c2, c3, c4 = st.columns([3,3,3,3], gap="medium")
+c1, c2, c3, c4 = st.columns([3, 3, 3, 3], gap="medium")
 with c1:
     section_11st()
 with c2:
