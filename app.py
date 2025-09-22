@@ -888,6 +888,7 @@ with row1_r:
     section_category_keyword_lab()
     st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
     section_keyword_trend_widget()   # ← 직접 입력 트렌드 위젯
+    section_datalab_debug()
 
 st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
 
