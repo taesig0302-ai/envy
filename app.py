@@ -553,13 +553,14 @@ def section_korea_ui():
                            file_name="korea_keyword_C.csv", mime="text/csv")
 
 # =========================
-# 7) DataLab Trend (Open API) + Category → Top20 UI
+# 7) DataLab Trend (Open API) + Category → Top20 UI (+ Debug)
 # =========================
 @st.cache_data(ttl=1800, show_spinner=False)
 def _datalab_trend(groups:list, start_date:str, end_date:str,
                    time_unit:str="week", device:str="", gender:str="", ages:list|None=None) -> pd.DataFrame:
-    """groups: [{"groupName":"키워드","keywords":["키워드"]}, ...]
-       패치: endDate는 '어제'로 강제, device/gender/ages는 값이 있을 때만 포함(빈 응답 방지)
+    """
+    Naver DataLab 검색어 트렌드.
+    groups 예: [{"groupName":"키워드","keywords":["키워드"]}, ...]
     """
     if not requests:
         return pd.DataFrame()
@@ -569,14 +570,6 @@ def _datalab_trend(groups:list, start_date:str, end_date:str,
     if not (cid and csec):
         return pd.DataFrame()
 
-    # ---- 날짜 보정: endDate는 '어제'까지 허용 ----
-    end_dt = pd.to_datetime(end_date)
-    yday = pd.Timestamp.today().normalize() - pd.Timedelta(days=1)
-    if end_dt > yday:
-        end_dt = yday
-    end_s = end_dt.strftime("%Y-%m-%d")
-    start_s = pd.to_datetime(start_date).strftime("%Y-%m-%d")
-
     url = "https://openapi.naver.com/v1/datalab/search"
     headers = {
         "X-Naver-Client-Id": cid,
@@ -584,47 +577,50 @@ def _datalab_trend(groups:list, start_date:str, end_date:str,
         "Content-Type": "application/json; charset=utf-8",
     }
     payload = {
-        "startDate": start_s,
-        "endDate": end_s,
-        "timeUnit": time_unit,              # 'date' | 'week' | 'month'
-        "keywordGroups": groups,
+        "startDate": start_date, "endDate": end_date, "timeUnit": time_unit,
+        "keywordGroups": groups
     }
-    # 선택하지 않은 옵션은 절대 넣지 않음
-    if device in ("pc", "mo"):
-        payload["device"] = device
-    if gender in ("m", "f"):
-        payload["gender"] = gender
-    if ages:
-        payload["ages"] = [a for a in ages if a in ["10","20","30","40","50","60"]]
+    if device: payload["device"] = device
+    if gender: payload["gender"] = gender
+    if ages:   payload["ages"]   = ages
 
-    r = requests.post(url, headers=headers, json=payload, timeout=12)
+    r = requests.post(url, headers=headers, data=json.dumps(payload), timeout=12)
     try:
         r.raise_for_status()
         js = r.json()
         out=[]
         for gr in js.get("results", []):
+            # title이 없으면 첫 키워드를 fallback으로 사용
             name = gr.get("title") or (gr.get("keywords") or [""])[0]
             tmp = pd.DataFrame(gr.get("data", []))
+            if tmp.empty:
+                continue
             tmp["keyword"] = name
             out.append(tmp)
+
         if not out:
             return pd.DataFrame()
+
         big = pd.concat(out, ignore_index=True)
         big.rename(columns={"period":"날짜","ratio":"검색지수"}, inplace=True)
-        pivot = big.pivot_table(index="날짜", columns="keyword", values="검색지수")
+        # pivot: 날짜 x keyword
+        pivot = big.pivot_table(index="날짜", columns="keyword", values="검색지수", aggfunc="mean")
         pivot = pivot.reset_index().sort_values("날짜")
         return pivot
     except Exception:
         return pd.DataFrame()
 
+
+# 카테고리별 Seed 키워드 → Top20 선별에 사용
 SEED_MAP = {
-    "패션의류": ["원피스","코트","니트","셔츠","블라우스"],
-    "패션잡화": ["가방","지갑","모자","스카프","벨트"],
-    "뷰티/미용": ["쿠션","립스틱","선크림","마스카라","토너"],
-    "생활/건강": ["칫솔","치약","샴푸","세제","물티슈"],
+    "패션의류":   ["원피스","코트","니트","셔츠","블라우스"],
+    "패션잡화":   ["가방","지갑","모자","스카프","벨트"],
+    "뷰티/미용":  ["쿠션","립스틱","선크림","마스카라","토너"],
+    "생활/건강":  ["칫솔","치약","샴푸","세제","물티슈"],
     "디지털/가전": ["블루투스이어폰","스피커","모니터","노트북","로봇청소기"],
     "스포츠/레저": ["러닝화","요가복","캠핑의자","텐트","자전거"],
 }
+
 
 def section_category_keyword_lab():
     st.markdown('<div class="card"><div class="card-title">카테고리 → 키워드 Top20 & 트렌드</div>', unsafe_allow_html=True)
@@ -637,13 +633,11 @@ def section_category_keyword_lab():
     with cC:
         months = st.slider("조회기간(개월)", 1, 12, 3)
 
-    # 조회기간: end=어제, start=end - months + 1day
-    end_ts = pd.Timestamp.today().normalize() - pd.Timedelta(days=1)
-    start_ts = end_ts - pd.DateOffset(months=months) + pd.Timedelta(days=1)
-    start = start_ts.strftime("%Y-%m-%d")
-    end   = end_ts.strftime("%Y-%m-%d")
+    # DataLab 기간
+    start = (dt.date.today() - dt.timedelta(days=30*months)).strftime("%Y-%m-%d")
+    end   = dt.date.today().strftime("%Y-%m-%d")
 
-    # Top20 표 (키워드도구)
+    # Top20 표 (네이버 검색광고 키워드도구)
     seeds = SEED_MAP.get(cat, [])
     df = _naver_keywordstool(seeds)
     if df.empty:
@@ -651,25 +645,74 @@ def section_category_keyword_lab():
         st.markdown('</div>', unsafe_allow_html=True)
         return
 
+    # 합계 기준 상위 20 추출
     df["검색합계"] = pd.to_numeric(df["PC월간검색수"], errors="coerce").fillna(0) + \
-                    pd.to_numeric(df["Mobile월간검색수"], errors="coerce").fillna(0)
+                     pd.to_numeric(df["Mobile월간검색수"], errors="coerce").fillna(0)
     top20 = df.sort_values("검색합계", ascending=False).head(20).reset_index(drop=True)
 
-    st.dataframe(top20[["키워드","검색합계","PC월간검색수","Mobile월간검색수","월평균노출광고수","광고경쟁정도"]],
-                 use_container_width=True, height=340)
-    st.download_button("CSV 다운로드", top20.to_csv(index=False).encode("utf-8-sig"),
-                       file_name=f"category_{cat}_top20.csv", mime="text/csv")
+    st.dataframe(
+        top20[["키워드","검색합계","PC월간검색수","Mobile월간검색수","월평균노출광고수","광고경쟁정도"]],
+        use_container_width=True, height=340
+    )
+    st.download_button(
+        "CSV 다운로드",
+        top20.to_csv(index=False).encode("utf-8-sig"),
+        file_name=f"category_{cat}_top20.csv",
+        mime="text/csv"
+    )
 
-    # 라인차트(상위 N개, DataLab)
+    # 라인차트 (상위 N개, DataLab Open API)
     topk = st.slider("라인차트 키워드 수", 3, 10, 5, help="상위 N개 키워드만 트렌드를 그립니다.")
     kws = top20["키워드"].head(topk).tolist()
     groups = [{"groupName":k, "keywords":[k]} for k in kws]
+
     ts = _datalab_trend(groups, start, end, time_unit=time_unit)
     if ts.empty:
         st.info("DataLab 트렌드 응답이 비어 있어요. (Client ID/Secret, 날짜/단위 확인)")
     else:
-        ts["날짜"] = pd.to_datetime(ts["날짜"])
-        st.line_chart(ts.set_index("날짜"))
+        try:
+            st.line_chart(ts.set_index("날짜"))
+        except Exception:
+            st.dataframe(ts, use_container_width=True, height=260)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+def section_datalab_debug():
+    """DataLab 호출 상태를 즉석에서 점검하는 작은 위젯(선택 사용)."""
+    st.markdown('<div class="card"><div class="card-title">🧪 DataLab 연결 진단</div>', unsafe_allow_html=True)
+
+    c1, c2 = st.columns([1,1])
+    with c1:
+        unit = st.selectbox("단위", ["week","month"], index=0, key="dbg_unit")
+    with c2:
+        months = st.slider("기간(개월)", 1, 12, 3, key="dbg_months")
+
+    start = (dt.date.today() - dt.timedelta(days=30*months)).strftime("%Y-%m-%d")
+    end   = dt.date.today().strftime("%Y-%m-%d")
+
+    kws = st.text_input("테스트 키워드(콤마)", "원피스, 코트", key="dbg_kws")
+
+    if st.button("DataLab 테스트 호출", key="dbg_btn"):
+        groups = [{"groupName":k.strip(), "keywords":[k.strip()]}
+                  for k in (kws or "").split(",") if k.strip()]
+        # 캐시 무시하고 강제 호출
+        try:
+            st.cache_data.clear()
+        except Exception:
+            pass
+
+        df = _datalab_trend(groups, start, end, time_unit=unit)
+        if df.empty:
+            st.error("실패: 응답이 비었습니다. (Client ID/Secret, 권한, 기간/단위, 쿼터 확인)")
+        else:
+            st.success(f"성공! {len(df)}행 수신")
+            st.dataframe(df.head(), use_container_width=True, height=220)
+            try:
+                st.line_chart(df.set_index("날짜"))
+            except Exception:
+                pass
+
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
