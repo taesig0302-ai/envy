@@ -561,6 +561,7 @@ def _datalab_trend(groups: list, start_date: str, end_date: str,
     """
     Naver DataLab 검색어 트렌드.
     groups 예: [{"groupName":"키워드","keywords":["키워드"]}, ...]
+    - DataLab 제약: keywordGroups 최대 5개
     """
     if not requests:
         return pd.DataFrame()
@@ -577,8 +578,10 @@ def _datalab_trend(groups: list, start_date: str, end_date: str,
         "Content-Type": "application/json; charset=utf-8",
     }
     payload = {
-        "startDate": start_date, "endDate": end_date, "timeUnit": time_unit,
-        "keywordGroups": groups
+        "startDate": start_date,
+        "endDate":   end_date,
+        "timeUnit":  time_unit,
+        "keywordGroups": groups[:5],   # 안전 캡
     }
     if device: payload["device"] = device
     if gender: payload["gender"] = gender
@@ -590,7 +593,7 @@ def _datalab_trend(groups: list, start_date: str, end_date: str,
         js = r.json()
         out = []
         for gr in js.get("results", []):
-            name = gr.get("title") or (gr.get("keywords") or [""])[0]  # title 없으면 첫 키워드
+            name = gr.get("title") or (gr.get("keywords") or [""])[0]  # title 없으면 첫 키워드로
             tmp = pd.DataFrame(gr.get("data", []))
             if tmp.empty:
                 continue
@@ -659,9 +662,9 @@ def section_category_keyword_lab():
         mime="text/csv"
     )
 
-    # 라인차트 (상위 N개, DataLab Open API)
+    # 라인차트 (상위 N개, DataLab Open API) — DataLab은 그룹 5개 제한이므로 cap
     topk = st.slider("라인차트 키워드 수", 3, 10, 5, help="상위 N개 키워드만 트렌드를 그립니다.")
-    kws = top20["키워드"].head(topk).tolist()
+    kws = top20["키워드"].head(topk).tolist()[:5]
     groups = [{"groupName": k, "keywords": [k]} for k in kws]
 
     ts = _datalab_trend(groups, start, end, time_unit=time_unit)
@@ -688,7 +691,7 @@ def section_keyword_trend_widget():
         start = (dt.date.today() - dt.timedelta(days=30 * months)).strftime("%Y-%m-%d")
         end   = (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
 
-        kws = [k.strip() for k in (kwtxt or "").split(",") if k.strip()]
+        kws = [k.strip() for k in (kwtxt or "").split(",") if k.strip()][:5]  # cap 5
         groups = [{"groupName": k, "keywords": [k]} for k in kws]
 
         df = _datalab_trend(groups, start, end, time_unit=unit)
@@ -703,7 +706,7 @@ def section_keyword_trend_widget():
 
 
 def section_datalab_debug():
-    """DataLab 호출 상태를 즉석에서 점검하는 작은 위젯(선택 사용)."""
+    """DataLab 호출 상태를 즉석에서 점검하는 작은 위젯."""
     st.markdown('<div class="card"><div class="card-title">🧪 DataLab 연결 진단</div>', unsafe_allow_html=True)
 
     c1, c2 = st.columns([1,1])
@@ -712,29 +715,52 @@ def section_datalab_debug():
     with c2:
         months = st.slider("기간(개월)", 1, 12, 3, key="dbg_months")
 
-    start = (dt.date.today() - dt.timedelta(days=30 * months)).strftime("%Y-%m-%d")
-    end   = (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
+    start = (dt.date.today() - dt.timedelta(days=30*months)).strftime("%Y-%m-%d")
+    end   = (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")  # 어제로 고정
 
     kws = st.text_input("테스트 키워드(콤마)", "원피스, 코트", key="dbg_kws")
+    show_raw = st.checkbox("RAW 응답 보기", value=False, key="dbg_raw")
 
     if st.button("DataLab 테스트 호출", key="dbg_btn"):
-        groups = [{"groupName": k.strip(), "keywords": [k.strip()]}
-                  for k in (kws or "").split(",") if k.strip()]
+        groups = [{"groupName":k.strip(), "keywords":[k.strip()]}
+                  for k in (kws or "").split(",") if k.strip()][:5]  # cap 5
+
+        # 캐시 무시
         try:
             st.cache_data.clear()
         except Exception:
             pass
 
+        # ① 래퍼로 호출
         df = _datalab_trend(groups, start, end, time_unit=unit)
-        if df.empty:
-            st.error("실패: 응답이 비었습니다. (Client ID/Secret, 권한, 기간/단위, 쿼터 확인)")
-        else:
+        if not df.empty:
             st.success(f"성공! {len(df)}행 수신")
             st.dataframe(df.head(), use_container_width=True, height=220)
             try:
                 st.line_chart(df.set_index("날짜"))
             except Exception:
                 pass
+            st.markdown('</div>', unsafe_allow_html=True)
+            return
+
+        # ② 빈 응답이면 RAW로 진단
+        try:
+            cid  = _get_key("NAVER_CLIENT_ID")
+            csec = _get_key("NAVER_CLIENT_SECRET")
+            url = "https://openapi.naver.com/v1/datalab/search"
+            headers = {
+                "X-Naver-Client-Id": cid,
+                "X-Naver-Client-Secret": csec,
+                "Content-Type": "application/json; charset=utf-8",
+            }
+            payload = {"startDate": start, "endDate": end, "timeUnit": unit, "keywordGroups": groups}
+            r = requests.post(url, headers=headers, data=json.dumps(payload), timeout=12)
+            st.error(f"실패: DataLab 응답이 비었습니다. (status {r.status_code})")
+            if show_raw:
+                st.caption("요청 페이로드"); st.code(json.dumps(payload, ensure_ascii=False, indent=2))
+                st.caption("응답 RAW");      st.code(r.text[:4000])
+        except Exception as e:
+            st.error(f"요청 중 예외: {e}")
 
     st.markdown('</div>', unsafe_allow_html=True)
 
