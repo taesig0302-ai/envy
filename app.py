@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # ENVY — Season 1 (Dual Proxy Edition, Radar tabs=국내/해외, Rakuten scope radio removed, row1 ratio 5:7)
-# 마지막 패치: 국내 레이더 API 입력칸 제거 + 카테고리→TOP20+트렌드(DataLab) 추가 + 라쿠텐 매핑 Expander
+# 마지막 패치: 국내 레이더 API 입력칸 제거 + 카테고리→TOP20+트렌드(DataLab) + 라쿠텐 매핑 Expander
+# + DataLab endDate=어제 강제/불필요 파라미터 생략(빈 응답 방지) 패치
 
 import base64, time, re, math, json, datetime as dt
 from pathlib import Path
@@ -125,7 +126,6 @@ def _inject_css():
       .card iframe{{border:0;width:100%;border-radius:10px}}
       .row-gap{{height:16px}}
 
-      /* logo (72px) */
       .logo-circle{{width:72px;height:72px;border-radius:50%;overflow:hidden;margin:.2rem auto .4rem auto;
                    box-shadow:0 2px 8px rgba(0,0,0,.12);border:1px solid rgba(0,0,0,.06)}}
       .logo-circle img{{width:100%;height:100%;object-fit:cover}}
@@ -558,7 +558,9 @@ def section_korea_ui():
 @st.cache_data(ttl=1800, show_spinner=False)
 def _datalab_trend(groups:list, start_date:str, end_date:str,
                    time_unit:str="week", device:str="", gender:str="", ages:list|None=None) -> pd.DataFrame:
-    """groups: [{"groupName":"키워드","keywords":["키워드"]}, ...]"""
+    """groups: [{"groupName":"키워드","keywords":["키워드"]}, ...]
+       패치: endDate는 '어제'로 강제, device/gender/ages는 값이 있을 때만 포함(빈 응답 방지)
+    """
     if not requests:
         return pd.DataFrame()
 
@@ -567,6 +569,14 @@ def _datalab_trend(groups:list, start_date:str, end_date:str,
     if not (cid and csec):
         return pd.DataFrame()
 
+    # ---- 날짜 보정: endDate는 '어제'까지 허용 ----
+    end_dt = pd.to_datetime(end_date)
+    yday = pd.Timestamp.today().normalize() - pd.Timedelta(days=1)
+    if end_dt > yday:
+        end_dt = yday
+    end_s = end_dt.strftime("%Y-%m-%d")
+    start_s = pd.to_datetime(start_date).strftime("%Y-%m-%d")
+
     url = "https://openapi.naver.com/v1/datalab/search"
     headers = {
         "X-Naver-Client-Id": cid,
@@ -574,14 +584,20 @@ def _datalab_trend(groups:list, start_date:str, end_date:str,
         "Content-Type": "application/json; charset=utf-8",
     }
     payload = {
-        "startDate": start_date, "endDate": end_date, "timeUnit": time_unit,
-        "keywordGroups": groups
+        "startDate": start_s,
+        "endDate": end_s,
+        "timeUnit": time_unit,              # 'date' | 'week' | 'month'
+        "keywordGroups": groups,
     }
-    if device: payload["device"] = device
-    if gender: payload["gender"] = gender
-    if ages:   payload["ages"]   = ages
+    # 선택하지 않은 옵션은 절대 넣지 않음
+    if device in ("pc", "mo"):
+        payload["device"] = device
+    if gender in ("m", "f"):
+        payload["gender"] = gender
+    if ages:
+        payload["ages"] = [a for a in ages if a in ["10","20","30","40","50","60"]]
 
-    r = requests.post(url, headers=headers, data=json.dumps(payload), timeout=12)
+    r = requests.post(url, headers=headers, json=payload, timeout=12)
     try:
         r.raise_for_status()
         js = r.json()
@@ -591,7 +607,8 @@ def _datalab_trend(groups:list, start_date:str, end_date:str,
             tmp = pd.DataFrame(gr.get("data", []))
             tmp["keyword"] = name
             out.append(tmp)
-        if not out: return pd.DataFrame()
+        if not out:
+            return pd.DataFrame()
         big = pd.concat(out, ignore_index=True)
         big.rename(columns={"period":"날짜","ratio":"검색지수"}, inplace=True)
         pivot = big.pivot_table(index="날짜", columns="keyword", values="검색지수")
@@ -620,8 +637,11 @@ def section_category_keyword_lab():
     with cC:
         months = st.slider("조회기간(개월)", 1, 12, 3)
 
-    start = (dt.date.today() - dt.timedelta(days=30*months)).strftime("%Y-%m-%d")
-    end   = dt.date.today().strftime("%Y-%m-%d")
+    # 조회기간: end=어제, start=end - months + 1day
+    end_ts = pd.Timestamp.today().normalize() - pd.Timedelta(days=1)
+    start_ts = end_ts - pd.DateOffset(months=months) + pd.Timedelta(days=1)
+    start = start_ts.strftime("%Y-%m-%d")
+    end   = end_ts.strftime("%Y-%m-%d")
 
     # Top20 표 (키워드도구)
     seeds = SEED_MAP.get(cat, [])
@@ -648,6 +668,7 @@ def section_category_keyword_lab():
     if ts.empty:
         st.info("DataLab 트렌드 응답이 비어 있어요. (Client ID/Secret, 날짜/단위 확인)")
     else:
+        ts["날짜"] = pd.to_datetime(ts["날짜"])
         st.line_chart(ts.set_index("날짜"))
     st.markdown('</div>', unsafe_allow_html=True)
 
