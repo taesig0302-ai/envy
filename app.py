@@ -973,25 +973,42 @@ def section_title_generator():
                          "사유": " / ".join(sc["reasons"]), "문자수": sc["chars"], "바이트": sc["bytes"]})
         df_out=pd.DataFrame(rows).sort_values("SEO점수", ascending=False)
 
+        # ----- 결과 표시 UI (간소화) -----
         st.success(f"생성 완료 · {len(df_out)}건")
-        for i,r in enumerate(df_out.itertuples(index=False),1):
-            warn=[]
-            if r.문자수<30: warn.append("30자 미만")
-            if r.바이트>50: warn.append("50바이트 초과")
-            suf="" if not warn else " — " + " / ".join([f":red[{w}]" for w in warn])
-            st.markdown(f"**{i}.** {r.title}  "
-                        f"<span style='opacity:.7'>(문자 {r.문자수}/50 · 바이트 {r.바이트}/50 · SEO {r.SEO점수})</span>{suf}",
-                        unsafe_allow_html=True)
-            st.code(r.title)
+        mode = st.radio("결과 표시", ["카드", "표", "일괄복사"], horizontal=True, index=0)
 
-        st.markdown("**SEO 리포트**")
-        st.dataframe(df_out.reset_index(drop=True), use_container_width=True, height=240)
+        if mode == "카드":
+            for i, r in enumerate(df_out.itertuples(index=False), 1):
+                warn = []
+                if r.문자수 < 30:
+                    warn.append("30자 미만")
+                if r.바이트 > 50:
+                    warn.append("50바이트 초과")
+                suf = "" if not warn else " — " + " / ".join([f":red[{w}]" for w in warn])
 
-        # 다운로드/복사
-        st.download_button("CSV 다운로드",
+                st.markdown(
+                    f"**{i}.** {r.title}  "
+                    f"<span style='opacity:.7'>(문자 {r.문자수}/50 · 바이트 {r.바이트}/50 · SEO {r.SEO점수})</span>{suf}",
+                    unsafe_allow_html=True
+                )
+
+        elif mode == "표":
+            st.dataframe(
+                df_out[["title", "SEO점수", "문자수", "바이트", "사유"]].reset_index(drop=True),
+                use_container_width=True, height=360
+            )
+
+        else:  # 일괄복사
+            st.text_area("일괄복사", value="\n".join(df_out["title"].tolist()), height=220)
+
+        # 공통: CSV 다운로드
+        st.download_button(
+            "CSV 다운로드",
             data=df_out[["title"]].to_csv(index=False).encode("utf-8-sig"),
-            file_name="titles_topN.csv", mime="text/csv")
-        st.text_area("일괄복사", value="\n".join(df_out["title"].tolist()), height=120)
+            file_name="titles_topN.csv",
+            mime="text/csv",
+        )
+        # ----- 결과 표시 UI (간소화) 끝 -----
 
         # 저장
         store = _read_store()
@@ -1021,7 +1038,6 @@ def section_title_generator():
                     file_name=f"{sel}.csv", mime="text/csv")
 
     st.markdown("</div>", unsafe_allow_html=True)
-
 
 # =========================
 # 10) 기타 카드
@@ -1060,7 +1076,7 @@ vwbin = _get_view_bin()
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
 # 1행
-row1_a, row1_b, row1_c = st.columns([8, 5, 3], gap="medium")
+row1_a, row1_b, row1_c = st.columns([8, 3, 5], gap="medium")
 with row1_a:
     section_radar()
 with row1_b:
