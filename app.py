@@ -491,11 +491,59 @@ def section_korea_ui():
         df2["상품수순위"]  = df2["판매상품수"].rank(na_option="bottom", method="min")
         df2["상품발굴대상"] = (df2["검색순위"] + df2["상품수순위"]).rank(na_option="bottom", method="min")
 
-        cols = ["키워드","PC월간검색수","Mobile월간검색수","판매상품수",
+                cols = ["키워드","PC월간검색수","Mobile월간검색수","판매상품수",
                 "PC월평균클릭수","Mobile월평균클릭수","PC월평균클릭률","Mobile월평균클릭률",
                 "월평균노출광고수","광고경쟁정도","검색순위","상품수순위","상품발굴대상"]
         out = df2[cols].sort_values("상품발굴대상")
-        st.dataframe(out, use_container_width=True, height=430)
+
+        # ➊ 컴팩트 보기 토글
+        compact = st.toggle("컴팩트 보기(가로 스크롤 최소화)", value=True, key="kr_compact")
+
+        # ➋ 공통: 숫자 칼럼 폭/포맷을 최대한 작게
+        base_colcfg = {
+            "키워드": st.column_config.TextColumn("키워드", width="medium"),
+            "PC월간검색수":        st.column_config.NumberColumn("PC월간",   format="%d",   width="small"),
+            "Mobile월간검색수":    st.column_config.NumberColumn("MO월간",   format="%d",   width="small"),
+            "판매상품수":          st.column_config.NumberColumn("상품수",   format="%d",   width="small"),
+            "PC월평균클릭수":      st.column_config.NumberColumn("PC클릭",   format="%.1f", width="small"),
+            "Mobile월평균클릭수":  st.column_config.NumberColumn("MO클릭",   format="%.1f", width="small"),
+            "PC월평균클릭률":      st.column_config.NumberColumn("PCCTR",   format="%.2f", width="small"),
+            "Mobile월평균클릭률":  st.column_config.NumberColumn("MOCTR",   format="%.2f", width="small"),
+            "월평균노출광고수":    st.column_config.NumberColumn("광고수",   format="%d",   width="small"),
+            "광고경쟁정도":        st.column_config.TextColumn("경쟁",       width="small"),
+            "검색순위":            st.column_config.NumberColumn("검색↑",   format="%d",   width="small"),
+            "상품수순위":          st.column_config.NumberColumn("상품↑",   format="%d",   width="small"),
+            "상품발굴대상":        st.column_config.NumberColumn("스코어",   format="%d",   width="small"),
+        }
+
+        # ➌ 컴팩트 모드: 핵심 칼럼만 노출
+        if compact:
+            mini_cols = ["키워드","PC월간검색수","Mobile월간검색수","판매상품수",
+                         "검색순위","상품수순위","상품발굴대상"]
+
+            st.markdown("""
+            <style>
+              /* 표 글자/패딩을 조금 조여서 가로폭 절약 */
+              #kr-compact [data-testid="stDataFrame"] * { font-size: 0.92rem; }
+              #kr-compact [data-testid="stDataFrame"] div[role='grid']{ overflow-x: hidden; }
+            </style>
+            """, unsafe_allow_html=True)
+
+            st.markdown('<div id="kr-compact">', unsafe_allow_html=True)
+            st.dataframe(
+                out[mini_cols],
+                hide_index=True, use_container_width=True, height=430,
+                column_config={k: base_colcfg[k] for k in mini_cols},
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            # 전체 칼럼 보기(기존과 동일, 단 폭은 ‘small’로 조여서 스크롤 최소화)
+            st.dataframe(
+                out,
+                hide_index=True, use_container_width=True, height=430,
+                column_config=base_colcfg,
+            )
+
         st.download_button("CSV 다운로드", out.to_csv(index=False).encode("utf-8-sig"),
                            file_name="korea_keyword_C.csv", mime="text/csv")
 
