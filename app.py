@@ -238,7 +238,7 @@ def _proxy_iframe_with_title(proxy_base: str, target_url: str, height: int = 860
     st.components.v1.html(html, height=h+56, scrolling=False)
 
 # =========================
-# 4) Sidebar (calculator + theme + 번역기 토글)
+# 4) Sidebar (theme + translator toggle + calculators)
 # =========================
 def _sidebar():
     _ensure_session_defaults()
@@ -255,7 +255,7 @@ def _sidebar():
                 unsafe_allow_html=True
             )
 
-        # 상단 토글 (다크모드 + 번역기)
+        # 상단 토글 (다크/번역기)
         c1, c2 = st.columns(2)
         with c1:
             st.toggle("🌓 다크",
@@ -265,9 +265,66 @@ def _sidebar():
         with c2:
             st.toggle("🌐 번역기", value=False, key="__show_translator")
 
-        # ───────────────────────────────
+        # ─────────────────────────────────────────────
+        # 번역기 토글 ON → 번역기만 표시
+        # ─────────────────────────────────────────────
+        if st.session_state.get("__show_translator", False):
+            with st.expander("🌐 구글 번역기", expanded=True):
+                LANG_LABELS_SB = {
+                    "auto":"자동 감지","ko":"한국어","en":"영어","ja":"일본어",
+                    "zh-CN":"중국어(간체)","zh-TW":"중국어(번체)","vi":"베트남어",
+                    "th":"태국어","id":"인도네시아어","de":"독일어","fr":"프랑스어",
+                    "es":"스페인어","it":"이탈리아어","pt":"포르투갈어"
+                }
+                def _code_sb(x): return {v:k for k,v in LANG_LABELS_SB.items()}.get(x, x)
+
+                # 기본 타겟 = 한국어(ko)
+                src_label = st.selectbox(
+                    "원문 언어", list(LANG_LABELS_SB.values()),
+                    index=list(LANG_LABELS_SB.keys()).index("auto"), key="sb_tr_src"
+                )
+                tgt_label = st.selectbox(
+                    "번역 언어", list(LANG_LABELS_SB.values()),
+                    index=list(LANG_LABELS_SB.keys()).index("ko"), key="sb_tr_tgt"
+                )
+
+                text_in = st.text_area("텍스트", height=120, key="sb_tr_in")
+
+                if st.button("번역 실행", key="sb_tr_btn"):
+                    try:
+                        from deep_translator import GoogleTranslator as _GT
+                    except Exception:
+                        _GT = None
+
+                    if not _GT:
+                        st.error("deep-translator 설치 필요 또는 런타임 문제")
+                    else:
+                        try:
+                            src_code = _code_sb(src_label)   # ex) 'auto'
+                            tgt_code = _code_sb(tgt_label)   # ex) 'ko'
+                            # 1) 선택 언어로 번역
+                            out_main = _GT(source=src_code, target=tgt_code).translate(text_in or "")
+                            st.text_area(f"결과 ({tgt_label})", value=out_main, height=120, key="sb_tr_out_main")
+
+                            # 2) 한국어 추가 결과(타겟이 한국어가 아닐 때만)
+                            if tgt_code != "ko":
+                                out_ko = _GT(source=tgt_code, target="ko").translate(out_main or "")
+                                st.text_area("결과 (한국어)", value=out_ko, height=120, key="sb_tr_out_ko")
+
+                        except Exception as e:
+                            st.error(f"번역 중 오류: {e}")
+
+            # 번역기 모드에서는 계산기 숨김
+            if SHOW_ADMIN_BOX:
+                st.divider()
+                st.text_input("PROXY_URL(디버그)", key="PROXY_URL", help="Cloudflare Worker 주소 (옵션)")
+            return  # ← 조기 종료: 아래 계산기 렌더 안 함
+
+        # ─────────────────────────────────────────────
+        # 번역기 토글 OFF → 계산기들 표시
+        # ─────────────────────────────────────────────
+
         # ① 환율 계산기
-        # ───────────────────────────────
         with st.expander("💱 환율 계산기", expanded=True):
             base = st.selectbox(
                 "기준 통화", list(CURRENCIES.keys()),
@@ -286,9 +343,7 @@ def _sidebar():
             )
             st.caption(f"환율 기준: {FX_DEFAULT[base]:,.2f} ₩/{CURRENCIES[base]['unit']}")
 
-        # ───────────────────────────────
         # ② 마진 계산기
-        # ───────────────────────────────
         with st.expander("📈 마진 계산기", expanded=True):
             m_base = st.selectbox(
                 "매입 통화", list(CURRENCIES.keys()),
@@ -296,7 +351,7 @@ def _sidebar():
                 key="m_base"
             )
             purchase_foreign = st.number_input(
-                "매입금액 (외화)", value=float(st.session_state["purchase_foreign"]),
+                "매입금액 (외화)", value=float(st.session_state["purchase_fore행"]),
                 step=0.01, format="%.2f", key="purchase_foreign"
             )
 
@@ -349,42 +404,6 @@ def _sidebar():
                 f'<div class="pill pill-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>',
                 unsafe_allow_html=True
             )
-
-        # ───────────────────────────────
-        # ③ 번역기 (토글 ON일 때만 표시)
-        # ───────────────────────────────
-        if st.session_state.get("__show_translator", False):
-            with st.expander("🌐 구글 번역기", expanded=True):
-                LANG_LABELS_SB = {
-                    "auto":"자동 감지","ko":"한국어","en":"영어","ja":"일본어",
-                    "zh-CN":"중국어(간체)","zh-TW":"중국어(번체)","vi":"베트남어",
-                    "th":"태국어","id":"인도네시아어","de":"독일어","fr":"프랑스어",
-                    "es":"스페인어","it":"이탈리아어","pt":"포르투갈어"
-                }
-                def _code_sb(x): return {v:k for k,v in LANG_LABELS_SB.items()}.get(x, x)
-
-                src_label = st.selectbox("원문 언어", list(LANG_LABELS_SB.values()),
-                                         index=list(LANG_LABELS_SB.keys()).index("auto"), key="sb_tr_src")
-                tgt_label = st.selectbox("번역 언어", list(LANG_LABELS_SB.values()),
-                                         index=list(LANG_LABELS_SB.keys()).index("en"), key="sb_tr_tgt")
-                text_in = st.text_area("텍스트", height=120, key="sb_tr_in")
-
-                if st.button("번역 실행", key="sb_tr_btn"):
-                    try:
-                        from deep_translator import GoogleTranslator as _GT
-                    except Exception:
-                        _GT = None
-
-                    if not _GT:
-                        st.error("deep-translator 설치 필요 또는 런타임 문제")
-                    else:
-                        try:
-                            src_code = _code_sb(src_label)
-                            tgt_code = _code_sb(tgt_label)
-                            out = _GT(source=src_code, target=tgt_code).translate(text_in or "")
-                            st.text_area("결과", value=out, height=120, key="sb_tr_out")
-                        except Exception as e:
-                            st.error(f"번역 중 오류: {e}")
 
         # 관리자 디버그
         if SHOW_ADMIN_BOX:
