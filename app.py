@@ -873,7 +873,7 @@ def section_sellerlife_placeholder():
 
 
 # =========================
-# 10) Layout — row1 ratio 5:7 (Radar : Category Keyword Lab + Direct Trend)
+# 10) Layout — row1: Radar | (카테고리 or 직접 입력)
 # =========================
 _ = _sidebar()
 _responsive_probe()
@@ -881,15 +881,18 @@ vwbin = _get_view_bin()
 
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
-# 1행: 레이더(5) + 카테고리 키워드 랩(7) + 직접 입력 위젯
-row1_l, row1_r = st.columns([5, 7], gap="medium")
+# 1행: 레이더(좌) + 탭(우: 카테고리 / 직접 입력)
+row1_l, row1_r = st.columns([5, 11], gap="medium")
 with row1_l:
     section_radar()
+
 with row1_r:
-    section_category_keyword_lab()
-    st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
-    section_keyword_trend_widget()   # ← 직접 입력 트렌드 위젯
-    section_datalab_debug()
+    # 한 공간에서 모드 전환
+    tab_cat, tab_direct = st.tabs(["카테고리", "직접 입력"])
+    with tab_cat:
+        section_category_keyword_lab()    # 기존 카테고리→Top20 + 트렌드
+    with tab_direct:
+        section_keyword_trend_widget()    # 기존 직접 입력 트렌드 위젯
 
 st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
 
