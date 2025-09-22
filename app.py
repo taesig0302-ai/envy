@@ -19,15 +19,14 @@ except Exception:
     GoogleTranslator = None
 
 # -------------------------------------------------------
-# 0) CONFIG / SECRETS (secrets 우선, 미설정 시 상수 사용)
+# 0) CONFIG (요청하신 값 '직접' 박아넣음 / secrets 안 씀)
 # -------------------------------------------------------
-# ▶ 여기에 직접 값을 채워도 되고, st.secrets 를 쓰면 그 값을 우선 사용합니다.
-RAKUTEN_APP_ID_DEFAULT       = ""  # "1043271015809337425"
-RAKUTEN_AFFILIATE_ID_DEFAULT = ""  # "4c723498.cbfeca46.4c723499.1deb6f77"
+RAKUTEN_APP_ID_DEFAULT       = "1043271015809337425"
+RAKUTEN_AFFILIATE_ID_DEFAULT = "4c723498.cbfeca46.4c723499.1deb6f77"
 
-NAVER_API_KEY_DEFAULT     = ""  # "엑세스라이선스"
-NAVER_SECRET_KEY_DEFAULT  = ""  # "비밀키"
-NAVER_CUSTOMER_ID_DEFAULT = ""  # "CUSTOMER_ID"
+NAVER_API_KEY_DEFAULT     = "0100000000785cf1d8f039b13a5d3c3d1262b84e9ad4a046637e8887bbd003051b0d2a5cdf"
+NAVER_SECRET_KEY_DEFAULT  = "AQAAAAB4XPHY8DmxOl08PRJiuE6ao1LN3lh0kF9rOJ4m5b8O5g=="
+NAVER_CUSTOMER_ID_DEFAULT = "2274338"
 
 # 프록시
 NAVER_PROXY      = "https://envy-proxy.taesig0302.workers.dev"
@@ -291,13 +290,8 @@ def _sidebar():
 # 5) Rakuten Ranking
 # -------------------------------------------------------
 def _rakuten_keys():
-    app_id = (st.secrets.get("RAKUTEN_APP_ID", "")
-              or st.secrets.get("RAKUTEN_APPLICATION_ID", "")
-              or RAKUTEN_APP_ID_DEFAULT).strip()
-    affiliate = (st.secrets.get("RAKUTEN_AFFILIATE_ID", "")
-                 or st.secrets.get("RAKUTEN_AFFILIATE", "")
-                 or RAKUTEN_AFFILIATE_ID_DEFAULT).strip()
-    return app_id, affiliate
+    # secrets 사용 안 함 — 상수 바로 사용
+    return RAKUTEN_APP_ID_DEFAULT.strip(), RAKUTEN_AFFILIATE_ID_DEFAULT.strip()
 
 def _retry_backoff(fn, tries=3, base=0.8, factor=2.0):
     last=None
@@ -414,10 +408,10 @@ def section_rakuten_ui():
 import hashlib, hmac, base64 as b64
 
 def _get_naver_keys():
-    ak = (st.secrets.get("NAVER_API_KEY","")     or NAVER_API_KEY_DEFAULT).strip()
-    sk = (st.secrets.get("NAVER_SECRET_KEY","")  or NAVER_SECRET_KEY_DEFAULT).strip()
-    cid= (st.secrets.get("NAVER_CUSTOMER_ID","") or NAVER_CUSTOMER_ID_DEFAULT).strip()
-    return ak, sk, cid
+    # secrets 사용 안 함 — 상수 바로 사용
+    return (NAVER_API_KEY_DEFAULT.strip(),
+            NAVER_SECRET_KEY_DEFAULT.strip(),
+            NAVER_CUSTOMER_ID_DEFAULT.strip())
 
 def _naver_signature(timestamp: str, method: str, uri: str, secret: str) -> str:
     msg = f"{timestamp}.{method}.{uri}"
@@ -513,20 +507,17 @@ def section_korea_ui():
             st.error("데이터가 없습니다. (API/계정/권한/쿼터 또는 키워드를 확인)")
             return
 
-        # ── A 타입 : 원본 지표
         if table_mode.startswith("A"):
             st.dataframe(df, use_container_width=True, height=430)
             st.download_button("CSV 다운로드", df.to_csv(index=False).encode("utf-8-sig"),
                                file_name="korea_keyword_A.csv", mime="text/csv")
             return
 
-        # 공통: 순위 필드 계산
         df2 = df.copy()
         df2["검색합계"] = (pd.to_numeric(df2["PC월간검색수"], errors="coerce").fillna(0) +
                            pd.to_numeric(df2["Mobile월간검색수"], errors="coerce").fillna(0))
         df2["검색순위"] = df2["검색합계"].rank(ascending=False, method="min")
 
-        # ── B 타입 : 검색+순위
         if table_mode.startswith("B"):
             out = df2.sort_values("검색순위")
             st.dataframe(out, use_container_width=True, height=430)
@@ -534,7 +525,6 @@ def section_korea_ui():
                                file_name="korea_keyword_B.csv", mime="text/csv")
             return
 
-        # ── C 타입 : 검색+상품수+스코어  (컴팩트 뷰)
         product_counts = []
         if add_product:
             with st.spinner("네이버쇼핑 상품수 수집 중…(키워드 수에 따라 수 분 소요)"):
@@ -555,7 +545,7 @@ def section_korea_ui():
         ]
         out = df2[cols].sort_values("상품발굴대상")
 
-        # ── 컴팩트 라벨로 축약
+        # 컴팩트 라벨
         rename_map = {
             "PC월간검색수":"PC월","Mobile월간검색수":"MO월","판매상품수":"상품수",
             "PC월평균클릭수":"PC클","Mobile월평균클릭수":"MO클",
@@ -564,13 +554,10 @@ def section_korea_ui():
             "검색순위":"검색R","상품수순위":"상품R","상품발굴대상":"대상R",
         }
         out_compact = out.rename(columns=rename_map)
-
-        # 숫자형 일부 반올림
         for c in ["PC클","MO클","PCTR","MCTR"]:
             if c in out_compact.columns:
                 out_compact[c] = pd.to_numeric(out_compact[c], errors="coerce").round(2)
 
-        # column width 축소
         colcfg = {
             "키워드": st.column_config.TextColumn("키워드", width="medium"),
             "PC월":  st.column_config.NumberColumn("PC월", width="small"),
@@ -578,8 +565,8 @@ def section_korea_ui():
             "상품수": st.column_config.NumberColumn("상품수", width="small"),
             "PC클":  st.column_config.NumberColumn("PC클", width="small"),
             "MO클":  st.column_config.NumberColumn("MO클", width="small"),
-            "PCTR": st.column_config.NumberColumn("PCTR", width="small", help="PC 월평균 클릭률"),
-            "MCTR": st.column_config.NumberColumn("MCTR", width="small", help="MO 월평균 클릭률"),
+            "PCTR": st.column_config.NumberColumn("PCTR", width="small"),
+            "MCTR": st.column_config.NumberColumn("MCTR", width="small"),
             "광고수": st.column_config.NumberColumn("광고수", width="small"),
             "경쟁":  st.column_config.TextColumn("경쟁", width="small"),
             "검색R": st.column_config.NumberColumn("검색R", width="small"),
