@@ -826,10 +826,6 @@ def section_translator():
 def section_title_generator():
     """
     상품명 생성기 (네이버 SEO + 검색량 기반 자동 확장)
-    - 핵심 키워드 앞배치 + 네이버 키워드도구 지표 점수화
-    - 50자 전후 자동 확장: 검색량 상위·경쟁도 낮은 연관 키워드로 채움
-    - 금칙어/중복어 제거, 공백/구분자 정리, 초과 길이 안전 컷
-    - 외부 의존: _naver_keywordstool, pandas as pd, streamlit as st
     """
     import re, math
 
@@ -900,7 +896,7 @@ def section_title_generator():
     with a:
         max_len = st.slider("최대 글자수", 40, 70, 50, 1, key="seo_maxlen")
     with b:
-        target_min = st.slider("목표 최소 글자수", 40, 60, 45, 1, help="자동 확장 시 이 길이 이상을 목표로 채웁니다.", key="seo_minlen")
+        target_min = st.slider("목표 최소 글자수", 40, 60, 45, 1, key="seo_minlen")
     with c:
         joiner = st.selectbox("구분자", [" ", " | ", " · ", " - "], index=0, key="seo_joiner")
     with d:
@@ -908,7 +904,7 @@ def section_title_generator():
 
     e,f,g = st.columns([1,1,2])
     with e:
-        use_naver = st.toggle("네이버 SEO 모드", value=True, help="네이버 키워드도구 지표로 점수화", key="seo_use_naver")
+        use_naver = st.toggle("네이버 SEO 모드", value=True, key="seo_use_naver")
     with f:
         auto_expand = st.toggle("검색량 기반 자동 확장", value=True, key="seo_autoexpand")
     with g:
@@ -930,14 +926,14 @@ def section_title_generator():
             with st.spinner("네이버 키워드 지표 조회 중…"):
                 df_raw=_naver_keywordstool(kw_list)
             if df_raw.empty:
-                st.info("네이버 지표를 가져오지 못했습니다. (키/권한/쿼터). 입력 키워드만 사용합니다.")
+                st.info("네이버 지표를 가져오지 못했습니다. 입력 키워드만 사용합니다.")
             else:
                 naver_table=_score_keywords(df_raw)
                 ranked_kws=naver_table["키워드"].tolist()
 
         brand_norm=_norm(brand)
         attrs_norm=_dedup([_norm(a) for a in (attrs or "").split(",") if _norm(a)])
-        attrs_norm=_remove_stopwords(attrs_norm, stopset) if attrs_norm else []
+        attrs_norm=_remove_stop(attrs_norm, stopset) if attrs_norm else []
 
         def _base_seq(primary_kw: str):
             if order=="브랜드-키워드-속성":
@@ -960,7 +956,6 @@ def section_title_generator():
             title=(" ".join(seq) if joiner==" " else joiner.join(seq)).strip()
             title=_norm(title)
 
-            # 자동 확장
             expanded=title
             if auto_expand and len(expanded)<target_min and use_naver and ranked_kws:
                 for cand in ranked_kws:
@@ -986,7 +981,8 @@ def section_title_generator():
 
         if titles:
             st.success(f"생성 완료 · {len(titles)}건")
-            st.write("\n".join(titles))
+            for i, t in enumerate(titles, 1):
+                st.markdown(f"**{i}.** {t}")
             out_df=pd.DataFrame({"title":titles})
             st.download_button("CSV 다운로드", data=out_df.to_csv(index=False).encode("utf-8-sig"),
                                file_name="titles_seo_auto_expand.csv", mime="text/csv")
@@ -1006,6 +1002,7 @@ def section_sellerlife_placeholder():
     st.info("임베드 보류 중입니다. 아래 버튼으로 원본 페이지를 새 탭에서 여세요.")
     st.link_button("직접 열기(새 탭)", "https://sellochomes.co.kr/sellerlife/")
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 # =========================
