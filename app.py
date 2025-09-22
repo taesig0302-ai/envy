@@ -241,7 +241,10 @@ def _proxy_iframe_with_title(proxy_base: str, target_url: str, height: int = 860
 # 4) Sidebar (calculator + theme)
 # =========================
 def _sidebar():
-    _ensure_session_defaults(); _inject_css(); _inject_alert_center()
+    _ensure_session_defaults()
+    _inject_css()
+    _inject_alert_center()
+
     with st.sidebar:
         # 로고
         lp = Path(__file__).parent / "logo.png"
@@ -249,33 +252,40 @@ def _sidebar():
             b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
             st.markdown(f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>', unsafe_allow_html=True)
 
-        # 상단 토글 2개 나란히
+        # 상단 토글 2개 (다크모드 / 번역기)
         c1, c2 = st.columns(2)
         with c1:
-            st.toggle("🌓 다크 모드",
-                      value=(st.session_state.get("theme","light")=="dark"),
+            st.toggle("🌓 다크", value=(st.session_state.get("theme","light")=="dark"),
                       on_change=_toggle_theme, key="__theme_toggle")
         with c2:
-            st.toggle("🌐 번역기", value=False, key="__show_translator")  # ← 새 토글
+            st.toggle("🌐 번역기", value=False, key="__show_translator")
 
-        # ① 환율 계산기 (expander 그대로)
+        # ① 환율 계산기 (Expander)
         with st.expander("💱 환율 계산기", expanded=True):
             base = st.selectbox("기준 통화", list(CURRENCIES.keys()),
                                 index=list(CURRENCIES.keys()).index(st.session_state["fx_base"]), key="fx_base")
             sale_foreign = st.number_input("판매금액 (외화)", value=float(st.session_state["sale_foreign"]),
                                            step=0.01, format="%.2f", key="sale_foreign")
             won = FX_DEFAULT[base] * sale_foreign
-            st.markdown(f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b></div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b>'
+                f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[base]["symbol"]})</span></div>',
+                unsafe_allow_html=True
+            )
             st.caption(f"환율 기준: {FX_DEFAULT[base]:,.2f} ₩/{CURRENCIES[base]['unit']}")
 
-        # ② 마진 계산기
+        # ② 마진 계산기 (Expander)
         with st.expander("📈 마진 계산기", expanded=True):
-            m_base = st.selectbox("매입 통화", list(CURRENCORIES.keys()) if False else list(CURRENCIES.keys()),
-                                  index=list(CURRENCIES.keys()).index(st.session_state["m_base"]), key="m_base")
+            m_base = st.selectbox("매입 통화", list(CURRENCIES.keys()),
+                                  index=list(CURRENCENCIES.keys()).index(st.session_state["m_base"]) if False
+                                  else list(CURRENCIES.keys()).index(st.session_state["m_base"]), key="m_base")
             purchase_foreign = st.number_input("매입금액 (외화)", value=float(st.session_state["purchase_foreign"]),
                                                step=0.01, format="%.2f", key="purchase_foreign")
-            base_cost_won = FX_DEFAULT[m_base]*purchase_foreign if purchase_foreign>0 else FX_DEFAULT[st.session_state["fx_base"]]*st.session_state["sale_foreign"]
+
+            base_cost_won = FX_DEFAULT[m_base]*purchase_foreign if purchase_foreign>0 \
+                            else FX_DEFAULT[st.session_state["fx_base"]]*st.session_state["sale_foreign"]
             st.markdown(f'<div class="pill pill-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
+
             c1, c2 = st.columns(2)
             with c1:
                 card_fee = st.number_input("카드수수료(%)", value=float(st.session_state["card_fee_pct"]),
@@ -285,6 +295,7 @@ def _sidebar():
                                              step=0.01, format="%.2f", key="market_fee_pct")
             shipping_won = st.number_input("배송비(₩)", value=float(st.session_state["shipping_won"]),
                                            step=100.0, format="%.0f", key="shipping_won")
+
             mode = st.radio("마진 방식", ["퍼센트","플러스"], horizontal=True, key="margin_mode")
             if mode=="퍼센트":
                 margin_pct = st.number_input("마진율 (%)", value=float(st.session_state["margin_pct"]),
@@ -296,12 +307,14 @@ def _sidebar():
                 margin_won = st.number_input("마진액 (₩)", value=float(st.session_state["margin_won"]),
                                              step=100.0, format="%.0f", key="margin_won")
                 target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)+margin_won+shipping_won
-                margin_value = margin_won; desc = f"+{margin_won:,.0f}"
+                margin_value = margin_won
+                desc = f"+{margin_won:,.0f}"
+
             st.markdown(f'<div class="pill pill-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="pill pill-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>', unsafe_allow_html=True)
 
-        # ③ 번역기: 토글이 켜졌을 때만 렌더
-        if st.session_state.get("__show_translator"):
+        # ③ 번역기: 토글 ON일 때만 렌더 (사이드바 길이 최소화)
+        if st.session_state.get("__show_translator", False):
             with st.expander("🌐 구글 번역기", expanded=True):
                 src = st.selectbox("원문 언어", list(LANG_LABELS.values()),
                                    index=list(LANG_LABELS.keys()).index("auto"), key="sb_tr_src")
@@ -786,8 +799,6 @@ def section_datalab_debug():
 
     st.markdown('</div>', unsafe_allow_html=True)
 
-
-
 # =========================
 # 8) Radar Card (tabs: 국내 -> 해외)
 # =========================
@@ -799,7 +810,6 @@ def section_radar():
     with tab_overseas:
         section_rakuten_ui()
     st.markdown('</div>', unsafe_allow_html=True)
-
 
 # =========================
 # 9) Other cards  (FULL REPLACE)
@@ -1017,9 +1027,9 @@ def section_sellerlife_placeholder():
     st.link_button("직접 열기(새 탭)", "https://sellochomes.co.kr/sellerlife/")
     st.markdown('</div>', unsafe_allow_html=True)
 
-
 # =========================
-# 10) Layout — row1: Radar(8) | Category(5) | TitleGen(3)
+# 10) Layout — row1: 레이더 | (카테고리 or 직접입력) | 생성기
+#                 row2: 11번가 | 아이템스카우트 | 셀러라이프
 # =========================
 _ = _sidebar()
 _responsive_probe()
@@ -1027,27 +1037,26 @@ vwbin = _get_view_bin()
 
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
-# 1행: 레이더(8) + 카테고리(4) + 상품명 생성기(4)
-row1_a, row1_b, row1_c = st.columns([8, 4, 4], gap="medium")
+# 1행
+row1_a, row1_b, row1_c = st.columns([8, 5, 3], gap="medium")
 with row1_a:
     section_radar()
 with row1_b:
-    section_category_keyword_lab()
+    tab_cat, tab_direct = st.tabs(["카테고리", "직접 입력"])
+    with tab_cat:
+        section_category_keyword_lab()
+    with tab_direct:
+        section_keyword_trend_widget()
 with row1_c:
     section_title_generator()
 
 st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
 
-# 2행: 11번가 / 번역 / (직접 입력 트렌드) / 아이템스카우트 / 셀러라이프
-# 필요에 따라 칼럼 수 조정 가능. 여기서는 기존 4열 유지 + 직접입력을 번역 밑에 배치.
-c1, c2, c3, c4 = st.columns([3, 3, 3, 3], gap="medium")
+# 2행
+c1, c2, c3 = st.columns([4, 4, 4], gap="medium")
 with c1:
     section_11st()
 with c2:
-    section_translator()
-    st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
-    section_keyword_trend_widget()  # ← 직접 입력 트렌드 위젯은 2행으로 이동
-with c3:
     section_itemscout_placeholder()
-with c4:
+with c3:
     section_sellerlife_placeholder()
