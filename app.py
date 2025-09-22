@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
-# ENVY — Season 1 (Dual Proxy Edition, Radar tabs=국내/해외, compact C-table)
+# ENVY — Season 1 (Dual Proxy Edition, Native DataLab, Radar tabs=국내/해외, fixed key inputs removed)
 
-import base64, time, re, math
+import base64, time, re, math, json
+from datetime import date, timedelta
 from pathlib import Path
 from urllib.parse import quote
 
 import pandas as pd
 import streamlit as st
 
+# 3rd
 try:
     import requests
 except Exception:
@@ -18,29 +20,36 @@ try:
 except Exception:
     GoogleTranslator = None
 
-# -------------------------------------------------------
-# 0) CONFIG (요청하신 값 '직접' 박아넣음 / secrets 안 씀)
-# -------------------------------------------------------
-RAKUTEN_APP_ID_DEFAULT       = "1043271015809337425"
-RAKUTEN_AFFILIATE_ID_DEFAULT = "4c723498.cbfeca46.4c723499.1deb6f77"
+# =========================
+# 0) FIXED KEYS (사용자 제공 키)
+# =========================
+# Rakuten
+RAKUTEN_APP_ID       = "1043271015809337425"
+RAKUTEN_AFFILIATE_ID = "4c723498.cbfeca46.4c723499.1deb6f77"
 
-NAVER_API_KEY_DEFAULT     = "0100000000785cf1d8f039b13a5d3c3d1262b84e9ad4a046637e8887bbd003051b0d2a5cdf"
-NAVER_SECRET_KEY_DEFAULT  = "AQAAAAB4XPHY8DmxOl08PRJiuE6ao1LN3lh0kF9rOJ4m5b8O5g=="
-NAVER_CUSTOMER_ID_DEFAULT = "2274338"
+# Naver Developers (일반 OpenAPI – DataLab)
+NAVER_CLIENT_ID     = "h4mklM2hNLct04BD7sC0"
+NAVER_CLIENT_SECRET = "ltoxUNyKxi"
 
-# 프록시
+# Naver Ads / 검색광고 API (키워드도구)
+NAVER_API_KEY     = "0100000000785cf1d8f039b13a5d3c3d1262b84e9ad4a046637e8887bbd003051b0d2a5cdf"
+NAVER_SECRET_KEY  = "AQAAAAB4XPHY8DmxOl08PRJiuE6ao1LN3lh0kF9rOJ4m5b8O5g=="
+NAVER_CUSTOMER_ID = "629744"
+
+# =========================
+# 1) PAGE CONFIG
+# =========================
+st.set_page_config(page_title="ENVY — Season 1 (Dual Proxy Edition)", layout="wide")
+
+SHOW_ADMIN_BOX = False
+
+# Proxies (iframe 용)
 NAVER_PROXY      = "https://envy-proxy.taesig0302.workers.dev"
 ELEVENST_PROXY   = "https://worker-11stjs.taesig0302.workers.dev"
 ITEMSCOUT_PROXY  = "https://worker-itemscoutjs.taesig0302.workers.dev"
 SELLERLIFE_PROXY = "https://worker-sellerlifejs.taesig0302.workers.dev"
 
-st.set_page_config(page_title="ENVY — Season 1 (Dual Proxy Edition)", layout="wide")
-
-# -------------------------------------------------------
-# 1) GLOBALS & CSS
-# -------------------------------------------------------
-SHOW_ADMIN_BOX = False
-
+# Simple FX
 CURRENCIES = {
     "USD":{"kr":"미국 달러","symbol":"$","unit":"USD"},
     "EUR":{"kr":"유로","symbol":"€","unit":"EUR"},
@@ -49,6 +58,9 @@ CURRENCIES = {
 }
 FX_DEFAULT = {"USD":1400.0,"EUR":1500.0,"JPY":10.0,"CNY":200.0}
 
+# =========================
+# 2) UI defaults & CSS
+# =========================
 def _ensure_session_defaults():
     ss = st.session_state
     ss.setdefault("theme","light")
@@ -63,17 +75,17 @@ def _ensure_session_defaults():
     ss.setdefault("margin_pct",10.00)
     ss.setdefault("margin_won",10000.0)
 
-    # Rakuten 장르 매핑(세션 저장, 필요시 화면에서 수정 가능)
+    # Rakuten genre map (간단 프리셋, 필요시 UI에서 덮어쓰기)
     ss.setdefault("rk_genre_map", {
+        "전체(샘플)": "100283",
         "뷰티/코스메틱": "100283",
-        "의류/패션":   "100371",
-        "가전/디지털": "100026",
-        "가구/인테리어": "100804",
-        "식품":       "100227",
-        "생활/건강":   "100939",
-        "스포츠/레저": "101070",
-        "문구/취미":   "101438",
-        "전체(샘플)":  "100283",
+        "의류/패션": "100283",
+        "가전/디지털": "100283",
+        "가구/인테리어": "100283",
+        "식품": "100283",
+        "생활/건강": "100283",
+        "스포츠/레저": "100283",
+        "문구/취미": "100283",
     })
 
 def _toggle_theme():
@@ -88,7 +100,6 @@ def _inject_css():
       html,body,[data-testid="stAppViewContainer"]{{background:{bg}!important;color:{fg}!important}}
       h2,h3{{margin-top:.3rem!important}}
 
-      /* Sidebar compact */
       [data-testid="stSidebar"],[data-testid="stSidebar"]>div:first-child,[data-testid="stSidebar"] section{{
         height:100vh!important;overflow:hidden!important;padding:.15rem .25rem!important}}
       [data-testid="stSidebar"] section{{overflow-y:auto!important}}
@@ -112,17 +123,9 @@ def _inject_css():
       .card iframe{{border:0;width:100%;border-radius:10px}}
       .row-gap{{height:16px}}
 
-      /* logo (72px) */
       .logo-circle{{width:72px;height:72px;border-radius:50%;overflow:hidden;margin:.2rem auto .4rem auto;
                    box-shadow:0 2px 8px rgba(0,0,0,.12);border:1px solid rgba(0,0,0,.06)}}
       .logo-circle img{{width:100%;height:100%;object-fit:cover}}
-
-      /* DataFrame compact for Korea C-table */
-      #kr-compact [data-testid="stDataFrame"] * {{ font-size: 0.92rem !important; }}
-      #kr-compact [data-testid="stDataFrame"] div[role='grid'] {{ overflow-x: hidden !important; }}
-      #kr-compact [data-testid="stDataFrame"] div[role='gridcell'] {{
-        white-space: normal !important; word-break: break-word !important; overflow-wrap: anywhere !important;
-      }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -147,85 +150,13 @@ def _inject_alert_center():
           setTimeout(()=>{el.classList.remove('show'); setTimeout(()=>el.remove(), 300);}, 5000);
         }
         window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='alert'){toast(d.level,d.msg);} },false);
-        let heard=false; window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='title'){heard=true;}},false);
-        setTimeout(()=>{ if(!heard){ toast('warn','데이터랩 연결이 지연되고 있어요.'); } },8000);
       })();
     </script>
     """, unsafe_allow_html=True)
 
-# -------------------------------------------------------
-# 2) Responsive
-# -------------------------------------------------------
-def _responsive_probe():
-    html = """
-    <script>
-    (function(){
-      const bps=[900,1280,1600];
-      const w=Math.max(document.documentElement.clientWidth||0, window.innerWidth||0);
-      let bin=0; for(let i=0;i<bps.length;i++) if(w>=bps[i]) bin=i+1;
-      const url=new URL(window.location); const curr=url.searchParams.get('vwbin');
-      if(curr!==String(bin)){ url.searchParams.set('vwbin', String(bin)); window.location.replace(url.toString()); }
-    })();
-    </script>
-    """
-    st.components.v1.html(html, height=0, scrolling=False)
-
-def _get_view_bin():
-    try:
-        raw = st.query_params.get("vwbin", "3")
-    except Exception:
-        raw = (st.experimental_get_query_params().get("vwbin", ["3"])[0])
-    try:
-        return max(0, min(3, int(raw)))
-    except:
-        return 3
-
-# -------------------------------------------------------
-# 3) Proxy iframe helpers
-# -------------------------------------------------------
-def _proxy_iframe(proxy_base: str, target_url: str, height: int = 860, scroll=True, key=None):
-    proxy = (proxy_base or "").strip().rstrip("/")
-    url   = f"{proxy}/?url={quote(target_url, safe=':/?&=%')}"
-    h     = int(height)
-    try:
-        st.iframe(url, height=h); return
-    except Exception:
-        pass
-    try:
-        st.components.v1.iframe(url, height=h, scrolling=bool(scroll)); return
-    except Exception:
-        pass
-    st.markdown(f'<iframe src="{url}" style="width:100%;height:{h}px;border:0;border-radius:10px;"></iframe>',
-                unsafe_allow_html=True)
-
-def _proxy_iframe_with_title(proxy_base: str, target_url: str, height: int = 860, key: str = "naver_home"):
-    proxy = (proxy_base or "").strip().rstrip("/")
-    url   = f"{proxy}/?url={quote(target_url, safe=':/?&=%')}"
-    h     = int(height)
-    html  = f'''
-<div id="{key}-wrap" style="width:100%;overflow:hidden;">
-  <div id="{key}-title"
-       style="display:inline-block;border-radius:9999px;padding:.40rem .9rem;
-              font-weight:800;background:#dbe6ff;border:1px solid #88a8ff;color:#09245e;margin:0 0 .5rem 0;">
-    DataLab
-  </div>
-  <iframe src="{url}" style="width:100%;height:{h}px;border:0;border-radius:10px;"></iframe>
-</div>
-<script>
-(function(){{
-  var titleEl=document.getElementById("{key}-title");
-  window.addEventListener("message",function(e){{
-    try{{var d=e.data||{{}}; if(d.__envy && d.kind==="title" && d.title) titleEl.textContent=d.title;}}catch(_){{
-    }}
-  }},false);
-}})();
-</script>
-'''
-    st.components.v1.html(html, height=h+56, scrolling=False)
-
-# -------------------------------------------------------
-# 4) Sidebar
-# -------------------------------------------------------
+# =========================
+# 3) Sidebar
+# =========================
 def _sidebar():
     _ensure_session_defaults(); _inject_css(); _inject_alert_center()
     with st.sidebar:
@@ -282,16 +213,36 @@ def _sidebar():
         st.markdown(f'<div class="pill pill-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
         st.markdown(f'<div class="pill pill-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>', unsafe_allow_html=True)
 
-        if SHOW_ADMIN_BOX:
-            st.divider()
-            st.text_input("PROXY_URL(디버그)", key="PROXY_URL", help="Cloudflare Worker 주소 (옵션)")
+# =========================
+# 4) Generic proxy iframe
+# =========================
+def _proxy_iframe(proxy_base: str, target_url: str, height: int = 860, scroll=True):
+    proxy = (proxy_base or "").strip().rstrip("/")
+    url   = f"{proxy}/?url={quote(target_url, safe=':/?&=%')}"
+    try:
+        st.iframe(url, height=int(height)); return
+    except Exception:
+        pass
+    try:
+        st.components.v1.iframe(url, height=int(height), scrolling=bool(scroll)); return
+    except Exception:
+        pass
+    st.markdown(f'<iframe src="{url}" style="width:100%;height:{int(height)}px;border:0;border-radius:10px;"></iframe>',
+                unsafe_allow_html=True)
 
-# -------------------------------------------------------
+# =========================
 # 5) Rakuten Ranking
-# -------------------------------------------------------
-def _rakuten_keys():
-    # secrets 사용 안 함 — 상수 바로 사용
-    return RAKUTEN_APP_ID_DEFAULT.strip(), RAKUTEN_AFFILIATE_ID_DEFAULT.strip()
+# =========================
+RK_JP_KEYWORDS = {
+    "뷰티/코스메틱": "コスメ",
+    "의류/패션": "ファッション",
+    "가전/디지털": "家電",
+    "가구/인테리어": "インテリア",
+    "식품": "食品",
+    "생활/건강": "日用品",
+    "스포츠/레저": "スポーツ",
+    "문구/취미": "ホビー",
+}
 
 def _retry_backoff(fn, tries=3, base=0.8, factor=2.0):
     last=None
@@ -305,20 +256,19 @@ def _retry_backoff(fn, tries=3, base=0.8, factor=2.0):
 
 @st.cache_data(ttl=900, show_spinner=False)
 def _rk_fetch_rank_cached(genre_id: str, topn: int = 20, strip_emoji: bool=True) -> pd.DataFrame:
-    app_id, affiliate = _rakuten_keys()
     def _clean(s: str) -> str:
         if not strip_emoji: return s
         return re.sub(r"[\U00010000-\U0010ffff]", "", s or "")
 
-    if not (requests and app_id):
+    if not (requests and RAKUTEN_APP_ID):
         rows=[{"rank":i+1,"keyword":_clean(f"[샘플] 키워드 {i+1} ハロウィン 秋 🍂"),
                "shop":"샘플","url":"https://example.com"} for i in range(topn)]
         return pd.DataFrame(rows)
 
     def _do():
         api = "https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628"
-        params = {"applicationId": app_id, "genreId": str(genre_id).strip(), "hits": topn}
-        if affiliate: params["affiliateId"] = affiliate
+        params = {"applicationId": RAKUTEN_APP_ID, "genreId": str(genre_id).strip(), "hits": topn}
+        if RAKUTEN_AFFILIATE_ID: params["affiliateId"] = RAKUTEN_AFFILIATE_ID
         r = requests.get(api, params=params, timeout=12)
         r.raise_for_status()
         items = r.json().get("Items", [])[:topn]
@@ -352,7 +302,6 @@ def section_rakuten_ui():
     """, unsafe_allow_html=True)
 
     st.markdown('<div id="rk-card">', unsafe_allow_html=True)
-
     colB, colC = st.columns([2,1])
     with colB:
         cat = st.selectbox(
@@ -361,35 +310,13 @@ def section_rakuten_ui():
             key="rk_cat"
         )
     with colC:
-        sample_only = st.checkbox("샘플 보기", value=False, key="rk_sample")
-
-    strip_emoji = st.toggle("이모지 제거", value=True, key="rk_strip_emoji")
-
-    # 장르 매핑 (세션 저장)
-    with st.expander("🔧 장르 매핑 편집 (GenreID는 여기서만 관리 — 화면에는 숨김)", expanded=False):
-        gm = st.session_state.get("rk_genre_map", {}).copy()
-        left, right = st.columns(2)
-        with left:
-            gm["뷰티/코스메틱"] = st.text_input("뷰티/코스메틱", gm.get("뷰티/코스메틱",""))
-            gm["의류/패션"]     = st.text_input("의류/패션", gm.get("의류/패션",""))
-            gm["가전/디지털"]   = st.text_input("가전/디지털", gm.get("가전/디지털",""))
-            gm["가구/인테리어"] = st.text_input("가구/인테리어", gm.get("가구/인테리어",""))
-            gm["스포츠/레저"]   = st.text_input("스포츠/레저", gm.get("스포츠/레저",""))
-        with right:
-            gm["식품"]         = st.text_input("식품", gm.get("식품",""))
-            gm["생활/건강"]     = st.text_input("생활/건강", gm.get("생활/건강",""))
-            gm["문구/취미"]     = st.text_input("문구/취미", gm.get("문구/취미",""))
-            gm["전체(샘플)"]     = st.text_input("전체(샘플)", gm.get("전체(샘플)",""))
-        if st.button("장르 매핑 저장", use_container_width=False):
-            st.session_state["rk_genre_map"] = gm
-            st.success("장르 매핑을 저장했습니다.")
+        strip_emoji = st.toggle("이모지 제거", value=True, key="rk_strip_emoji")
 
     genre_map = st.session_state.get("rk_genre_map", {})
     genre_id = (genre_map.get(cat) or "").strip() or "100283"
 
     with st.spinner("라쿠텐 랭킹 불러오는 중…"):
-        df = (pd.DataFrame([{"rank":i+1,"keyword":f"[샘플] 키워드 {i+1}","shop":"샘플","url":"https://example.com"} for i in range(20)])
-              if sample_only else _rk_fetch_rank_cached(genre_id, topn=20, strip_emoji=strip_emoji))
+        df = _rk_fetch_rank_cached(genre_id, topn=20, strip_emoji=strip_emoji)
 
     colcfg = {
         "rank": st.column_config.NumberColumn("rank", width="small"),
@@ -400,18 +327,27 @@ def section_rakuten_ui():
     st.dataframe(df[["rank","keyword","shop","url"]], hide_index=True, use_container_width=True, height=430, column_config=colcfg)
     st.download_button("표 CSV 다운로드", data=df.to_csv(index=False).encode("utf-8-sig"),
                        file_name="rakuten_ranking.csv", mime="text/csv")
+
+    st.divider()
+    with st.expander("🔧 장르 매핑 편집 (GenreID는 여기서만 관리 – 화면에는 숨김)", expanded=False):
+        g1, g2 = st.columns(2)
+        keys = ["뷰티/코스메틱","의류/패션","가전/디지털","가구/인테리어","식품","생활/건강","스포츠/레저","문구/취미"]
+        curr = st.session_state["rk_genre_map"].copy()
+        with g1:
+            for k in keys[:4]:
+                curr[k] = st.text_input(k, value=curr.get(k,"100283"))
+        with g2:
+            for k in keys[4:]:
+                curr[k] = st.text_input(k, value=curr.get(k,"100283"))
+        if st.button("장르 매핑 저장"):
+            st.session_state["rk_genre_map"] = curr
+            st.success("저장되었습니다.")
     st.markdown('</div>', unsafe_allow_html=True)
 
-# -------------------------------------------------------
+# =========================
 # 6) Korea Radar (Naver Searchad API)
-# -------------------------------------------------------
+# =========================
 import hashlib, hmac, base64 as b64
-
-def _get_naver_keys():
-    # secrets 사용 안 함 — 상수 바로 사용
-    return (NAVER_API_KEY_DEFAULT.strip(),
-            NAVER_SECRET_KEY_DEFAULT.strip(),
-            NAVER_CUSTOMER_ID_DEFAULT.strip())
 
 def _naver_signature(timestamp: str, method: str, uri: str, secret: str) -> str:
     msg = f"{timestamp}.{method}.{uri}"
@@ -419,7 +355,7 @@ def _naver_signature(timestamp: str, method: str, uri: str, secret: str) -> str:
     return b64.b64encode(digest).decode("utf-8")
 
 def _naver_keywordstool(hint_keywords: list[str]) -> pd.DataFrame:
-    api_key, sec_key, customer_id = _get_naver_keys()
+    api_key, sec_key, customer_id = NAVER_API_KEY, NAVER_SECRET_KEY, str(NAVER_CUSTOMER_ID)
     if not (requests and api_key and sec_key and customer_id and hint_keywords):
         return pd.DataFrame()
 
@@ -435,31 +371,28 @@ def _naver_keywordstool(hint_keywords: list[str]) -> pd.DataFrame:
     params={ "hintKeywords": ",".join(hint_keywords),
              "includeHintKeywords": "0", "showDetail": "1" }
     r = requests.get(base_url+uri, headers=headers, params=params, timeout=12)
-    try:
-        r.raise_for_status()
-        data = r.json().get("keywordList", [])
-        if not data: return pd.DataFrame()
-        df = pd.DataFrame(data)
-        df = df.rename(columns={
-            "relKeyword":"키워드",
-            "monthlyPcQcCnt":"PC월간검색수",
-            "monthlyMobileQcCnt":"Mobile월간검색수",
-            "monthlyAvePcClkCnt":"PC월평균클릭수",
-            "monthlyAveMobileClkCnt":"Mobile월평균클릭수",
-            "monthlyAvePcCtr":"PC월평균클릭률",
-            "monthlyAveMobileCtr":"Mobile월평균클릭률",
-            "plAvgDepth":"월평균노출광고수",
-            "compIdx":"광고경쟁정도",
-        })
-        df = df.drop_duplicates(["키워드"]).set_index("키워드").reset_index()
-        num_cols=["PC월간검색수","Mobile월간검색수",
-                  "PC월평균클릭수","Mobile월평균클릭수",
-                  "PC월평균클릭률","Mobile월평균클릭률","월평균노출광고수"]
-        for c in num_cols:
-            df[c]=pd.to_numeric(df[c], errors="coerce")
-        return df
-    except Exception:
-        return pd.DataFrame()
+    r.raise_for_status()
+    data = r.json().get("keywordList", [])
+    if not data: return pd.DataFrame()
+    df = pd.DataFrame(data)
+    df = df.rename(columns={
+        "relKeyword":"키워드",
+        "monthlyPcQcCnt":"PC월간검색수",
+        "monthlyMobileQcCnt":"Mobile월간검색수",
+        "monthlyAvePcClkCnt":"PC월평균클릭수",
+        "monthlyAveMobileClkCnt":"Mobile월평균클릭수",
+        "monthlyAvePcCtr":"PC월평균클릭률",
+        "monthlyAveMobileCtr":"Mobile월평균클릭률",
+        "plAvgDepth":"월평균노출광고수",
+        "compIdx":"광고경쟁정도",
+    })
+    df = df.drop_duplicates(["키워드"]).set_index("키워드").reset_index()
+    num_cols=["PC월간검색수","Mobile월간검색수",
+              "PC월평균클릭수","Mobile월평균클릭수",
+              "PC월평균클릭률","Mobile월평균클릭률","월평균노출광고수"]
+    for c in num_cols:
+        df[c]=pd.to_numeric(df[c], errors="coerce")
+    return df
 
 def _count_product_from_shopping(keyword: str) -> int|None:
     if not requests: return None
@@ -484,9 +417,9 @@ def section_korea_ui():
     st.caption("※ 검색지표는 네이버 검색광고 API(키워드도구) 기준, 상품수는 네이버쇼핑 ‘전체’ 탭 크롤링 기준입니다.")
     c1, c2, c3 = st.columns([1,1,1])
     with c1:
-        months = st.slider("분석기간(개월, 표시용)", 1, 6, 3)
+        months = st.slider("분석기간(개월, 표시에만 사용)", 1, 6, 3)
     with c2:
-        device = st.selectbox("디바이스", ["all","pc","mo"], index=0)
+        device = st.selectbox("디바이스(표시용)", ["all","pc","mo"], index=0)
     with c3:
         src = st.selectbox("키워드 소스", ["직접 입력"], index=0)
 
@@ -502,9 +435,8 @@ def section_korea_ui():
     if st.button("레이더 업데이트", use_container_width=False):
         with st.spinner("네이버 키워드도구 조회 중…"):
             df = _naver_keywordstool(kw_list)
-
         if df.empty:
-            st.error("데이터가 없습니다. (API/계정/권한/쿼터 또는 키워드를 확인)")
+            st.error("데이터가 없습니다. (API/계정/권한/쿼터 또는 키워드 확인)")
             return
 
         if table_mode.startswith("A"):
@@ -538,51 +470,122 @@ def section_korea_ui():
         df2["상품수순위"] = df2["판매상품수"].rank(na_option="bottom", method="min")
         df2["상품발굴대상"] = (df2["검색순위"] + df2["상품수순위"]).rank(na_option="bottom", method="min")
 
-        cols = [
-            "키워드","PC월간검색수","Mobile월간검색수","판매상품수",
-            "PC월평균클릭수","Mobile월평균클릭수","PC월평균클릭률","Mobile월평균클릭률",
-            "월평균노출광고수","광고경쟁정도","검색순위","상품수순위","상품발굴대상"
-        ]
+        cols = ["키워드","PC월간검색수","Mobile월간검색수","판매상품수",
+                "PC월평균클릭수","Mobile월평균클릭수","PC월평균클릭률","Mobile월평균클릭률",
+                "월평균노출광고수","광고경쟁정도","검색순위","상품수순위","상품발굴대상"]
         out = df2[cols].sort_values("상품발굴대상")
-
-        # 컴팩트 라벨
-        rename_map = {
-            "PC월간검색수":"PC월","Mobile월간검색수":"MO월","판매상품수":"상품수",
-            "PC월평균클릭수":"PC클","Mobile월평균클릭수":"MO클",
-            "PC월평균클릭률":"PCTR","Mobile월평균클릭률":"MCTR",
-            "월평균노출광고수":"광고수","광고경쟁정도":"경쟁",
-            "검색순위":"검색R","상품수순위":"상품R","상품발굴대상":"대상R",
-        }
-        out_compact = out.rename(columns=rename_map)
-        for c in ["PC클","MO클","PCTR","MCTR"]:
-            if c in out_compact.columns:
-                out_compact[c] = pd.to_numeric(out_compact[c], errors="coerce").round(2)
-
-        colcfg = {
-            "키워드": st.column_config.TextColumn("키워드", width="medium"),
-            "PC월":  st.column_config.NumberColumn("PC월", width="small"),
-            "MO월":  st.column_config.NumberColumn("MO월", width="small"),
-            "상품수": st.column_config.NumberColumn("상품수", width="small"),
-            "PC클":  st.column_config.NumberColumn("PC클", width="small"),
-            "MO클":  st.column_config.NumberColumn("MO클", width="small"),
-            "PCTR": st.column_config.NumberColumn("PCTR", width="small"),
-            "MCTR": st.column_config.NumberColumn("MCTR", width="small"),
-            "광고수": st.column_config.NumberColumn("광고수", width="small"),
-            "경쟁":  st.column_config.TextColumn("경쟁", width="small"),
-            "검색R": st.column_config.NumberColumn("검색R", width="small"),
-            "상품R": st.column_config.NumberColumn("상품R", width="small"),
-            "대상R": st.column_config.NumberColumn("대상R", width="small"),
-        }
-
-        st.markdown('<div id="kr-compact">', unsafe_allow_html=True)
-        st.dataframe(out_compact, use_container_width=True, height=430, column_config=colcfg)
+        st.dataframe(out, use_container_width=True, height=430)
         st.download_button("CSV 다운로드", out.to_csv(index=False).encode("utf-8-sig"),
                            file_name="korea_keyword_C.csv", mime="text/csv")
-        st.markdown('</div>', unsafe_allow_html=True)
 
-# -------------------------------------------------------
-# 7) Radar Card (tabs: 국내 -> 해외)
-# -------------------------------------------------------
+# =========================
+# 7) DataLab Search Trend (네이티브)
+# =========================
+def _datalab_keys():
+    cid = st.secrets.get("NAVER_CLIENT_ID", "") or NAVER_CLIENT_ID
+    csc = st.secrets.get("NAVER_CLIENT_SECRET", "") or NAVER_CLIENT_SECRET
+    return cid.strip(), csc.strip()
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _naver_datalab_trend(keywords: list[dict], start_date: str, end_date: str,
+                          time_unit: str = "week", device: str = "", gender: str = "",
+                          ages: list[str] | None = None) -> pd.DataFrame:
+    if not requests:
+        return pd.DataFrame()
+    client_id, client_secret = _datalab_keys()
+    if not client_id or not client_secret or not keywords:
+        return pd.DataFrame()
+
+    url = "https://openapi.naver.com/v1/datalab/search"
+    headers = {
+        "X-Naver-Client-Id": client_id,
+        "X-Naver-Client-Secret": client_secret,
+        "Content-Type": "application/json; charset=utf-8",
+    }
+    body = {
+        "startDate": start_date,
+        "endDate": end_date,
+        "timeUnit": time_unit,
+        "keywordGroups": keywords,
+    }
+    if device: body["device"] = device
+    if gender: body["gender"] = gender
+    if ages:   body["ages"]   = ages
+
+    r = requests.post(url, headers=headers, data=json.dumps(body), timeout=15)
+    r.raise_for_status()
+    js = r.json()
+
+    rows = []
+    for g in js.get("results", []):
+        gname = g.get("title") or g.get("groupName")
+        for dot in g.get("data", []):
+            rows.append({"date": dot["period"], "group": gname, "ratio": float(dot["ratio"])})
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows)
+    df["date"] = pd.to_datetime(df["date"])
+    return df
+
+def section_datalab_native():
+    st.markdown('<div class="card"><div class="card-title">검색어 트렌드 (네이티브)</div>', unsafe_allow_html=True)
+
+    today = date.today()
+    start_default = (today - timedelta(days=90)).replace(day=1)
+    col_top1, col_top2, col_top3 = st.columns([1,1,1])
+    with col_top1:
+        start_dt = st.date_input("시작일", start_default)
+    with col_top2:
+        end_dt   = st.date_input("종료일", today)
+    with col_top3:
+        time_unit = st.selectbox("단위", ["date","week","month"], index=1)
+
+    c1, c2, c3 = st.columns([1,1,1])
+    with c1:
+        device = st.selectbox("디바이스", ["", "pc", "mo"], index=0, help="비우면 전체")
+    with c2:
+        gender = st.selectbox("성별", ["", "m", "f"], index=0, help="비우면 전체")
+    with c3:
+        ages_map = {"10대":"1","20대":"2","30대":"3","40대":"4","50대":"5","60대 이상":"6"}
+        picked = st.multiselect("연령", list(ages_map.keys()), help="미선택=전체")
+        ages = [ages_map[p] for p in picked] if picked else None
+
+    st.markdown("**키워드 그룹** (콤마로 여러 검색어 입력 가능)")
+    gcols = st.columns(3)
+    groups = []
+    with gcols[0]:
+        g1 = st.text_input("그룹 A", "핸드메이드코트, 코트")
+        if g1.strip():
+            groups.append({"groupName":"A","keywords":[k.strip() for k in g1.split(",") if k.strip()]})
+    with gcols[1]:
+        g2 = st.text_input("그룹 B", "남자코트")
+        if g2.strip():
+            groups.append({"groupName":"B","keywords":[k.strip() for k in g2.split(",") if k.strip()]})
+    with gcols[2]:
+        g3 = st.text_input("그룹 C", "")
+        if g3.strip():
+            groups.append({"groupName":"C","keywords":[k.strip() for k in g3.split(",") if k.strip()]})
+
+    if st.button("트렌드 조회", type="primary"):
+        with st.spinner("네이버 DataLab 조회 중…"):
+            df = _naver_datalab_trend(
+                groups, start_dt.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"),
+                time_unit=time_unit, device=device, gender=gender, ages=ages
+            )
+        if df.empty:
+            st.error("데이터가 없습니다. 키워드/기간/권한(Client ID/Secret) 확인 필요")
+        else:
+            pivot = df.pivot_table(index="date", columns="group", values="ratio", aggfunc="sum").reset_index()
+            st.line_chart(pivot.set_index("date"))
+            st.dataframe(df.sort_values(["group","date"]), use_container_width=True, height=360)
+            csv = df.to_csv(index=False).encode("utf-8-sig")
+            st.download_button("CSV 다운로드", csv, file_name="datalab_trend.csv", mime="text/csv")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# =========================
+# 8) Radar Card (tabs: 국내 -> 해외)
+# =========================
 def section_radar():
     st.markdown('<div class="card"><div class="card-title">AI 키워드 레이더</div>', unsafe_allow_html=True)
     tab_domestic, tab_overseas = st.tabs(["국내", "해외"])
@@ -592,20 +595,15 @@ def section_radar():
         section_rakuten_ui()
     st.markdown('</div>', unsafe_allow_html=True)
 
-# -------------------------------------------------------
-# 8) Other cards
-# -------------------------------------------------------
-def section_datalab_home():
-    st.markdown('<div class="card"><div class="card-title">데이터랩</div>', unsafe_allow_html=True)
-    _proxy_iframe_with_title(NAVER_PROXY, "https://datalab.naver.com/", height=860, key="naver_home")
-    st.markdown('</div>', unsafe_allow_html=True)
-
+# =========================
+# 9) Other cards
+# =========================
 def _11st_abest_url():
     return ("https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160&_ts=%d" % int(time.time()))
 
 def section_11st():
     st.markdown('<div class="card"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>', unsafe_allow_html=True)
-    _proxy_iframe(ELEVENST_PROXY, _11st_abest_url(), height=900, scroll=True, key="abest")
+    _proxy_iframe(ELEVENST_PROXY, _11st_abest_url(), height=900, scroll=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 LANG_LABELS = {"auto":"자동 감지","ko":"한국어","en":"영어","ja":"일본어","zh-CN":"중국어(간체)","zh-TW":"중국어(번체)","vi":"베트남어","th":"태국어","id":"인도네시아어","de":"독일어","fr":"프랑스어","es":"스페인어","it":"이탈리아어","pt":"포르투갈어"}
@@ -682,12 +680,10 @@ def section_sellerlife_placeholder():
     st.link_button("직접 열기(새 탭)", "https://sellochomes.co.kr/sellerlife/")
     st.markdown('</div>', unsafe_allow_html=True)
 
-# -------------------------------------------------------
-# 9) Layout — row1 ratio 5:7 (Radar : DataLab)
-# -------------------------------------------------------
+# =========================
+# 10) Layout — row1 ratio 5:7 (Radar : DataLab)
+# =========================
 _ = _sidebar()
-_responsive_probe()
-vwbin = _get_view_bin()
 
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
@@ -696,7 +692,7 @@ row1_l, row1_r = st.columns([5,7], gap="medium")
 with row1_l:
     section_radar()
 with row1_r:
-    section_datalab_home()
+    section_datalab_native()
 
 st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
 
