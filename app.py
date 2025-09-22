@@ -882,7 +882,7 @@ vwbin = _get_view_bin()
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
 # 1행: 레이더(좌) + 탭(우: 카테고리 / 직접 입력)
-row1_l, row1_r = st.columns([5, 11], gap="medium")
+row1_l, row1_r = st.columns([8, 8], gap="medium")
 with row1_l:
     section_radar()
 
