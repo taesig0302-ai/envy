@@ -127,73 +127,90 @@ def _toggle_theme():
     st.session_state["theme"]="dark" if st.session_state.get("theme","light")=="light" else "light"
 
 def _inject_css():
-    # 사이드바는 손대지 않는다. (메인영역만 적용)
+    # 메인은 테마 적용, 사이드바는 그대로(완성형 유지)
     theme = st.session_state.get("theme","light")
-    is_dark = theme == "dark"
+    is_dark = (theme == "dark")
     bg, fg = ("#0e1117","#e6edf3") if is_dark else ("#ffffff","#111111")
 
     st.markdown(f"""
     <style>
-      /* 메인 루트 배경/글자색 */
+      /* 메인 컨테이너 배경/문자색 */
       .block-container{{max-width:3800px!important;padding-top:.55rem!important;padding-bottom:1rem!important}}
       html,body,[data-testid="stAppViewContainer"]{{background:{bg}!important;color:{fg}!important}}
 
-      /* 사이드바는 건들지 않음 */
+      /* ===== 사이드바는 손대지 않음(고객 지정 완성형 유지) ===== */
       [data-testid="stSidebar"] section{{height:100vh!important;overflow:hidden!important;padding:.15rem .25rem!important}}
       [data-testid="stSidebar"] section{{overflow-y:auto!important}}
       [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none!important}}
-      [data-testid="stSidebar"] .stSelectbox,.stNumberInput,.stRadio,.stMarkdown,.stTextInput,.stButton{{margin:.06rem 0!important}}
-      [data-testid="stSidebar"] .logo-circle{{width:72px;height:72px;border-radius:50%;overflow:hidden;margin:.2rem auto .4rem auto;
+      .logo-circle{{width:72px;height:72px;border-radius:50%;overflow:hidden;margin:.2rem auto .4rem auto;
         box-shadow:0 2px 8px rgba(0,0,0,.12);border:1px solid rgba(0,0,0,.06)}}
-      [data-testid="stSidebar"] .logo-circle img{{width:100%;height:100%;object-fit:cover}}
+      .logo-circle img{{width:100%;height:100%;object-fit:cover}}
 
-      /* 메인 영역 타이포 & 카드 */
-      h2,h3{{margin-top:.3rem!important}}
+      /* ===== 카드 & 타이틀(메인만) ===== */
+      .card.main{{border:1px solid {"rgba(255,255,255,.12)" if is_dark else "rgba(0,0,0,.06)"};border-radius:14px;
+        padding:.85rem;background:{"#141923" if is_dark else "#ffffff"};
+        box-shadow:0 1px 6px {"rgba(0,0,0,.45)" if is_dark else "rgba(0,0,0,.05)"} }}
+      .card-title{{display:inline-flex;align-items:center;gap:.5rem;font-size:1.08rem;font-weight:900;margin:.1rem 0 .55rem 0;
+        color:{ "#eaf2ff" if is_dark else "#0b1e5e"} }}
+      .card-title::before{{
+         content:"";display:inline-block;width:10px;height:10px;border-radius:50%;
+         background:{ "#60a5fa" if is_dark else "#2563eb"};
+         box-shadow:0 0 0 4px { "rgba(96,165,250,.2)" if is_dark else "rgba(37,99,235,.15)"}; 
+      }}
+
+      /* 공용 배지 */
       .pill{{border-radius:9999px;padding:.40rem .9rem;font-weight:800;display:inline-block;margin:.10rem 0!important}}
       .pill-green{{background:#b8f06c;border:1px solid #76c02a;color:#083500}}
       .pill-blue{{background:#dbe6ff;border:1px solid #88a8ff;color:#09245e}}
       .pill-yellow{{background:#ffe29b;border:1px solid #d2a12c;color:#3e2a00}}
-      .card{{border:1px solid rgba(0,0,0,.06);border-radius:14px;padding:.85rem;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.05)}}
-      .card-title{{font-size:1.18rem;font-weight:900;margin:.1rem 0 .55rem 0}}
-      .card iframe{{border:0;width:100%;border-radius:10px}}
-      .row-gap{{height:16px}}
 
-      /* 라이트/다크 위젯 시안성 — 메인영역에만 적용 (사이드바 제외) */
-      /* 공통 범위: 메인 컨테이너 내부 form/input/select/textarea */
+      /* 메인 영역 입력·선택 위젯 대비 강화 */
       .main [data-baseweb="select"] div[role="combobox"],
       .main input, .main textarea {{
-        background-color: {"#222" if is_dark else "#ffffff"} !important;
+        background-color: {"#222834" if is_dark else "#ffffff"} !important;
         color: {"#ffffff" if is_dark else "#111111"} !important;
-        border-radius:12px!important;
+        border-radius:12px!important;border:1px solid {"#3a4456" if is_dark else "rgba(0,0,0,.15)"} !important;
       }}
       .main .stSelectbox label, 
       .main .stTextInput label, 
       .main .stNumberInput label, 
       .main .stRadio label {{
-        color: {"#ffffff" if is_dark else "#111111"} !important;
+        color: {"#f3f7ff" if is_dark else "#111111"} !important;
       }}
-
-      /* 드롭다운 메뉴 */
       .main [data-baseweb="menu"] > div {{
-        background-color: {"#1c1f26" if is_dark else "#ffffff"} !important;
+        background-color: {"#1a1f2a" if is_dark else "#ffffff"} !important;
         color: {"#ffffff" if is_dark else "#111111"} !important;
+        border:1px solid {"#3a4456" if is_dark else "rgba(0,0,0,.12)"} !important;
       }}
 
-      /* 슬라이더 트랙/라벨 */
-      .main [data-testid="stSlider"] span{{color: {"#fff" if is_dark else "#111"} !important}}
+      /* 슬라이더 라벨/트랙 대비 */
+      .main [data-testid="stSlider"] span{{color: {"#f5faff" if is_dark else "#111"} !important}}
       .main [data-testid="stSlider"] div[role="slider"]{{box-shadow:none!important}}
 
-      /* DataFrame 헤더/셀 대비 */
+      /* DataFrame */
       .main [data-testid="stDataFrame"] thead th {{
-        background: {"#2a2e37" if is_dark else "#f3f6ff"} !important;
-        color: {"#fff" if is_dark else "#09245e"} !important;
+        background: {"#202834" if is_dark else "#f3f6ff"} !important;
+        color: {"#eff6ff" if is_dark else "#0b1e5e"} !important;
       }}
       .main [data-testid="stDataFrame"] tbody td {{
-        color: {"#e8eef7" if is_dark else "#111"} !important;
-        background: {"#12161d" if is_dark else "#fff"} !important;
+        color: {"#eaf2ff" if is_dark else "#111"} !important;
+        background: {"#0f141c" if is_dark else "#ffffff"} !important;
       }}
 
-      /* Rakuten 카드 폰트 최적화 */
+      /* 버튼(레이더 업데이트 / 상품명 생성 등) */
+      .main .stButton > button{{
+        background:{ "#2563eb" if is_dark else "#0ea5e9"} !important;
+        color:#fff !important;border:0!important;border-radius:10px!important;
+        padding:.55rem 1.0rem!important;font-weight:800!important;
+        box-shadow:0 6px 18px {"rgba(37,99,235,.35)" if is_dark else "rgba(14,165,233,.25)"} !important;
+      }}
+      .main .stButton > button:hover{{filter:brightness(1.05)}}
+
+      /* 텍스트 칩 */
+      .main .envy-chip-warn{{background:#7c2d12;color:#fff;border:1px solid #f59e0b;padding:.35rem .6rem;border-radius:10px;font-weight:800}}
+      .main .envy-chip-info{{background:#0b3b81;color:#eaf2ff;border:1px solid #60a5fa;padding:.35rem .6rem;border-radius:10px;font-weight:800}}
+
+      /* Rakuten 표 타이포 */
       #rk-card [data-testid="stDataFrame"] * {{ font-size: 0.92rem !important; }}
       #rk-card [data-testid="stDataFrame"] div[role='grid']{{ overflow-x: hidden !important; }}
       #rk-card [data-testid="stDataFrame"] div[role='gridcell']{{ white-space: normal !important; word-break: break-word !important; overflow-wrap: anywhere !important; }}
@@ -204,7 +221,8 @@ def _inject_alert_center():
     st.markdown("""
     <div id="envy-alert-root" style="position:fixed;top:16px;right:16px;z-index:999999;pointer-events:none;"></div>
     <style>
-      .envy-toast{min-width:220px;max-width:420px;margin:8px 0;padding:.7rem 1rem;border-radius:12px;color:#fff;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.25);opacity:0;transform:translateY(-6px);transition:opacity .2s ease, transform .2s ease;}
+      .envy-toast{min-width:220px;max-width:420px;margin:8px 0;padding:.7rem 1rem;border-radius:12px;color:#fff;font-weight:700;
+        box-shadow:0 8px 24px rgba(0,0,0,.25);opacity:0;transform:translateY(-6px);transition:opacity .2s ease, transform .2s ease;}
       .envy-toast.show{opacity:1;transform:translateY(0)}
       .envy-info{background:#2563eb}.envy-warn{background:#d97706}.envy-error{background:#dc2626}
     </style>
@@ -484,10 +502,12 @@ def section_rakuten_ui():
 # 6) Korea Radar (Naver Searchad API)
 # =========================
 import hashlib, hmac, base64 as b64
+
 def _naver_signature(timestamp: str, method: str, uri: str, secret: str) -> str:
     msg = f"{timestamp}.{method}.{uri}"
     digest = hmac.new(bytes(secret, "utf-8"), bytes(msg, "utf-8"), hashlib.sha256).digest()
     return b64.b64encode(digest).decode("utf-8")
+
 def _naver_keys_from_secrets():
     ak = _get_key("NAVER_API_KEY"); sk = _get_key("NAVER_SECRET_KEY"); cid= _get_key("NAVER_CUSTOMER_ID")
     return ak.strip(), sk.strip(), str(cid).strip()
@@ -504,8 +524,10 @@ def _naver_keywordstool(hint_keywords: list[str]) -> pd.DataFrame:
         r = requests.get(base_url+uri, headers=headers, params=params, timeout=12)
         r.raise_for_status()
     except Exception as e:
-        st.info(f"키워드도구 호출 실패: {getattr(e, 'response', None).status_code if hasattr(e,'response') and e.response else 'N/A'} — {e}")
+        code = getattr(getattr(e, "response", None), "status_code", "N/A")
+        st.markdown(f"<div class='envy-chip-warn main'>키워드도구 호출 실패 · HTTP {code} — 키/시그니처/권한 확인</div>", unsafe_allow_html=True)
         return pd.DataFrame()
+
     try:
         data = r.json().get("keywordList", [])[:200]
         if not data: return pd.DataFrame()
@@ -540,6 +562,7 @@ def _count_product_from_shopping(keyword: str) -> int|None:
         return None
 
 def section_korea_ui():
+    st.markdown('<div class="main">', unsafe_allow_html=True)
     st.caption("※ 검색지표는 네이버 검색광고 API(키워드도구) 기준, 상품수는 네이버쇼핑 ‘전체’ 탭 크롤링 기준입니다.")
     c1, c2, c3 = st.columns([1,1,1])
     with c1:
@@ -548,6 +571,7 @@ def section_korea_ui():
         device = st.selectbox("디바이스", ["all","pc","mo"], index=0)
     with c3:
         src = st.selectbox("키워드 소스", ["직접 입력"], index=0)
+
     keywords_txt = st.text_area("키워드(콤마로 구분)", "핸드메이드코트, 남자코트, 여자코트", height=96)
     kw_list = [k.strip() for k in (keywords_txt or "").split(",") if k.strip()]
     opt1, opt2 = st.columns([1,1])
@@ -555,25 +579,35 @@ def section_korea_ui():
         add_product = st.toggle("네이버쇼핑 ‘전체’ 상품수 수집(느림)", value=False)
     with opt2:
         table_mode = st.radio("표 모드", ["A(검색지표)","B(검색+순위)","C(검색+상품수+스코어)"], horizontal=True, index=2)
+
     if st.button("레이더 업데이트", use_container_width=False):
         with st.spinner("네이버 키워드도구 조회 중…"):
             df = _naver_keywordstool(kw_list)
         if df.empty:
-            st.error("데이터가 없습니다. (API/권한/쿼터 또는 키워드 확인)")
+            st.markdown("<div class='envy-chip-warn main'>데이터가 없습니다. (API/권한/쿼터 또는 키워드 확인)</div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
             return
+
         if table_mode.startswith("A"):
             st.dataframe(df, use_container_width=True, height=430)
             st.download_button("CSV 다운로드", df.to_csv(index=False).encode("utf-8-sig"),
-                               file_name="korea_keyword_A.csv", mime="text/csv"); return
+                               file_name="korea_keyword_A.csv", mime="text/csv")
+            st.markdown("</div>", unsafe_allow_html=True)
+            return
+
         df2 = df.copy()
         df2["검색합계"] = (pd.to_numeric(df2["PC월간검색수"], errors="coerce").fillna(0) +
                            pd.to_numeric(df2["Mobile월간검색수"], errors="coerce").fillna(0))
         df2["검색순위"] = df2["검색합계"].rank(ascending=False, method="min")
+
         if table_mode.startswith("B"):
             out = df2.sort_values("검색순위")
             st.dataframe(out, use_container_width=True, height=430)
             st.download_button("CSV 다운로드", out.to_csv(index=False).encode("utf-8-sig"),
-                               file_name="korea_keyword_B.csv", mime="text/csv"); return
+                               file_name="korea_keyword_B.csv", mime="text/csv")
+            st.markdown("</div>", unsafe_allow_html=True)
+            return
+
         product_counts = []
         if add_product:
             with st.spinner("네이버쇼핑 상품수 수집 중…(키워드 수에 따라 수 분 소요)"):
@@ -582,9 +616,11 @@ def section_korea_ui():
                     product_counts.append(cnt if cnt is not None else math.nan)
         else:
             product_counts = [math.nan]*len(df2)
+
         df2["판매상품수"] = product_counts
         df2["상품수순위"] = df2["판매상품수"].rank(na_option="bottom", method="min")
         df2["상품발굴대상"] = (df2["검색순위"] + df2["상품수순위"]).rank(na_option="bottom", method="min")
+
         cols = ["키워드","PC월간검색수","Mobile월간검색수","판매상품수",
                 "PC월평균클릭수","Mobile월평균클릭수","PC월평균클릭률","Mobile월평균클릭률",
                 "월평균노출광고수","광고경쟁정도","검색순위","상품수순위","상품발굴대상"]
@@ -592,6 +628,7 @@ def section_korea_ui():
         st.dataframe(out, use_container_width=True, height=430)
         st.download_button("CSV 다운로드", out.to_csv(index=False).encode("utf-8-sig"),
                            file_name="korea_keyword_C.csv", mime="text/csv")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
 # 7) DataLab Trend (Open API) + Category → Top20 UI (+ Direct Trend)
@@ -607,8 +644,8 @@ def _datalab_trend(groups: list, start_date: str, end_date: str,
     url = "https://openapi.naver.com/v1/datalab/search"
     headers = {"X-Naver-Client-Id": cid, "X-Naver-Client-Secret": csec, "Content-Type": "application/json; charset=utf-8", "Referer": ref}
     payload = {"startDate": start_date, "endDate": end_date, "timeUnit": time_unit, "keywordGroups": groups}
-    r = requests.post(url, headers=headers, data=json.dumps(payload), timeout=12)
     try:
+        r = requests.post(url, headers=headers, data=json.dumps(payload), timeout=12)
         r.raise_for_status()
         js = r.json(); out=[]
         for gr in js.get("results", []):
@@ -643,30 +680,40 @@ def section_category_keyword_lab():
         time_unit = st.selectbox("단위", ["week", "month"], index=0)
     with cC:
         months = st.slider("조회기간(개월)", 1, 12, 3)
+
     start = (dt.date.today() - dt.timedelta(days=30 * months)).strftime("%Y-%m-%d")
     end   = (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
+
     seeds = SEED_MAP.get(cat, [])
     df = _naver_keywordstool(seeds)
+
     if df.empty:
-        st.warning("키워드도구 응답이 비었습니다. (API/권한/쿼터 확인)")
-        st.markdown('</div>', unsafe_allow_html=True); return
+        st.markdown("<div class='envy-chip-info main'>키워드도구 응답이 비었습니다. (API/권한/쿼터 확인)</div>", unsafe_allow_html=True)
+        sample = pd.DataFrame([{"키워드": k, "검색합계": 0, "PC월간검색수":0, "Mobile월간검색수":0, "월평균노출광고수":0, "광고경쟁정도":0} for k in seeds])
+        st.dataframe(sample, use_container_width=True, height=240)
+        st.markdown('</div>', unsafe_allow_html=True)
+        return
+
     df["검색합계"] = pd.to_numeric(df["PC월간검색수"], errors="coerce").fillna(0) + pd.to_numeric(df["Mobile월간검색수"], errors="coerce").fillna(0)
     top20 = df.sort_values("검색합계", ascending=False).head(20).reset_index(drop=True)
     st.dataframe(top20[["키워드","검색합계","PC월간검색수","Mobile월간검색수","월평균노출광고수","광고경쟁정도"]],
                  use_container_width=True, height=340)
     st.download_button("CSV 다운로드", top20.to_csv(index=False).encode("utf-8-sig"),
                        file_name=f"category_{cat}_top20.csv", mime="text/csv")
+
     topk = st.slider("라인차트 키워드 수", 3, 10, 5, help="상위 N개 키워드만 트렌드를 그립니다.")
     kws = top20["키워드"].head(topk).tolist()
     groups = [{"groupName": k, "keywords": [k]} for k in kws]
+
     ts = _datalab_trend(groups, start, end, time_unit=time_unit)
     if ts.empty:
-        st.info("DataLab 트렌드 응답이 비어 있어요. (Client ID/Secret, Referer/환경, 날짜/단위 확인)")
+        st.markdown("<div class='envy-chip-warn main'>DataLab 트렌드 응답 없음 — ClientID/Secret/날짜/단위 확인</div>", unsafe_allow_html=True)
     else:
         try:
             st.line_chart(ts.set_index("날짜"))
         except Exception:
             st.dataframe(ts, use_container_width=True, height=260)
+
     st.markdown('</div>', unsafe_allow_html=True)
 
 def section_keyword_trend_widget():
@@ -681,7 +728,7 @@ def section_keyword_trend_widget():
         groups = [{"groupName": k, "keywords": [k]} for k in kws][:5]
         df = _datalab_trend(groups, start, end, time_unit=unit)
         if df.empty:
-            st.error("DataLab 트렌드 응답이 비어 있어요. (Client ID/Secret, Referer/환경, 권한/쿼터/날짜/단위 확인)")
+            st.markdown("<div class='envy-chip-warn main'>DataLab 트렌드 응답이 비어 있어요. (Client ID/Secret, Referer/권한/쿼터/날짜/단위 확인)</div>", unsafe_allow_html=True)
         else:
             st.dataframe(df, use_container_width=True, height=260)
             st.line_chart(df.set_index("날짜"))
