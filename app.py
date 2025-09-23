@@ -93,75 +93,91 @@ STOP_PRESETS = {
     }
 }
 
+# =========================
+# 1) UI defaults & CSS
+# =========================
+def _ensure_session_defaults():
+    ss = st.session_state
+    ss.setdefault("theme","light")
+    ss.setdefault("fx_base","USD")
+    ss.setdefault("sale_foreign",1.00)
+    ss.setdefault("m_base","USD")
+    ss.setdefault("purchase_foreign",0.00)
+    ss.setdefault("card_fee_pct",4.00)
+    ss.setdefault("market_fee_pct",14.00)
+    ss.setdefault("shipping_won",0.0)
+    ss.setdefault("margin_mode","퍼센트")
+    ss.setdefault("margin_pct",10.00)
+    ss.setdefault("margin_won",10000.0)
+    # Stopwords manager 상태
+    ss.setdefault("STOP_GLOBAL", list(STOPWORDS_GLOBAL))
+    ss.setdefault("STOP_BY_CAT", dict(STOPWORDS_BY_CAT))
+    ss.setdefault("STOP_WHITELIST", [])
+    ss.setdefault("STOP_REPLACE", ["무배=> ", "무료배송=> ", "정품=> "])
+    ss.setdefault("STOP_AGGR", False)
+    # Rakuten genre map
+    ss.setdefault("rk_genre_map", {
+        "전체(샘플)": "100283","뷰티/코스메틱": "100283","의류/패션": "100283","가전/디지털": "100283",
+        "가구/인테리어": "100283","식품": "100283","생활/건강": "100283","스포츠/레저": "100283","문구/취미": "100283",
+    })
+
+def _toggle_theme():
+    st.session_state["theme"]="dark" if st.session_state.get("theme","light")=="light" else "light"
+
 def _inject_css():
-    # 메인 컨테이너 색 대비만 적용 (사이드바 전역 스타일은 손대지 않음)
     theme = st.session_state.get("theme","light")
+    bg, fg = ("#0e1117","#e6edf3") if theme=="dark" else ("#ffffff","#111111")
+    st.markdown(f"""
+    <style>
+      .block-container{{max-width:3800px!important;padding-top:.55rem!important;padding-bottom:1rem!important}}
+      html,body,[data-testid="stAppViewContainer"]{{background:{bg}!important;color:{fg}!important}}
+      h2,h3{{margin-top:.3rem!important}}
+      [data-testid="stSidebar"],[data-testid="stSidebar"]>div:first-child,[data-testid="stSidebar"] section{{height:100vh!important;overflow:hidden!important;padding:.15rem .25rem!important}}
+      [data-testid="stSidebar"] section{{overflow-y:auto!important}}
+      [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none!important}}
+      [data-testid="stSidebar"] .stSelectbox,.stNumberInput,.stRadio,.stMarkdown,.stTextInput,.stButton{{margin:.06rem 0!important}}
+      [data-baseweb="input"] input,.stNumberInput input,[data-baseweb="select"] div[role="combobox"]{{height:1.55rem!important;padding:.12rem .6rem!important;font-size:.96rem!important;border-radius:12px!important}}
+      .pill{{border-radius:9999px;padding:.40rem .9rem;font-weight:800;display:inline-block;margin:.10rem 0!important}}
+      .pill-green{{background:#b8f06c;border:1px solid #76c02a;color:#083500}}
+      .pill-blue{{background:#dbe6ff;border:1px solid #88a8ff;color:#09245e}}
+      .pill-yellow{{background:#ffe29b;border:1px solid #d2a12c;color:#3e2a00}}
+      .card{{border:1px solid rgba(0,0,0,.06);border-radius:14px;padding:.85rem;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.05)}}
+      .card-title{{font-size:1.18rem;font-weight:900;margin:.1rem 0 .55rem 0}}
+      .card iframe{{border:0;width:100%;border-radius:10px}}
+      .row-gap{{height:16px}}
+      .logo-circle{{width:72px;height:72px;border-radius:50%;overflow:hidden;margin:.2rem auto .4rem auto;box-shadow:0 2px 8px rgba(0,0,0,.12);border:1px solid rgba(0,0,0,.06)}}
+      .logo-circle img{{width:100%;height:100%;object-fit:cover;display:block;}}
+      #rk-card [data-testid="stDataFrame"] * {{ font-size: 0.92rem !important; }}
+      #rk-card [data-testid="stDataFrame"] div[role='grid']{{ overflow-x: hidden !important; }}
+      #rk-card [data-testid="stDataFrame"] div[role='gridcell']{{ white-space: normal !important; word-break: break-word !important; overflow-wrap: anywhere !important; }}
+    </style>
+    """, unsafe_allow_html=True)
 
-    if theme == "dark":
-        st.markdown("""
-<style>
-  /* ===== 메인 영역 한정 ===== */
-  [data-testid="stAppViewContainer"] .block-container{
-    background:#0e1117 !important; color:#ffffff !important;
-  }
-  [data-testid="stAppViewContainer"] .block-container h1,
-  [data-testid="stAppViewContainer"] .block-container h2,
-  [data-testid="stAppViewContainer"] .block-container h3,
-  [data-testid="stAppViewContainer"] .block-container h4,
-  [data-testid="stAppViewContainer"] .block-container h5,
-  [data-testid="stAppViewContainer"] .block-container h6{ color:#ffffff !important; }
-
-  [data-testid="stAppViewContainer"] .block-container a{ color:#ffd84d !important; }
-  [data-testid="stAppViewContainer"] .block-container a:hover{ color:#ffb800 !important; }
-
-  [data-testid="stAppViewContainer"] .block-container .card{
-    background:#111418 !important; border:1px solid #2a2a2a !important;
-  }
-  [data-testid="stAppViewContainer"] .block-container [data-testid="stDataFrame"] *{
-    color:#ffffff !important; opacity:1 !important;
-  }
-</style>
-""", unsafe_allow_html=True)
-    else:
-        st.markdown("""
-<style>
-  /* ===== 메인 영역 한정 ===== */
-  [data-testid="stAppViewContainer"] .block-container{
-    background:#ffffff !important; color:#111111 !important;
-  }
-  [data-testid="stAppViewContainer"] .block-container h1,
-  [data-testid="stAppViewContainer"] .block-container h2,
-  [data-testid="stAppViewContainer"] .block-container h3,
-  [data-testid="stAppViewContainer"] .block-container h4,
-  [data-testid="stAppViewContainer"] .block-container h5,
-  [data-testid="stAppViewContainer"] .block-container h6{ color:#111111 !important; }
-
-  [data-testid="stAppViewContainer"] .block-container a{ color:#1E6FFF !important; }
-  [data-testid="stAppViewContainer"] .block-container a:hover{ color:#4D8DFF !important; }
-
-  [data-testid="stAppViewContainer"] .block-container .card{
-    background:#ffffff !important; border:1px solid rgba(0,0,0,.12) !important;
-  }
-  [data-testid="stAppViewContainer"] .block-container [data-testid="stDataFrame"] *{
-    color:#111111 !important; opacity:1 !important;
-  }
-</style>
-""", unsafe_allow_html=True)
-
-    # ====== 사이드바 "로고 크기" & "스크롤바 숨김"만 복구 (다른 건 절대 변경 X) ======
+def _inject_alert_center():
     st.markdown("""
-<style>
-  /* 로고를 정확히 72x72로, 비율 깨짐 방지 */
-  [data-testid="stSidebar"] .logo-circle{ width:72px; height:72px; border-radius:50%;
-    overflow:hidden; margin:.2rem auto .4rem auto; box-shadow:0 2px 8px rgba(0,0,0,.12);
-    border:1px solid rgba(0,0,0,.06); }
-  [data-testid="stSidebar"] .logo-circle img{ width:100%; height:100%; object-fit:cover; }
+    <div id="envy-alert-root" style="position:fixed;top:16px;right:16px;z-index:999999;pointer-events:none;"></div>
+    <style>
+      .envy-toast{min-width:220px;max-width:420px;margin:8px 0;padding:.7rem 1rem;border-radius:12px;color:#fff;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.25);opacity:0;transform:translateY(-6px);transition:opacity .2s ease, transform .2s ease;}
+      .envy-toast.show{opacity:1;transform:translateY(0)}
+      .envy-info{background:#2563eb}.envy-warn{background:#d97706}.envy-error{background:#dc2626}
+    </style>
+    <script>
+      (function(){
+        const root = document.getElementById('envy-alert-root');
+        function toast(level, text){
+          const el = document.createElement('div');
+          el.className='envy-toast envy-'+(level||'info'); el.textContent=text||'알림';
+          el.style.pointerEvents='auto'; root.appendChild(el);
+          requestAnimationFrame(()=>el.classList.add('show'));
+          setTimeout(()=>{el.classList.remove('show'); setTimeout(()=>el.remove(), 300);}, 5000);
+        }
+        window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='alert'){toast(d.level,d.msg);} },false);
+        let heard=false; window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='title'){heard=true;}},false);
+        setTimeout(()=>{ if(!heard){ toast('warn','데이터랩 연결이 지연되고 있어요.'); } },8000);
+      })();
+    </script>
+    """, unsafe_allow_html=True)
 
-  /* 사이드바 스크롤바 감추기 (기능은 유지) */
-  [data-testid="stSidebar"] { scrollbar-width: none; }            /* Firefox */
-  [data-testid="stSidebar"] ::-webkit-scrollbar{ display:none; }  /* WebKit */
-</style>
-""", unsafe_allow_html=True)
 
 # =========================
 # 2) Responsive
