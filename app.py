@@ -1260,57 +1260,53 @@ def section_title_generator():
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
-# 3) 11번가 + 아이템스카우트/셀러라이프
+# 10) 11번가 / 아이템스카우트 / 셀러라이프
 # =========================
-def section_commerce_tools():
-    st.markdown("### 📦 11번가 / 아이템스카우트 / 셀러라이프")
+# (주의) 아래 도움함수 _11st_abest_url() 이 위쪽에 없으면 함께 추가하세요.
+# def _11st_abest_url():
+#     return "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
 
-    PROXY_URL = st.session_state.get("PROXY_URL", "").strip()
-    if not PROXY_URL:
-        st.warning("⚠️ PROXY_URL을 설정하세요. (Cloudflare Worker 주소)")
-        return
+def section_11st():
+    """11번가 임베드: 항상 열림 + 새로고침 버튼 + 높이 940"""
+    st.markdown('<div class="card main"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>',
+                unsafe_allow_html=True)
 
-    # ---- 11번가 ----
-    st.subheader("📱 11번가 (모바일)")
-    if st.button("🔄 새로고침 (11번가)"):
+    # 새로고침 버튼 (수동)
+    if st.button("🔄 새로고침 (11번가)", key="btn_refresh_11st"):
         st.experimental_rerun()
 
-    url_11st = "https://m.11st.co.kr/page/main/home"
-    src_11st = f"{PROXY_URL}?url={url_11st}"
+    # 프록시 통해 임베드 (Cloudflare Worker)
+    base = (_get_key("ELEVENST_PROXY") or ELEVENST_PROXY or "").rstrip("/")
+    if not base:
+        # 상단에 ELEVENST_PROXY 상수가 이미 있는 버전이면 여기로 안옵니다.
+        st.warning("프록시가 설정되지 않아 원본 URL을 직접 엽니다.")
+        src = _11st_abest_url()
+    else:
+        src = f"{base}/?url={quote(_11st_abest_url(), safe=':/?&=%')}"
 
-    st.components.v1.iframe(
-        src_11st,
-        height=940,     # 높이값 조정
-        scrolling=True
-    )
+    # 항상 열림 (버튼 없음), 높이 940
+    html = f'''
+        <iframe src="{src}" loading="lazy"
+                style="width:100%;height:940px;border:0;border-radius:10px"></iframe>
+    '''
+    st.components.v1.html(html, height=960, scrolling=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    # ---- 아이템스카우트 ----
-    st.subheader("📊 아이템스카우트")
-    url_itemscout = st.text_input(
-        "아이템스카우트 URL 입력",
-        "https://www.itemscout.io/"
-    )
-    if url_itemscout.strip():
-        src_itemscout = f"{PROXY_URL}?url={url_itemscout}"
-        st.components.v1.iframe(
-            src_itemscout,
-            height=800,
-            scrolling=True
-        )
 
-    # ---- 셀러라이프 ----
-    st.subheader("📊 셀러라이프")
-    url_sellerlife = st.text_input(
-        "셀러라이프 URL 입력",
-        "https://sellerlife.co.kr/"
-    )
-    if url_sellerlife.strip():
-        src_sellerlife = f"{PROXY_URL}?url={url_sellerlife}"
-        st.components.v1.iframe(
-            src_sellerlife,
-            height=800,
-            scrolling=True
-        )
+def section_itemscout_placeholder():
+    """아이템스카우트 자리만 잡는 안전한 플레이스홀더(에러 방지)"""
+    st.markdown('<div class="card main"><div class="card-title">아이템스카우트</div>', unsafe_allow_html=True)
+    st.info("임베드는 보류 중입니다. 원본 페이지를 새 탭에서 여세요.")
+    st.link_button("아이템스카우트 직접 열기(새 탭)", "https://app.itemscout.io/market/keyword")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+def section_sellerlife_placeholder():
+    """셀러라이프 자리만 잡는 안전한 플레이스홀더(에러 방지)"""
+    st.markdown('<div class="card main"><div class="card-title">셀러라이프</div>', unsafe_allow_html=True)
+    st.info("임베드는 보류 중입니다. 원본 페이지를 새 탭에서 여세요.")
+    st.link_button("직접 열기(새 탭)", "https://sellochomes.co.kr/sellerlife/")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
 # 외부 Stopwords 섹션(선택)
