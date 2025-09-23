@@ -1264,37 +1264,42 @@ def section_title_generator():
 # =========================
 
 def _11st_abest_url():
-    # 고정 URL (자동 새로고침 유발하는 timestamp 제거)
+    # 11번가 모바일 아마존 베스트 원본 URL
     return "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
 
 def section_11st():
-    import urllib.parse as _url
+    """11번가 임베드: 항상 열림 + 새로고침 버튼 + 높이 940 (앱 리런 없이 iframe만 리로드)"""
+    import time
+    try:
+        from urllib.parse import quote as _q
+    except Exception:
+        def _q(s, safe=None):  # 실패해도 끊기지 않도록
+            return s
 
-    st.markdown(
-        '<div class="card main"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>',
-        unsafe_allow_html=True
-    )
+    st.markdown('<div class="card main"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>',
+                unsafe_allow_html=True)
 
-    # 새로고침용 리비전 카운터(버튼 클릭시만 증가 → iframe 캐시 우회)
+    # 새로고침 논스 (iframe 캐시 무효화용)
     ss = st.session_state
-    ss.setdefault("__11st_rev", 0)
+    ss.setdefault("__11st_nonce", int(time.time()))
 
-    col_btn, _ = st.columns([1, 5])
-    with col_btn:
-        if st.button("새로고침"):
-            ss["__11st_rev"] += 1
+    if st.button("🔄 새로고침 (11번가)", key="btn_refresh_11st"):
+        ss["__11st_nonce"] = int(time.time())
 
-    # 프록시 + 캐시 우회 쿼리(rev) — 버튼 클릭시에만 값이 바뀜
-    base = _11st_abest_url()
-    proxied = f"{ELEVENST_PROXY.rstrip('/')}/?url={_url.quote(base, safe=':/?&=%')}&rev={ss['__11st_rev']}"
+    # 프록시가 있으면 경유, 없으면 원본 직접
+    base = (st.secrets.get("ELEVENST_PROXY", "") or ELEVENST_PROXY).rstrip("/") if "ELEVENST_PROXY" in globals() else (st.secrets.get("ELEVENST_PROXY","").rstrip("/"))
+    raw  = _11st_abest_url()
+    src_raw = raw if not base else f"{base}/?url={_q(raw, safe=':/?&=%')}"
+    # iframe만 리로드하도록 논스 파라미터 부착
+    src = f"{src_raw}{'&' if '?' in src_raw else '?'}reload={ss['__11st_nonce']}"
 
-    # 높이 930px 고정
-    html = (
-        f'<iframe src="{proxied}" loading="lazy" '
-        f'style="width:100%;height:930px;border:0;border-radius:10px"></iframe>'
-    )
-    st.components.v1.html(html, height=950, scrolling=True)
-
+    # 항상 열림, 높이 940
+    html = f'''
+      <iframe src="{src}" loading="lazy"
+              style="width:100%;height:940px;border:0;border-radius:10px"></iframe>
+    '''
+    # height는 iframe보다 약간 크게(스크롤 여유)
+    st.components.v1.html(html, height=960, scrolling=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
