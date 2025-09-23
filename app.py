@@ -134,7 +134,7 @@ def _toggle_theme():
     st.session_state["theme"] = "dark" if st.session_state.get("theme", "light") == "light" else "light"
 
 def _inject_css():
-    """메인 뷰만 색상 오버라이드(사이드바 제외). 다크/라이트 대비 강화."""
+    """메인 뷰만 색상 오버라이드(사이드바 제외). 다크/라이트 대비 강화 + 버튼/컬러박스 폰트 흰색 고정."""
     theme = st.session_state.get("theme", "light")
 
     # 팔레트
@@ -201,16 +201,17 @@ def _inject_css():
         box-shadow:0 1px 6px rgba(0,0,0,.12);
       }}
 
-      /* 메인뷰의 파란 버튼(레이더 업데이트/상품명 생성/직접열기 등) */
+      /* 메인뷰의 파란 버튼 → 항상 흰색 폰트로 고정 */
       [data-testid="stAppViewContainer"] .stButton>button {{
         background:{btn_bg} !important;
-        color:#fff !important;
+        color:#ffffff !important;
         border:1px solid rgba(255,255,255,.08) !important;
         border-radius:10px !important;
         font-weight:700 !important;
       }}
       [data-testid="stAppViewContainer"] .stButton>button:hover {{
         background:{btn_bg_hover} !important;
+        color:#ffffff !important;
         border-color:rgba(255,255,255,.15) !important;
       }}
 
@@ -227,6 +228,18 @@ def _inject_css():
 
       /* 기존 여백 유지 */
       [data-testid="stAppViewContainer"] h2,h3 {{ margin-top:.3rem !important; }}
+
+      /* ───────── 사이드바 컬러박스: 라이트/다크 모두 흰색 폰트 고정 ───────── */
+      [data-testid="stSidebar"] .pill,
+      [data-testid="stSidebar"] .pill * {{
+        color:#111111 !important;
+        -webkit-text-fill-color:#111111 !important;
+      }}
+      /* 필요시 컬러박스 기본 스타일(이미 있으면 중복 적용 X) */
+      [data-testid="stSidebar"] .pill {{
+        display:block; padding:.55rem .8rem; border-radius:10px; font-weight:700;
+      }}
+      /* (참고) 개별 색상은 기존 클래스에서 유지: .pill-green/.pill-blue/.pill-yellow 등 */
     </style>
     """, unsafe_allow_html=True)
 
