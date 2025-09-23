@@ -1279,11 +1279,9 @@ def section_11st():
     ss = st.session_state
     ss.setdefault("__11st_nonce", int(time.time()))
 
-    # 상단 우측에 새로고침 버튼 노출
-    _left, _btn_col = st.columns([1, 1])
-    with _btn_col:
-        if st.button("🔄 새로고침 (11번가)", key="btn_refresh_11st", use_container_width=True):
-            ss["__11st_nonce"] = int(time.time())
+    # 상단에 새로고침 버튼
+    if st.button("🔄 새로고침 (11번가)", key="btn_refresh_11st"):
+        ss["__11st_nonce"] = int(time.time())
 
     # 프록시 우선 사용, 없으면 원본 직접
     base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
@@ -1304,14 +1302,13 @@ def section_11st():
         height: 100%;
         border: 0;
         border-radius: 10px;
-        overflow: hidden;           /* iframe 자체 스크롤만 사용 (scrolling=no와 함께) */
+        overflow: hidden;
       }}
     </style>
     <div class="embed-11st-wrap">
       <iframe src="{src}" loading="lazy" scrolling="no"></iframe>
     </div>
     """
-    # 컴포넌트를 감싸는 Streamlit 컨테이너 자체 높이만 살짝 여유
     st.components.v1.html(html, height=960, scrolling=False)
 
     st.markdown("</div>", unsafe_allow_html=True)
