@@ -294,7 +294,7 @@ def _proxy_iframe_with_title(proxy_base: str, target_url: str, height: int = 860
     st.components.v1.html(html, height=h+56, scrolling=False)
 
 # =========================
-# 4) Sidebar (theme + translator toggle + calculators, scroll-lock)
+# 4) Sidebar (locked, light, scoped)
 # =========================
 def _sidebar():
     _ensure_session_defaults()
@@ -305,68 +305,82 @@ def _sidebar():
         pass
 
     with st.sidebar:
-        # ── 사이드바 라이트톤 강제 + 스크롤락 (overflow 숨김) + 순이익까지만 표시 ──
+        # ── 사이드바 전용 스코프(#sb-lock) : 여기만 스타일 고정 ──
         st.markdown("""
         <style>
-          [data-testid="stSidebar"]{
-            background:#f6f8fb !important;
+          /* 사이드바 전체 스크롤 자체 차단 + 높이 고정 */
+          [data-testid="stSidebar"] { overflow:hidden !important; }
+          [data-testid="stSidebar"] section[tabindex="0"]{
+            height:100vh !important;
+            overflow:hidden !important;
+          }
+
+          /* 스코프: 사이드바 콘텐츠 래퍼 */
+          #sb-lock{
+            position:sticky; top:0;
+            height:100vh;           /* 뷰포트까지만 표시 */
+            overflow:hidden;        /* 내부 스크롤도 불가 */
+            background:#f6f8fb;     /* 라이트톤 고정 */
+          }
+
+          /* 폰트 색 완전 고정(검정) — 다크테마 회색화 무력화 */
+          #sb-lock, #sb-lock *,
+          #sb-lock .stMarkdown, #sb-lock .stMarkdown * ,
+          #sb-lock h1,#sb-lock h2,#sb-lock h3,#sb-lock h4,#sb-lock h5,#sb-lock h6,
+          #sb-lock p,#sb-lock li,#sb-lock span,#sb-lock label,
+          #sb-lock [data-baseweb="select"] *, 
+          #sb-lock .stNumberInput input, #sb-lock .stTextInput input,
+          #sb-lock [data-baseweb="input"] input, #sb-lock input, #sb-lock textarea{
             color:#111111 !important;
             filter:none !important;
-            color-scheme: light !important;
-            overflow:hidden !important;   /* 스크롤 자체를 막음 */
           }
-          [data-testid="stSidebar"] *{
+
+          /* 카드/입력 박스 시각 일관성 */
+          #sb-lock .card{
+            background:#ffffff !important;
+            border:1px solid rgba(0,0,0,.06) !important;
+            border-radius:14px !important;
+            box-shadow:0 1px 6px rgba(0,0,0,.08) !important;
+          }
+          #sb-lock [data-baseweb="select"] > div,
+          #sb-lock [data-baseweb="input"] input,
+          #sb-lock .stNumberInput input, #sb-lock .stTextInput input{
+            background:#ffffff !important;
             color:#111111 !important;
-            filter:none !important;
           }
-          /* 로고 원형 */
-          [data-testid="stSidebar"] .logo-circle{
-            width:64px;height:64px;border-radius:9999px;overflow:hidden;
-            margin:.35rem auto .6rem auto; box-shadow:0 2px 8px rgba(0,0,0,.12);
-            border:1px solid rgba(0,0,0,.06);
-          }
-          [data-testid="stSidebar"] .logo-circle img{
-            width:100%;height:100%;object-fit:cover;display:block;
-          }
-          /* pill 박스 */
-          [data-testid="stSidebar"] .pill{
+          #sb-lock input::placeholder{ color:#4b5563 !important; opacity:.9 !important; }
+
+          /* pill 컬러박스: 노란색으로 통일 */
+          #sb-lock .pill{
             display:block;width:100%;
             border-radius:12px;padding:.70rem .95rem;
             font-weight:800;letter-spacing:.1px;
             box-shadow:0 2px 10px rgba(0,0,0,.08);
-            border:1px solid transparent;margin:.35rem 0 .5rem 0;
+            background:#fef3c7 !important;
+            border:1px solid #eab308 !important;
+            color:#7c2d12 !important;
+            margin:.35rem 0 .5rem 0;
           }
-          [data-testid="stSidebar"] .pill-green{background:#d1fae5;border-color:#10b981;color:#065f46;}
-          [data-testid="stSidebar"] .pill-blue{background:#dbeafe;border-color:#3b82f6;color:#1e3a8a;}
-          [data-testid="stSidebar"] .pill-yellow{background:#fef3c7;border-color:#eab308;color:#7c2d12;}
-          [data-testid="stSidebar"] * { color:#111111 !important; }
-          [data-testid="stSidebar"] .pill { background:#fef3c7; border:1px solid #eab308; color:#7c2d12; }
-          [data-testid="stSidebar"],
-          [data-testid="stSidebar"] * ,
-          [data-testid="stSidebar"] h1,
-          [data-testid="stSidebar"] h2,
-          [data-testid="stSidebar"] h3,
-          [data-testid="stSidebar"] h4,
-          [data-testid="stSidebar"] h5,
-          [data-testid="stSidebar"] h6,
-          [data-testid="stSidebar"] p,
-          [data-testid="stSidebar"] li,
-          [data-testid="stSidebar"] span,
-          [data-testid="stSidebar"] label,
-          [data-testid="stSidebar"] .stMarkdown,
-          [data-testid="stSidebar"] .stMarkdown * {
-    color:#111111 !important;
-}
 
+          /* 로고 원형 */
+          #sb-lock .logo-circle{
+            width:64px;height:64px;border-radius:9999px;overflow:hidden;
+            margin:.35rem auto .6rem auto; box-shadow:0 2px 8px rgba(0,0,0,.12);
+            border:1px solid rgba(0,0,0,.06);
+            background:#fff;
+          }
+          #sb-lock .logo-circle img{ width:100%;height:100%;object-fit:cover;display:block; }
         </style>
         """, unsafe_allow_html=True)
+
+        # ── 여기부터 사이드바 표시 영역 (로고~순이익까지만 보임) ──
+        st.markdown('<div id="sb-lock">', unsafe_allow_html=True)
 
         # 로고
         lp = Path(__file__).parent / "logo.png"
         if lp.exists():
             b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
-            st.markdown(f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>',
-                        unsafe_allow_html=True)
+            st.markdown(f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>', unsafe_allow_html=True)
 
         # 토글
         c1, c2 = st.columns(2)
@@ -386,9 +400,11 @@ def _sidebar():
                                            value=float(st.session_state.get("sale_foreign",1.0)),
                                            step=0.01, format="%.2f", key="sale_foreign")
             won = FX_DEFAULT[fx_base]*sale_foreign
-            st.markdown(f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b>'
-                        f'<span> ({CURRENCIES[fx_base]["symbol"]})</span></div>',
-                        unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="pill">환산 금액: <b>{won:,.2f} 원</b>'
+                f'<span style="opacity:.8;font-weight:700"> ({CURRENCIES[fx_base]["symbol"]})</span></div>',
+                unsafe_allow_html=True
+            )
             st.caption(f"환율 기준: {FX_DEFAULT[fx_base]:,.2f} ₩/{CURRENCIES[fx_base]['unit']}")
 
         # 마진 계산기
@@ -401,7 +417,8 @@ def _sidebar():
                                                step=0.01, format="%.2f", key="purchase_foreign")
             base_cost_won = FX_DEFAULT[m_base]*purchase_foreign if purchase_foreign>0 \
                             else FX_DEFAULT[st.session_state.get("fx_base","USD")]*st.session_state.get("sale_foreign",1.0)
-            st.markdown(f'<div class="pill pill-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="pill">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
+
             c1, c2 = st.columns(2)
             with c1:
                 card_fee = st.number_input("카드수수료(%)",
@@ -427,8 +444,12 @@ def _sidebar():
                                              step=100.0, format="%.0f", key="margin_won")
                 target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)+margin_won+shipping_won
                 margin_value = margin_won; desc=f"+{margin_won:,.0f}"
-            st.markdown(f'<div class="pill pill-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="pill pill-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>', unsafe_allow_html=True)
+
+            st.markdown(f'<div class="pill">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="pill">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>', unsafe_allow_html=True)
+
+        # ── 여기서 끊는다: sb-lock 밖은 보이지도, 스크롤도 안 됨 ──
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
 # 5) Rakuten Ranking
