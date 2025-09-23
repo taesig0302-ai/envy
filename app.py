@@ -1285,7 +1285,7 @@ def section_11st():
     if ss["__show_11st_embed"]:
         url = f"{ELEVENST_PROXY.rstrip('/')}/?url={quote(_11st_abest_url(), safe=':/?&=%')}"
         html = f'<iframe src="{url}" loading="lazy" style="width:100%;height:900px;border:0;border-radius:10px"></iframe>'
-        st.components.v1.html(html, height=950, scrolling=True)
+        st.components.v1.html(html, height=920, scrolling=True)
     else:
         st.info("임베드는 닫혀 있습니다. 새 탭으로 여는 것이 가장 안정적입니다.")
         st.link_button("11번가 아마존 베스트 (새 탭)", _11st_abest_url())
