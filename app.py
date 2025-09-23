@@ -1303,6 +1303,28 @@ def section_11st():
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
+# (보류) 아이템스카우트 / 셀러라이프 플레이스홀더 섹션
+# =========================
+def section_itemscout_placeholder():
+    st.markdown(
+        '<div class="card main"><div class="card-title">아이템스카우트</div>',
+        unsafe_allow_html=True
+    )
+    st.info("임베드는 보류 중입니다. 아래 버튼으로 원본 페이지를 새 탭에서 여세요.")
+    st.link_button("아이템스카우트 직접 열기 (새 탭)", "https://app.itemscout.io/market/keyword")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+def section_sellerlife_placeholder():
+    st.markdown(
+        '<div class="card main"><div class="card-title">셀러라이프</div>',
+        unsafe_allow_html=True
+    )
+    st.info("임베드는 보류 중입니다. 아래 버튼으로 원본 페이지를 새 탭에서 여세요.")
+    st.link_button("셀러라이프 직접 열기 (새 탭)", "https://sellochomes.co.kr/sellerlife/")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# =========================
 # 외부 Stopwords 섹션(선택)
 # =========================
 def section_stopwords_manager():
