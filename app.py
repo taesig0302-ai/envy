@@ -1260,47 +1260,41 @@ def section_title_generator():
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
-# 10) 기타 카드  ✅ 새로고침 억제 패치 (11번가)
+# 10) 기타 카드 — 11번가 (항상 열림 + 수동 새로고침)
 # =========================
-from urllib.parse import quote
 
 def _11st_abest_url():
-    # 강제 리프레시 요소(_ts) 제거: 불필요한 재실행 방지
+    # 고정 URL (자동 새로고침 유발하는 timestamp 제거)
     return "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
 
 def section_11st():
-    st.markdown('<div class="card main"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>',
-                unsafe_allow_html=True)
+    import urllib.parse as _url
+
+    st.markdown(
+        '<div class="card main"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>',
+        unsafe_allow_html=True
+    )
+
+    # 새로고침용 리비전 카운터(버튼 클릭시만 증가 → iframe 캐시 우회)
     ss = st.session_state
-    ss.setdefault("__show_11st_embed", False)
+    ss.setdefault("__11st_rev", 0)
 
-    col_open, col_close = st.columns(2)
-    with col_open:
-        if st.button("임베드 열기", disabled=ss["__show_11st_embed"]):
-            ss["__show_11st_embed"] = True
-    with col_close:
-        if st.button("임베드 닫기", disabled=not ss["__show_11st_embed"]):
-            ss["__show_11st_embed"] = False
+    col_btn, _ = st.columns([1, 5])
+    with col_btn:
+        if st.button("새로고침"):
+            ss["__11st_rev"] += 1
 
-    if ss["__show_11st_embed"]:
-        url = f"{ELEVENST_PROXY.rstrip('/')}/?url={quote(_11st_abest_url(), safe=':/?&=%')}"
-        html = f'<iframe src="{url}" loading="lazy" style="width:100%;height:900px;border:0;border-radius:10px"></iframe>'
-        st.components.v1.html(html, height=920, scrolling=True)
-    else:
-        st.info("임베드는 닫혀 있습니다. 새 탭으로 여는 것이 가장 안정적입니다.")
-        st.link_button("11번가 아마존 베스트 (새 탭)", _11st_abest_url())
-    st.markdown('</div>', unsafe_allow_html=True)
+    # 프록시 + 캐시 우회 쿼리(rev) — 버튼 클릭시에만 값이 바뀜
+    base = _11st_abest_url()
+    proxied = f"{ELEVENST_PROXY.rstrip('/')}/?url={_url.quote(base, safe=':/?&=%')}&rev={ss['__11st_rev']}"
 
-def section_itemscout_placeholder():
-    st.markdown('<div class="card main"><div class="card-title">아이템스카우트</div>', unsafe_allow_html=True)
-    st.info("임베드 보류 중입니다. 아래 버튼으로 원본 페이지를 새 탭에서 여세요.")
-    st.link_button("아이템스카우트 직접 열기(새 탭)", "https://app.itemscout.io/market/keyword")
-    st.markdown('</div>', unsafe_allow_html=True)
+    # 높이 930px 고정
+    html = (
+        f'<iframe src="{proxied}" loading="lazy" '
+        f'style="width:100%;height:930px;border:0;border-radius:10px"></iframe>'
+    )
+    st.components.v1.html(html, height=950, scrolling=True)
 
-def section_sellerlife_placeholder():
-    st.markdown('<div class="card main"><div class="card-title">셀러라이프</div>', unsafe_allow_html=True)
-    st.info("임베드 보류 중입니다. 아래 버튼으로 원본 페이지를 새 탭에서 여세요.")
-    st.link_button("직접 열기(새 탭)", "https://sellochomes.co.kr/sellerlife/")
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
