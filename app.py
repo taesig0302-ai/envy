@@ -94,7 +94,7 @@ STOP_PRESETS = {
 }
 
 # =========================
-# 1) UI defaults & CSS (최종)
+# 1) UI defaults & CSS (최종: 사이드바 고정 팔레트, 메인만 라이트/다크)
 # =========================
 def _ensure_session_defaults():
     ss = st.session_state
@@ -125,63 +125,106 @@ def _toggle_theme():
     st.session_state["theme"] = "dark" if st.session_state.get("theme","light")=="light" else "light"
 
 def _inject_css():
+    # 메인 영역 팔레트(라이트/다크)
     theme = st.session_state.get("theme","light")
-
     if theme == "dark":
-        bg = "#0e1117"
-        fg = "#ffffff"   # 기본 텍스트 흰색
-        link = "#ff5555" # 강조 링크 레드
-        pill_green = "#ffeb99"   # 옐로우 톤
-        pill_blue  = "#ffffff"   # 화이트 톤
-        pill_yellow= "#ff5555"   # 레드 톤
+        main_bg = "#0e1117"
+        main_fg = "#ffffff"      # 본문 텍스트
+        main_link = "#ff5555"    # 링크/강조
         card_bg = "#111418"
         card_border = "#2a2a2a"
+        df_border = "#2f3338"
+        input_bg = "#0f1318"
+        input_border = "#2f3338"
+        # pill(포인트) — 다크
+        pill_green_bg = "#ffe066"; pill_green_fg = "#111111"; pill_green_bd = "#ffcc33"
+        pill_blue_bg  = "#ffffff"; pill_blue_fg  = "#111111"; pill_blue_bd  = "#bcd0ff"
+        pill_yell_bg  = "#ff5151"; pill_yell_fg  = "#ffffff"; pill_yell_bd  = "#d63e3e"
     else:
-        bg = "#ffffff"
-        fg = "#111111"   # 기본 텍스트 검정
-        link = "#1E6FFF" # 강조 블루
-        pill_green = "#b8f06c"
-        pill_blue  = "#dbe6ff"
-        pill_yellow= "#ffe29b"
+        main_bg = "#ffffff"
+        main_fg = "#111111"
+        main_link = "#1E6FFF"
         card_bg = "#ffffff"
         card_border = "rgba(0,0,0,.12)"
+        df_border = "#cfd4dc"
+        input_bg = "#ffffff"
+        input_border = "#cfd4dc"
+        # pill(포인트) — 라이트
+        pill_green_bg = "#b8f06c"; pill_green_fg = "#083500"; pill_green_bd = "#76c02a"
+        pill_blue_bg  = "#dbe6ff"; pill_blue_fg  = "#09245e"; pill_blue_bd  = "#88a8ff"
+        pill_yell_bg  = "#ffe29b"; pill_yell_fg  = "#3e2a00"; pill_yell_bd  = "#d2a12c"
+
+    # 사이드바 팔레트(고정: 토글 영향 없음)
+    sb_bg = "#eef1f5"
+    sb_fg = "#111111"
+    sb_link = "#1E6FFF"
+    sb_input_bg = "#ffffff"
+    sb_input_border = "#cfd4dc"
 
     st.markdown(f"""
 <style>
+  /* ===== 공통 레이아웃 ===== */
   .block-container{{max-width:3800px!important;padding-top:.55rem!important;padding-bottom:1rem!important}}
-  html,body,[data-testid="stAppViewContainer"]{{background:{bg}!important;color:{fg}!important}}
-  h1,h2,h3,h4,h5,h6,label,small,span,p,div{{color:{fg}!important;opacity:1!important}}
 
-  [data-testid="stSidebar"],
-  [data-testid="stSidebar"]>div:first-child,
-  [data-testid="stSidebar"] section{{height:100vh!important;overflow:hidden!important;padding:.15rem .25rem!important}}
-  [data-testid="stSidebar"] section{{overflow-y:auto!important}}
-  [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none!important}}
+  /* ===== 메인 영역(테마 적용) ===== */
+  [data-testid="stAppViewContainer"]{{background:{main_bg}!important}}
+  [data-testid="stAppViewContainer"] .block-container, 
+  [data-testid="stAppViewContainer"] .block-container *{{color:{main_fg}!important;opacity:1!important}}
+  [data-testid="stAppViewContainer"] .block-container a{{color:{main_link}!important}}
+  [data-testid="stAppViewContainer"] .block-container a:hover{{opacity:.85!important}}
 
-  .logo-circle{{width:72px;height:72px;border-radius:50%;overflow:hidden;margin:.2rem auto .4rem auto;
-                box-shadow:0 2px 8px rgba(0,0,0,.12);border:1px solid rgba(0,0,0,.06)}}
-  .logo-circle img{{width:100%;height:100%;object-fit:cover;display:block;}}
+  /* 메인 카드/표/입력 */
+  [data-testid="stAppViewContainer"] .block-container .card{{
+    background:{card_bg}!important;border:1px solid {card_border}!important;border-radius:14px;padding:.85rem;
+    box-shadow:0 1px 6px rgba(0,0,0,.05)
+  }}
+  .card-title{{font-size:1.18rem;font-weight:900;margin:.1rem 0 .55rem 0}}
+
+  #rk-card [data-testid="stDataFrame"] div[role='grid']{{overflow-x:hidden!important}}
+  #rk-card [data-testid="stDataFrame"] *{{font-size:.92rem!important}}
+  [data-testid="stAppViewContainer"] .block-container [data-testid="stDataFrame"] div[role="grid"]{{border-color:{df_border}!important}}
 
   [data-baseweb="input"] input,
   .stNumberInput input,
-  [data-baseweb="select"] div[role="combobox"]{{height:1.55rem!important;padding:.12rem .6rem!important;
-                                                font-size:.96rem!important;border-radius:12px!important}}
+  [data-baseweb="select"] div[role="combobox"]{{
+    height:1.55rem!important;padding:.12rem .6rem!important;font-size:.96rem!important;border-radius:12px!important;
+    background:{input_bg}!important;border:1px solid {input_border}!important;color:{main_fg}!important
+  }}
 
-  .pill{{border-radius:9999px;padding:.40rem .9rem;font-weight:800;display:inline-block;margin:.10rem 0!important}}
-  .pill-green{{background:{pill_green};border:1px solid #76c02a;color:#083500}}
-  .pill-blue{{background:{pill_blue};border:1px solid #88a8ff;color:#09245e}}
-  .pill-yellow{{background:{pill_yellow};border:1px solid #d2a12c;color:#3e2a00}}
+  /* 메인 포인트 pill */
+  .pill{{border-radius:9999px;padding:.40rem .9rem;font-weight:900;display:inline-block;margin:.10rem 0!important}}
+  .pill-green{{background:{pill_green_bg}!important;border:1px solid {pill_green_bd}!important;color:{pill_green_fg}!important}}
+  .pill-blue {{background:{pill_blue_bg }!important;border:1px solid {pill_blue_bd }!important;color:{pill_blue_fg }!important}}
+  .pill-yellow{{background:{pill_yell_bg }!important;border:1px solid {pill_yell_bd }!important;color:{pill_yell_fg }!important}}
 
-  .card{{background:{card_bg}!important;border:1px solid {card_border}!important;
-         border-radius:14px;padding:.85rem;box-shadow:0 1px 6px rgba(0,0,0,.05)}}
-  .card-title{{font-size:1.18rem;font-weight:900;margin:.1rem 0 .55rem 0}}
+  /* ===== 사이드바(테마 고정) ===== */
+  [data-testid="stSidebar"], 
+  [data-testid="stSidebar"] > div:first-child, 
+  [data-testid="stSidebar"] section{{background:{sb_bg}!important}}
+  [data-testid="stSidebar"] *{{color:{sb_fg}!important;opacity:1!important}}
+  [data-testid="stSidebar"] a{{color:{sb_link}!important}}
+  [data-testid="stSidebar"] section{{height:100vh!important;overflow:hidden!important;padding:.15rem .25rem!important}}
+  [data-testid="stSidebar"] section{{overflow-y:auto!important}}
+  [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none!important}}
+  [data-testid="stSidebar"] .stSelectbox,
+  [data-testid="stSidebar"] .stNumberInput,
+  [data-testid="stSidebar"] .stRadio,
+  [data-testid="stSidebar"] .stMarkdown,
+  [data-testid="stSidebar"] .stTextInput,
+  [data-testid="stSidebar"] .stButton{{margin:.06rem 0!important}}
 
-  a{{color:{link}!important}}
-  a:hover{{opacity:0.8!important}}
+  /* 사이드바 입력창은 항상 동일 톤 */
+  [data-testid="stSidebar"] [data-baseweb="input"] input,
+  [data-testid="stSidebar"] .stNumberInput input,
+  [data-testid="stSidebar"] [data-baseweb="select"] div[role="combobox"]{{
+    background:{sb_input_bg}!important;border:1px solid {sb_input_border}!important;color:{sb_fg}!important;
+    height:1.55rem!important;padding:.12rem .6rem!important;font-size:.96rem!important;border-radius:12px!important
+  }}
 
-  #rk-card [data-testid="stDataFrame"] * {{ font-size: 0.92rem !important; color:{fg}!important; }}
-  #rk-card [data-testid="stDataFrame"] div[role='grid']{{ overflow-x: hidden !important; }}
-  #rk-card [data-testid="stDataFrame"] div[role='gridcell']{{ white-space: normal !important; word-break: break-word !important; overflow-wrap: anywhere !important; }}
+  /* 로고: 사이즈 고정 */
+  .logo-circle{{width:72px;height:72px;border-radius:50%;overflow:hidden;margin:.2rem auto .4rem auto;
+                box-shadow:0 2px 8px rgba(0,0,0,.12);border:1px solid rgba(0,0,0,.06)}}
+  .logo-circle img{{width:100%;height:100%;object-fit:cover;display:block;}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -196,19 +239,19 @@ def _inject_alert_center():
       .envy-info{background:#2563eb}.envy-warn{background:#d97706}.envy-error{background:#dc2626}
     </style>
     <script>
-      (function(){{
+      (function(){
         const root = document.getElementById('envy-alert-root');
-        function toast(level, text){{
+        function toast(level, text){
           const el = document.createElement('div');
           el.className='envy-toast envy-'+(level||'info'); el.textContent=text||'알림';
           el.style.pointerEvents='auto'; root.appendChild(el);
           requestAnimationFrame(()=>el.classList.add('show'));
-          setTimeout(()=>{{el.classList.remove('show'); setTimeout(()=>el.remove(), 300);}}, 5000);
-        }}
-        window.addEventListener('message',(e)=>{{ const d=e.data||{{}}; if(d.__envy && d.kind==='alert'){{toast(d.level,d.msg);}} }},false);
-        let heard=false; window.addEventListener('message',(e)=>{{ const d=e.data||{{}}; if(d.__envy && d.kind==='title'){{heard=true;}}}},false);
-        setTimeout(()=>{{ if(!heard){{ toast('warn','데이터랩 연결이 지연되고 있어요.'); }} }},8000);
-      }})();
+          setTimeout(()=>{el.classList.remove('show'); setTimeout(()=>el.remove(), 300);}, 5000);
+        }
+        window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='alert'){toast(d.level,d.msg);} },false);
+        let heard=false; window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='title'){heard=true;}},false);
+        setTimeout(()=>{ if(!heard){ toast('warn','데이터랩 연결이 지연되고 있어요.'); } },8000);
+      })();
     </script>
     """, unsafe_allow_html=True)
 
