@@ -1260,11 +1260,10 @@ def section_title_generator():
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
-# 10) 기타 카드  ✅ 새로고침 억제 패치 (11번가)
+# 10) 11번가 (모바일) 임베드 — 최초 1회 로드 후 유지
 # =========================
 def _11st_abest_url():
-    # ⛔ 이전: 매 렌더마다 _ts=timestamp 를 붙여 강제 리프레시 유발
-    # ✅ 고정 URL로 변경해서 재실행 시에도 불필요한 새로고침이 발생하지 않도록 함
+    # 고정 URL (타임스탬프 제거)
     return "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
 
 def section_11st():
@@ -1272,40 +1271,26 @@ def section_11st():
                 unsafe_allow_html=True)
 
     ss = st.session_state
-    ss.setdefault("__show_11st_embed", False)
+    ss.setdefault("__11st_iframe_html", None)
 
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("임베드 열기", disabled=ss["__show_11st_embed"]):
-            ss["__show_11st_embed"] = True
-    with c2:
-        if st.button("임베드 닫기", disabled=not ss["__show_11st_embed"]):
-            ss["__show_11st_embed"] = False
-
-    if ss["__show_11st_embed"]:
-        # 프록시를 통해 lazy-load로 임베드
+    if st.button("🔄 새로고침 (다시 불러오기)"):
         url = f"{ELEVENST_PROXY.rstrip('/')}/?url={quote(_11st_abest_url(), safe=':/?&=%')}"
-        html = (
+        ss["__11st_iframe_html"] = (
             f'<iframe src="{url}" loading="lazy" '
             f'style="width:100%;height:900px;border:0;border-radius:10px"></iframe>'
         )
-        st.components.v1.html(html, height=920, scrolling=True)
-    else:
-        st.info("임베드는 닫혀 있습니다. 새 탭으로 여는 것이 가장 안정적입니다.")
-        st.link_button("11번가 아마존 베스트 (새 탭)", _11st_abest_url())
 
-    st.markdown('</div>', unsafe_allow_html=True)
+    # 최초 진입 시 1회만 로드
+    if ss["__11st_iframe_html"] is None:
+        url = f"{ELEVENST_PROXY.rstrip('/')}/?url={quote(_11st_abest_url(), safe=':/?&=%')}"
+        ss["__11st_iframe_html"] = (
+            f'<iframe src="{url}" loading="lazy" '
+            f'style="width:100%;height:900px;border:0;border-radius:10px"></iframe>'
+        )
 
-def section_itemscout_placeholder():
-    st.markdown('<div class="card main"><div class="card-title">아이템스카우트</div>', unsafe_allow_html=True)
-    st.info("임베드 보류 중입니다. 아래 버튼으로 원본 페이지를 새 탭에서 여세요.")
-    st.link_button("아이템스카우트 직접 열기(새 탭)", "https://app.itemscout.io/market/keyword")
-    st.markdown('</div>', unsafe_allow_html=True)
+    # 이미 생성된 iframe 그대로 유지
+    st.components.v1.html(ss["__11st_iframe_html"], height=920, scrolling=True)
 
-def section_sellerlife_placeholder():
-    st.markdown('<div class="card main"><div class="card-title">셀러라이프</div>', unsafe_allow_html=True)
-    st.info("임베드 보류 중입니다. 아래 버튼으로 원본 페이지를 새 탭에서 여세요.")
-    st.link_button("직접 열기(새 탭)", "https://sellochomes.co.kr/sellerlife/")
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
