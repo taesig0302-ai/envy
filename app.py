@@ -94,7 +94,7 @@ STOP_PRESETS = {
 }
 
 # =========================
-# 1) UI defaults & CSS  ← 이 블록 통째로 교체
+# 1) UI defaults & CSS  ← 이 블록 통째로 교체 (사이드바 비건드림)
 # =========================
 def _ensure_session_defaults():
     ss = st.session_state
@@ -127,7 +127,7 @@ def _toggle_theme():
 def _inject_css():
     theme = st.session_state.get("theme", "light")
 
-    # ── 팔레트 사전준비(조건은 파이썬에서 계산) ──
+    # 메인영역 전용 팔레트(사이드바 영향 없음)
     if theme == "dark":
         vars_css = {
             "--bg":"#000000", "--fg":"#FFFFFF",
@@ -167,125 +167,54 @@ def _inject_css():
 
     st.markdown(f"""
     <style>
-      :root{{{vars_blob}}}
-
-      html,body,[data-testid="stAppViewContainer"]{{background:var(--bg)!important;color:var(--fg)!important;}}
-      .block-container{{max-width:3800px!important;padding-top:.55rem!important;padding-bottom:1rem!important}}
-      h1,h2,h3,h4,h5,h6{{color:var(--fg)!important}}
-
-      /* 링크 */
-      a{{color:var(--link)!important;}}
-      a:hover{{color:var(--link-hover)!important;text-decoration:underline!important;}}
-
-      /* 유틸 텍스트 */
-      .text-primary{{ color: var(--primary)!important; }}
-      .text-accent{{ color: var(--accent)!important; }}
-
-      /* ── 사이드바 ── */
-      [data-testid="stSidebar"],[data-testid="stSidebar"]>div:first-child,[data-testid="stSidebar"] section{{
-        height:100vh!important;overflow:hidden!important;padding:.15rem .25rem!important;
-        background:var(--card)!important;border-right:1px solid var(--card-border)!important;
+      /* ===== 메인 영역만 대상(.block-container) : 사이드바 절대 미적용 ===== */
+      [data-testid="stAppViewContainer"] .block-container {{
+        max-width:3800px!important;padding-top:.55rem!important;padding-bottom:1rem!important;
+        /* 변수 스코프를 block-container에만 설정 */
+        {vars_blob}
+        background:var(--bg)!important;color:var(--fg)!important;
       }}
-      [data-testid="stSidebar"] section{{overflow-y:auto!important}}
-      [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none!important}}
 
-      /* ✅ 로고: 고정 크기 & 비율 유지 (원형 크롭) */
-      .logo-circle{{width:72px;height:72px;border-radius:50%;overflow:hidden;
-                    margin:.2rem auto .4rem auto;box-shadow:0 2px 8px rgba(0,0,0,.12);
-                    border:1px solid var(--card-border)!important;background:#fff;}}
-      .logo-circle img{{display:block;width:100%!important;height:100%!important;object-fit:cover!important;}}
+      [data-testid="stAppViewContainer"] .block-container h1,
+      [data-testid="stAppViewContainer"] .block-container h2,
+      [data-testid="stAppViewContainer"] .block-container h3,
+      [data-testid="stAppViewContainer"] .block-container h4,
+      [data-testid="stAppViewContainer"] .block-container h5,
+      [data-testid="stAppViewContainer"] .block-container h6 {{ color:var(--fg)!important }}
 
-      /* 입력류 + 포커스 */
-      [data-baseweb="input"] input,
-      .stNumberInput input,
-      [data-baseweb="select"] div[role="combobox"],
-      .stTextInput>div>div>input {{
+      /* 링크(메인영역) */
+      [data-testid="stAppViewContainer"] .block-container a{{color:var(--link)!important;}}
+      [data-testid="stAppViewContainer"] .block-container a:hover{{color:var(--link-hover)!important;text-decoration:underline!important;}}
+
+      /* 유틸 텍스트(메인영역) */
+      [data-testid="stAppViewContainer"] .block-container .text-primary{{ color: var(--primary)!important; }}
+      [data-testid="stAppViewContainer"] .block-container .text-accent{{ color: var(--accent)!important; }}
+
+      /* 카드(메인영역) */
+      [data-testid="stAppViewContainer"] .block-container .card{{
+        background:var(--card)!important;border:1px solid var(--card-border)!important;border-radius:14px;
+        padding:.85rem;box-shadow:0 2px 10px rgba(0,0,0,.10)
+      }}
+      [data-testid="stAppViewContainer"] .block-container .card-title{{font-size:1.18rem;font-weight:900;margin:.1rem 0 .55rem 0;color:var(--fg)!important}}
+
+      /* 배지(메인영역) */
+      [data-testid="stAppViewContainer"] .block-container .pill{{border-radius:9999px;padding:.40rem .9rem;font-weight:800;display:inline-block;margin:.10rem 0!important}}
+      [data-testid="stAppViewContainer"] .block-container .pill-blue{{background:{pill_blue_bg};border:1px solid {pill_blue_bd};color:{pill_blue_fg};}}
+      [data-testid="stAppViewContainer"] .block-container .pill-green{{background:{pill_green_bg};border:1px solid {pill_green_bd};color:{pill_green_fg};}}
+      [data-testid="stAppViewContainer"] .block-container .pill-yellow{{background:{pill_yellow_bg};border:1px solid {pill_yellow_bd};color:{pill_yellow_fg};}}
+
+      /* 입력류 + 포커스(메인영역) */
+      [data-testid="stAppViewContainer"] .block-container [data-baseweb="input"] input,
+      [data-testid="stAppViewContainer"] .block-container .stNumberInput input,
+      [data-testid="stAppViewContainer"] .block-container [data-baseweb="select"] div[role="combobox"],
+      [data-testid="stAppViewContainer"] .block-container .stTextInput>div>div>input {{
         height:1.60rem!important;padding:.14rem .60rem!important;font-size:.96rem!important;
         border-radius:12px!important;background:var(--card)!important;color:var(--fg)!important;
         border:1px solid var(--card-border)!important;outline:none!important;
       }}
-      [data-baseweb="input"] input:focus,
-      .stNumberInput input:focus,
-      [data-baseweb="select"] div[role="combobox"]:focus-within,
-      .stTextInput>div>div>input:focus {{
-        box-shadow: 0 0 0 2px var(--focus) inset!important; border-color: var(--focus)!important;
-      }}
-      [data-baseweb="input"] input::placeholder,
-      .stTextInput input::placeholder,
-      .stNumberInput input::placeholder, textarea::placeholder{{
-        color: color-mix(in oklab, var(--fg) 70%, transparent)!important; opacity:1!important;
-      }}
-      .stRadio label, .stCheckbox label, .stToggle label{{ color:var(--fg)!important; opacity:1!important; }}
-
-      /* 버튼 */
-      button[kind="primary"]{{
-        background:var(--primary)!important;border:1px solid var(--primary)!important;
-        color:{btn_primary_text}!important;font-weight:800!important;
-      }}
-      button[kind="secondary"]{{
-        background:var(--card)!important;border:1px solid var(--card-border)!important;color:var(--fg)!important;
-      }}
-
-      /* 카드 & 배지 */
-      .card{{background:var(--card)!important;border:1px solid var(--card-border)!important;border-radius:14px;
-            padding:.85rem;box-shadow:0 2px 10px rgba(0,0,0,.10)}}
-      .card-title{{font-size:1.18rem;font-weight:900;margin:.1rem 0 .55rem 0;color:var(--fg)!important}}
-      .pill{{border-radius:9999px;padding:.40rem .9rem;font-weight:800;display:inline-block;margin:.10rem 0!important}}
-      .pill-blue{{background:{pill_blue_bg};border:1px solid {pill_blue_bd};color:{pill_blue_fg};}}
-      .pill-green{{background:{pill_green_bg};border:1px solid {pill_green_bd};color:{pill_green_fg};}}
-      .pill-yellow{{background:{pill_yellow_bg};border:1px solid {pill_yellow_bd};color:{pill_yellow_fg};}}
-
-      /* 표(DataFrame) */
-      [data-testid="stDataFrame"] * {{ color:var(--fg)!important; opacity:1!important; }}
-      [data-testid="stDataFrame"] div[role='grid']{{ background:var(--card)!important;border:1px solid var(--card-border)!important; }}
-      [data-testid="stDataFrame"] div[role='columnheader']{{ background:var(--hover)!important;font-weight:800!important;border-bottom:1px solid var(--grid)!important; }}
-      [data-testid="stDataFrame"] div[role='gridcell']{{ border-bottom:1px solid var(--grid)!important; }}
-      [data-testid="stDataFrame"] div[role='row']:hover{{ background:var(--hover)!important; }}
-
-      /* iframe 경계 */
-      .card iframe, .stIframe iframe {{ border:1px solid var(--card-border)!important;border-radius:10px!important;box-shadow:0 1px 6px rgba(0,0,0,.10)!important; }}
-
-      /* 회색 바램 방지 */
-      [data-testid="stMarkdownContainer"] p,
-      [data-testid="stMarkdownContainer"] li,
-      [data-testid="stMarkdownContainer"] span,
-      [data-testid="stSidebar"] p,
-      [data-testid="stSidebar"] li,
-      [data-testid="stSidebar"] span,
-      [data-testid="stCaptionContainer"], .stCaption,
-      .markdown-text-container p, .markdown-text-container li,
-      .stAlert p, .stAlert div, .stMetric label, label, small {{
-        color: var(--fg) !important; opacity: 1 !important;
-      }}
-      button, button * {{ color: inherit !important; opacity: 1 !important; }}
-      .card .stMarkdown p, .card .stMarkdown span {{ color: var(--fg) !important; opacity: 1 !important; }}
-    </style>
-    """, unsafe_allow_html=True)
-
-def _inject_alert_center():
-    st.markdown("""
-    <div id="envy-alert-root" style="position:fixed;top:16px;right:16px;z-index:999999;pointer-events:none;"></div>
-    <style>
-      .envy-toast{min-width:220px;max-width:420px;margin:8px 0;padding:.7rem 1rem;border-radius:12px;color:#fff;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.25);opacity:0;transform:translateY(-6px);transition:opacity .2s ease, transform .2s ease;}
-      .envy-toast.show{opacity:1;transform:translateY(0)}
-      .envy-info{background:#2563eb}.envy-warn{background:#d97706}.envy-error{background:#dc2626}
-    </style>
-    <script>
-      (function(){
-        const root = document.getElementById('envy-alert-root');
-        function toast(level, text){
-          const el = document.createElement('div');
-          el.className='envy-toast envy-'+(level||'info'); el.textContent=text||'알림';
-          el.style.pointerEvents='auto'; root.appendChild(el);
-          requestAnimationFrame(()=>el.classList.add('show'));
-          setTimeout(()=>{el.classList.remove('show'); setTimeout(()=>el.remove(), 300);}, 5000);
-        }
-        window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='alert'){toast(d.level,d.msg);} },false);
-        let heard=false; window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='title'){heard=true;}},false);
-        setTimeout(()=>{ if(!heard){ toast('warn','데이터랩 연결이 지연되고 있어요.'); } },8000);
-      })();
-    </script>
-    """, unsafe_allow_html=True)
+      [data-testid="stAppViewContainer"] .block-container [data-baseweb="input"] input:focus,
+      [data-testid="stAppViewContainer"] .block-container .stNumberInput input:focus,
+      [data-testid="stAppViewContainer"] .block-container [data-baseweb="select"] div[role="c]()
 
 # =========================
 # 2) Responsive
