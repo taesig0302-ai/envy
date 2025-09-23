@@ -133,182 +133,115 @@ def _toggle_theme():
     )
 
 def _inject_css():
-    """메인 영역만 스타일 적용(사이드바/로고는 불변) + 다크/라이트 대비 개선 + 버튼 블루계열"""
+    """메인 영역만 스타일 적용(사이드바/로고 비침범) + 고대비 고정 + 버튼 블루계열 강제"""
     theme = st.session_state.get("theme","light")
-    # 팔레트
-    if theme=="dark":
-        BG = "#0e1117"   # 페이지 배경
-        FG = "#e6edf3"   # 기본 텍스트
-        CARD_BG = "#111827"
-        CARD_BORDER = "rgba(255,255,255,.08)"
-        MUTED = "rgba(230,237,243,.65)"
-        INPUT_BG = "#0b1220"
-        INPUT_BORDER = "rgba(255,255,255,.12)"
-        CHIP_BG = "#1f2937"
-        CHIP_FG = "#f9fafb"
+
+    if theme == "dark":
+        BG = "#0e1117"; FG = "#e6edf3"; FG_MUTED = "#e6edf3cc"  # 80% alpha
+        CARD_BG = "#111827"; CARD_BORDER = "rgba(255,255,255,.08)"
+        INPUT_BG = "#0b1220"; INPUT_BORDER = "rgba(255,255,255,.18)"
     else:
-        BG = "#ffffff"
-        FG = "#111111"
-        CARD_BG = "#ffffff"
-        CARD_BORDER = "rgba(0,0,0,.08)"
-        MUTED = "rgba(17,17,17,.6)"
-        INPUT_BG = "#ffffff"
-        INPUT_BORDER = "rgba(0,0,0,.15)"
-        CHIP_BG = "#e7effe"
-        CHIP_FG = "#0b1e66"
+        BG = "#ffffff"; FG = "#111111"; FG_MUTED = "#111111b3"  # 70% alpha
+        CARD_BG = "#ffffff"; CARD_BORDER = "rgba(0,0,0,.08)"
+        INPUT_BG = "#ffffff"; INPUT_BORDER = "rgba(0,0,0,.15)"
 
-    BLUE = "#2563eb"
-    BLUE_HOVER = "#1d4ed8"
-    YELLOW = "#ffe29b"
-    GREEN = "#b8f06c"
+    BLUE = "#2563eb"; BLUE_HOVER = "#1d4ed8"
 
-    # 중요: 사이드바엔 영향 주지 않도록 "메인 컨테이너" 스코프로만 제한
     st.markdown(f"""
     <style>
-      /* 레이아웃: 메인 컨테이너만 */
+      /* === 메인 영역 루트: 특이도 올리고 !important 고정 === */
       [data-testid="stAppViewContainer"] .block-container {{
+        background: {BG} !important;
+        color: {FG} !important;
         max-width: 3800px !important;
         padding-top: .55rem !important;
         padding-bottom: 1rem !important;
-        background: {BG} !important;
-        color: {FG} !important;
       }}
 
-      /* 기본 텍스트/헤더 대비 */
+      /* 본문/라벨/설명/탭텍스트 등 회색화 방지(강제 상속) */
       [data-testid="stAppViewContainer"] .block-container h1,
       [data-testid="stAppViewContainer"] .block-container h2,
       [data-testid="stAppViewContainer"] .block-container h3,
-      [data-testid="stAppViewContainer"] .block-container h4 {{
+      [data-testid="stAppViewContainer"] .block-container h4,
+      [data-testid="stAppViewContainer"] .block-container h5,
+      [data-testid="stAppViewContainer"] .block-container h6,
+      [data-testid="stAppViewContainer"] .block-container p,
+      [data-testid="stAppViewContainer"] .block-container span,
+      [data-testid="stAppViewContainer"] .block-container li,
+      [data-testid="stAppViewContainer"] .block-container label,
+      [data-testid="stAppViewContainer"] .block-container .stMarkdown,
+      [data-testid="stAppViewContainer"] .block-container .stCaption,
+      [data-testid="stAppViewContainer"] .block-container .stTabs button,
+      [data-testid="stAppViewContainer"] .block-container .stMetric,
+      [data-testid="stAppViewContainer"] .block-container .stAlert,
+      [data-testid="stAppViewContainer"] .block-container .stRadio,
+      [data-testid="stAppViewContainer"] .block-container .stCheckbox {{
         color: {FG} !important;
-        margin-top: .35rem !important;
-      }}
-      [data-testid="stAppViewContainer"] .block-container .small, 
-      [data-testid="stAppViewContainer"] .block-container .stCaption, 
-      [data-testid="stAppViewContainer"] .block-container .st-emotion-cache-1v0mbdj {{
-        color: {MUTED} !important;
       }}
 
-      /* 카드 (우리 앱에서 쓰는 .card) */
+      /* 입력창/셀렉트/슬라이더 라벨 */
+      [data-testid="stAppViewContainer"] .block-container [data-baseweb="select"] *,
+      [data-testid="stAppViewContainer"] .block-container [data-baseweb="input"] *,
+      [data-testid="stAppViewContainer"] .block-container .stTextInput * {{
+        color: {FG} !important;
+      }}
+
+      /* 플레이스홀더도 고대비 */
+      [data-testid="stAppViewContainer"] .block-container input::placeholder,
+      [data-testid="stAppViewContainer"] .block-container textarea::placeholder {{
+        color: {FG_MUTED} !important;
+        opacity: 1 !important;
+      }}
+
+      /* 입력 배경/테두리 */
+      [data-testid="stAppViewContainer"] .block-container [data-baseweb="input"] input,
+      [data-testid="stAppViewContainer"] .block-container .stTextInput input,
+      [data-testid="stAppViewContainer"] .block-container .stNumberInput input,
+      [data-testid="stAppViewContainer"] .block-container [data-baseweb="select"] div[role="combobox"] {{
+        background: {INPUT_BG} !important;
+        border: 1px solid {INPUT_BORDER} !important;
+        border-radius: 12px !important;
+        height: 1.6rem !important;
+        padding: .12rem .6rem !important;
+        font-size: .96rem !important;
+      }}
+
+      /* 카드 */
       [data-testid="stAppViewContainer"] .block-container .card {{
         background: {CARD_BG} !important;
         border: 1px solid {CARD_BORDER} !important;
         border-radius: 14px !important;
         box-shadow: 0 2px 12px rgba(0,0,0,.08) !important;
       }}
-      [data-testid="stAppViewContainer"] .block-container .card-title {{
-        font-size: 1.06rem !important;
-        font-weight: 900 !important;
-      }}
 
-      /* 차트/데이터프레임 가독성 */
-      [data-testid="stAppViewContainer"] .block-container [data-testid="stDataFrame"] * {{
-        font-size: 0.93rem !important;
+      /* 데이터프레임/테이블 고대비 */
+      [data-testid="stAppViewContainer"] .block-container [data-testid="stDataFrame"] *,
+      [data-testid="stAppViewContainer"] .block-container table th,
+      [data-testid="stAppViewContainer"] .block-container table td {{
         color: {FG} !important;
-      }}
-      [data-testid="stAppViewContainer"] .block-container [data-testid="stDataFrame"] div[role='grid'] {{
         background: {CARD_BG} !important;
         border-color: {CARD_BORDER} !important;
       }}
 
-      /* 입력 컴포넌트(메인만) */
-      [data-testid="stAppViewContainer"] .block-container [data-baseweb="input"] input,
-      [data-testid="stAppViewContainer"] .block-container .stTextInput input,
-      [data-testid="stAppViewContainer"] .block-container .stNumberInput input,
-      [data-testid="stAppViewContainer"] .block-container [data-baseweb="select"] div[role="combobox"] {{
-        background: {INPUT_BG} !important;
-        color: {FG} !important;
-        border-radius: 12px !important;
-        border: 1px solid {INPUT_BORDER} !important;
-        height: 1.6rem !important;
-        padding: .12rem .6rem !important;
-        font-size: .96rem !important;
-      }}
-
-      /* 토글/라디오/슬라이더 라벨 대비 */
-      [data-testid="stAppViewContainer"] .block-container label, 
-      [data-testid="stAppViewContainer"] .block-container .stRadio label {{
-        color: {FG} !important;
-      }}
-
-      /* Pill 스타일 (가독색 유지) */
-      [data-testid="stAppViewContainer"] .block-container .pill {{
-        border-radius: 9999px; padding: .40rem .9rem; font-weight: 800; display:inline-block; 
-        margin:.10rem 0!important;
-      }}
-      [data-testid="stAppViewContainer"] .block-container .pill-green {{
-        background:{GREEN}; border:1px solid #76c02a; color:#083500;
-      }}
-      [data-testid="stAppViewContainer"] .block-container .pill-blue {{
-        background:#dbe6ff; border:1px solid #88a8ff; color:#09245e;
-      }}
-      [data-testid="stAppViewContainer"] .block-container .pill-yellow {{
-        background:{YELLOW}; border:1px solid #d2a12c; color:#3e2a00;
-      }}
-
-      /* 메인 영역 버튼(레이더 업데이트/상품명 생성/직접열기 포함) — 블루 계열 통일 */
-      [data-testid="stAppViewContainer"] .block-container .stButton > button {{
+      /* 메인 영역 모든 버튼을 블루 계열로 강제(다운로드/링크버튼 포함) */
+      [data-testid="stAppViewContainer"] .block-container .stButton > button,
+      [data-testid="stAppViewContainer"] .block-container .stDownloadButton > button,
+      [data-testid="stAppViewContainer"] .block-container a.stLinkButton,
+      [data-testid="stAppViewContainer"] .block-container button[kind="primary"] {{
         background: {BLUE} !important;
         color: #ffffff !important;
         border: none !important;
         border-radius: 10px !important;
         font-weight: 800 !important;
-        padding: .5rem 1.0rem !important;
+        padding: .5rem 1rem !important;
       }}
-      [data-testid="stAppViewContainer"] .block-container .stButton > button:hover {{
+      [data-testid="stAppViewContainer"] .block-container .stButton > button:hover,
+      [data-testid="stAppViewContainer"] .block-container .stDownloadButton > button:hover,
+      [data-testid="stAppViewContainer"] .block-container a.stLinkButton:hover,
+      [data-testid="stAppViewContainer"] .block-container button[kind="primary"]:hover {{
         background: {BLUE_HOVER} !important;
       }}
-
-      /* link_button (아이템스카우트/셀러라이프 ‘직접 열기’) */
-      [data-testid="stAppViewContainer"] .block-container a.stLinkButton, 
-      [data-testid="stAppViewContainer"] .block-container a.stLinkButton:visited {{
-        background: {BLUE} !important;
-        color: #ffffff !important;
-        border-radius: 10px !important;
-        font-weight: 800 !important;
-        border: none !important;
-        padding: .5rem 1.0rem !important;
-        display: inline-block;
-      }}
-      [data-testid="stAppViewContainer"] .block-container a.stLinkButton:hover {{
-        background: {BLUE_HOVER} !important;
-        color: #ffffff !important;
-      }}
-
-      /* 경고/힌트 배너 대비 */
-      [data-testid="stAppViewContainer"] .block-container .stAlert > div {{
-        background: {CARD_BG} !important;
-        color: {FG} !important;
-        border: 1px solid {CARD_BORDER} !important;
-      }}
     </style>
-    """, unsafe_allow_html=True)
-
-def _inject_alert_center():
-    # 알림(Toast) — 메인 레이어 위에 표시 (사이드바 영향 없음)
-    st.markdown("""
-    <div id="envy-alert-root" style="position:fixed;top:16px;right:16px;z-index:999999;pointer-events:none;"></div>
-    <style>
-      .envy-toast{min-width:220px;max-width:420px;margin:8px 0;padding:.7rem 1rem;border-radius:12px;color:#fff;
-                  font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.25);opacity:0;transform:translateY(-6px);
-                  transition:opacity .2s ease, transform .2s ease;}
-      .envy-toast.show{opacity:1;transform:translateY(0)}
-      .envy-info{background:#2563eb}.envy-warn{background:#d97706}.envy-error{background:#dc2626}
-    </style>
-    <script>
-      (function(){
-        const root = document.getElementById('envy-alert-root');
-        function toast(level, text){
-          const el = document.createElement('div');
-          el.className='envy-toast envy-'+(level||'info'); el.textContent=text||'알림';
-          el.style.pointerEvents='auto'; root.appendChild(el);
-          requestAnimationFrame(()=>el.classList.add('show'));
-          setTimeout(()=>{el.classList.remove('show'); setTimeout(()=>el.remove(), 300);}, 5000);
-        }
-        window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='alert'){toast(d.level,d.msg);} },false);
-        let heard=false; window.addEventListener('message',(e)=>{{ const d=e.data||{{}}; if(d.__envy && d.kind==='title') heard=true; }},false);
-        setTimeout(()=>{ if(!heard){ root && toast('warn','데이터랩 연결이 지연되고 있어요.'); } },8000);
-      })();
-    </script>
     """, unsafe_allow_html=True)
 
 # =========================
@@ -387,10 +320,27 @@ def _proxy_iframe_with_title(proxy_base: str, target_url: str, height: int = 860
 def _sidebar():
     _ensure_session_defaults(); _inject_css(); _inject_alert_center()
     with st.sidebar:
+        # ——— 로고: 원형 74px 고정 (사이드바 전용 스타일) ———
+        st.markdown("""
+        <style>
+          [data-testid="stSidebar"] .logo-circle{
+            width:74px;height:64px;border-radius:9999px;overflow:hidden;
+            margin:.35rem auto .6rem auto; box-shadow:0 2px 8px rgba(0,0,0,.12);
+            border:1px solid rgba(0,0,0,.06);
+          }
+          [data-testid="stSidebar"] .logo-circle img{
+            width:100%;height:100%;object-fit:cover;display:block;
+          }
+        </style>
+        """, unsafe_allow_html=True)
+
         lp = Path(__file__).parent / "logo.png"
         if lp.exists():
             b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
-            st.markdown(f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>',
+                unsafe_allow_html=True
+            )
 
         c1, c2 = st.columns(2)
         with c1:
@@ -439,6 +389,7 @@ def _sidebar():
                 sale_foreign = st.number_input("판매금액 (외화)", value=float(st.session_state.get("sale_foreign",1.0)),
                                                step=0.01, format="%.2f", key="sale_foreign")
                 won = FX_DEFAULT[fx_base]*sale_foreign
+                # 버튼·텍스트 색은 _inject_css()에서 고정
                 st.markdown(
                     f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b>'
                     f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[fx_base]["symbol"]})</span></div>',
@@ -449,7 +400,7 @@ def _sidebar():
         def margin_block(expanded=True):
             with st.expander("📈 마진 계산기", expanded=expanded):
                 m_base = st.selectbox("매입 통화", list(CURRENCIES.keys()),
-                                      index=list(CURRENCRIES.keys()).index(st.session_state.get("m_base","USD")) if False else list(CURRENCIES.keys()).index(st.session_state.get("m_base","USD")),
+                                      index=list(CURRENCRIES.keys()).index(st.session_state.get("m_base","USD")),
                                       key="m_base")
                 purchase_foreign = st.number_input("매입금액 (외화)",
                                                    value=float(st.session_state.get("purchase_foreign",0.0)),
