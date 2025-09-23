@@ -320,11 +320,11 @@ def _proxy_iframe_with_title(proxy_base: str, target_url: str, height: int = 860
 def _sidebar():
     _ensure_session_defaults(); _inject_css(); _inject_alert_center()
     with st.sidebar:
-        # ——— 로고: 원형 74px 고정 (사이드바 전용 스타일) ———
+        # ——— 로고: 원형 64px 고정 (사이드바 전용 스타일) ———
         st.markdown("""
         <style>
           [data-testid="stSidebar"] .logo-circle{
-            width:74px;height:64px;border-radius:9999px;overflow:hidden;
+            width:64px;height:64px;border-radius:9999px;overflow:hidden;
             margin:.35rem auto .6rem auto; box-shadow:0 2px 8px rgba(0,0,0,.12);
             border:1px solid rgba(0,0,0,.06);
           }
