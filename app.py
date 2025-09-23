@@ -341,6 +341,23 @@ def _sidebar():
           [data-testid="stSidebar"] .pill-yellow{background:#fef3c7;border-color:#eab308;color:#7c2d12;}
           [data-testid="stSidebar"] * { color:#111111 !important; }
           [data-testid="stSidebar"] .pill { background:#fef3c7; border:1px solid #eab308; color:#7c2d12; }
+          [data-testid="stSidebar"],
+          [data-testid="stSidebar"] * ,
+          [data-testid="stSidebar"] h1,
+          [data-testid="stSidebar"] h2,
+          [data-testid="stSidebar"] h3,
+          [data-testid="stSidebar"] h4,
+          [data-testid="stSidebar"] h5,
+          [data-testid="stSidebar"] h6,
+          [data-testid="stSidebar"] p,
+          [data-testid="stSidebar"] li,
+          [data-testid="stSidebar"] span,
+          [data-testid="stSidebar"] label,
+          [data-testid="stSidebar"] .stMarkdown,
+          [data-testid="stSidebar"] .stMarkdown * {
+    color:#111111 !important;
+}
+
         </style>
         """, unsafe_allow_html=True)
 
