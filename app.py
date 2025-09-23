@@ -94,11 +94,11 @@ STOP_PRESETS = {
 }
 
 # =========================
-# 1) UI defaults & CSS  ← 이 블록 통째로 교체 (사이드바 절대 비건드림)
+# 1) UI defaults & CSS  ← 이 블록 통째로 교체 (사이드바/로고 무수정)
 # =========================
 def _ensure_session_defaults():
     ss = st.session_state
-    ss.setdefault("theme", "light")
+    ss.setdefault("theme","light")
     ss.setdefault("fx_base","USD")
     ss.setdefault("sale_foreign",1.00)
     ss.setdefault("m_base","USD")
@@ -125,81 +125,78 @@ def _toggle_theme():
     st.session_state["theme"] = "dark" if st.session_state.get("theme","light")=="light" else "light"
 
 def _inject_css():
-    # 메인 컨테이너에만 적용. 사이드바(stSidebar)에는 전혀 적용하지 않음.
+    # 메인 컨테이너에만 적용. 사이드바(stSidebar)와 로고는 전혀 영향 없음.
     theme = st.session_state.get("theme","light")
+
     if theme == "dark":
-        BG = "#0e1117"; FG = "#ffffff"
-        LINK = "#ffd84d"; LINK_HOVER = "#ffb800"
-        CARD = "#111418"; BORDER = "#2a2a2a"
-        PRIMARY_TEXT = "#0b0b0b"; PRIMARY_BG = "#ffd84d"
+        st.markdown("""
+<style>
+  /* ===== 메인 영역 한정 ===== */
+  [data-testid="stAppViewContainer"] .block-container{
+    background:#0e1117 !important; color:#ffffff !important;
+  }
+  [data-testid="stAppViewContainer"] .block-container h1,
+  [data-testid="stAppViewContainer"] .block-container h2,
+  [data-testid="stAppViewContainer"] .block-container h3,
+  [data-testid="stAppViewContainer"] .block-container h4,
+  [data-testid="stAppViewContainer"] .block-container h5,
+  [data-testid="stAppViewContainer"] .block-container h6{ color:#ffffff !important; }
+
+  /* 회색으로 바래는 텍스트 강제 화이트 */
+  [data-testid="stAppViewContainer"] .block-container [data-testid="stMarkdownContainer"],
+  [data-testid="stAppViewContainer"] .block-container [data-testid="stMarkdownContainer"] *,
+  [data-testid="stAppViewContainer"] .block-container .stCaption,
+  [data-testid="stAppViewContainer"] .block-container [data-testid="stCaptionContainer"],
+  [data-testid="stAppViewContainer"] .block-container label,
+  [data-testid="stAppViewContainer"] .block-container small,
+  [data-testid="stAppViewContainer"] .block-container .stAlert *{
+    color:#ffffff !important; opacity:1 !important;
+  }
+
+  /* 링크 색상(가독성 확보) */
+  [data-testid="stAppViewContainer"] .block-container a{ color:#ffd84d !important; }
+  [data-testid="stAppViewContainer"] .block-container a:hover{ color:#ffb800 !important; }
+
+  /* 카드 배경만 살짝 톤다운 */
+  [data-testid="stAppViewContainer"] .block-container .card{
+    background:#111418 !important; border:1px solid #2a2a2a !important;
+  }
+
+  /* 표 텍스트 회색 방지 */
+  [data-testid="stAppViewContainer"] .block-container [data-testid="stDataFrame"] *{
+    color:#ffffff !important; opacity:1 !important;
+  }
+</style>
+""", unsafe_allow_html=True)
     else:
-        BG = "#ffffff"; FG = "#111111"
-        LINK = "#1E6FFF"; LINK_HOVER = "#4D8DFF"
-        CARD = "#ffffff"; BORDER = "rgba(0,0,0,.12)"
-        PRIMARY_TEXT = "#ffffff"; PRIMARY_BG = "#1E6FFF"
+        st.markdown("""
+<style>
+  /* ===== 메인 영역 한정 ===== */
+  [data-testid="stAppViewContainer"] .block-container{
+    background:#ffffff !important; color:#111111 !important;
+  }
+  [data-testid="stAppViewContainer"] .block-container h1,
+  [data-testid="stAppViewContainer"] .block-container h2,
+  [data-testid="stAppViewContainer"] .block-container h3,
+  [data-testid="stAppViewContainer"] .block-container h4,
+  [data-testid="stAppViewContainer"] .block-container h5,
+  [data-testid="stAppViewContainer"] .block-container h6{ color:#111111 !important; }
 
-    css = """
-    <style>
-      /* ===== 메인 영역만 타깃 ===== */
-      [data-testid="stAppViewContainer"] .block-container {
-        background: BG !important;
-        color: FG !important;
-      }
-      [data-testid="stAppViewContainer"] .block-container h1,
-      [data-testid="stAppViewContainer"] .block-container h2,
-      [data-testid="stAppViewContainer"] .block-container h3,
-      [data-testid="stAppViewContainer"] .block-container h4,
-      [data-testid="stAppViewContainer"] .block-container h5,
-      [data-testid="stAppViewContainer"] .block-container h6 {
-        color: FG !important;
-      }
-      [data-testid="stAppViewContainer"] .block-container a { color: LINK !important; }
-      [data-testid="stAppViewContainer"] .block-container a:hover { color: LINK_HOVER !important; }
+  [data-testid="stAppViewContainer"] .block-container a{ color:#1E6FFF !important; }
+  [data-testid="stAppViewContainer"] .block-container a:hover{ color:#4D8DFF !important; }
 
-      /* 카드(메인) */
-      [data-testid="stAppViewContainer"] .block-container .card {
-        background: CARD !important;
-        border: 1px solid BORDER !important;
-        border-radius: 14px; padding: .85rem;
-      }
-      [data-testid="stAppViewContainer"] .block-container .card-title {
-        color: FG !important; font-weight: 900; margin: .1rem 0 .55rem 0;
-      }
+  [data-testid="stAppViewContainer"] .block-container .card{
+    background:#ffffff !important; border:1px solid rgba(0,0,0,.12) !important;
+  }
 
-      /* 입력류(메인) */
-      [data-testid="stAppViewContainer"] .block-container [data-baseweb="input"] input,
-      [data-testid="stAppViewContainer"] .block-container .stNumberInput input,
-      [data-testid="stAppViewContainer"] .block-container [data-baseweb="select"] div[role="combobox"],
-      [data-testid="stAppViewContainer"] .block-container .stTextInput>div>div>input,
-      [data-testid="stAppViewContainer"] .block-container textarea {
-        background: CARD !important; color: FG !important;
-        border: 1px solid BORDER !important; border-radius: 12px !important;
-      }
-
-      /* 버튼(메인) */
-      [data-testid="stAppViewContainer"] .block-container button[kind="primary"]{
-        background: PRIMARY_BG !important; border: 1px solid PRIMARY_BG !important;
-        color: PRIMARY_TEXT !important; font-weight: 800 !important;
-      }
-      [data-testid="stAppViewContainer"] .block-container button[kind="secondary"]{
-        background: CARD !important; border: 1px solid BORDER !important; color: FG !important;
-      }
-
-      /* 데이터프레임(메인) */
-      [data-testid="stAppViewContainer"] .block-container [data-testid="stDataFrame"] * { color: FG !important; }
-      [data-testid="stAppViewContainer"] .block-container [data-testid="stDataFrame"] div[role='grid']{
-        background: CARD !important; border: 1px solid BORDER !important;
-      }
-    </style>
-    """
-    css = css.replace("BG", BG).replace("FG", FG)\
-             .replace("LINK_HOVER", LINK_HOVER).replace("LINK", LINK)\
-             .replace("CARD", CARD).replace("BORDER", BORDER)\
-             .replace("PRIMARY_BG", PRIMARY_BG).replace("PRIMARY_TEXT", PRIMARY_TEXT)
-    st.markdown(css, unsafe_allow_html=True)
+  [data-testid="stAppViewContainer"] .block-container [data-testid="stDataFrame"] *{
+    color:#111111 !important; opacity:1 !important;
+  }
+</style>
+""", unsafe_allow_html=True)
 
 def _inject_alert_center():
-    # 기존 코드 유지
+    # 기존 코드 유지 (사이드바/로고 무관)
     st.markdown("""
     <div id="envy-alert-root" style="position:fixed;top:16px;right:16px;z-index:999999;pointer-events:none;"></div>
     <style>
