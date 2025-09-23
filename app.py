@@ -1315,7 +1315,7 @@ vwbin = _get_view_bin()
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
 # 1행 — [패치] 카테고리(탭) ↔ 레이더 위치 교체
-row1_a, row1_b, row1_c = st.columns([8, 4, 4], gap="medium")
+row1_a, row1_b, row1_c = st.columns([4, 8, 4], gap="medium")
 with row1_a:
     tab_cat, tab_direct = st.tabs(["카테고리", "직접 입력"])
     with tab_cat:
