@@ -100,21 +100,21 @@ STOP_PRESETS = {
 }
 
 # =========================
-# 1) UI defaults & CSS   <-- 이 블록 전체를 교체
+# 1) UI defaults & CSS
 # =========================
 def _ensure_session_defaults():
     ss = st.session_state
-    ss.setdefault("theme","light")
-    ss.setdefault("fx_base","USD")
-    ss.setdefault("sale_foreign",1.00)
-    ss.setdefault("m_base","USD")
-    ss.setdefault("purchase_foreign",0.00)
-    ss.setdefault("card_fee_pct",4.00)
-    ss.setdefault("market_fee_pct",14.00)
-    ss.setdefault("shipping_won",0.0)
-    ss.setdefault("margin_mode","퍼센트")
-    ss.setdefault("margin_pct",10.00)
-    ss.setdefault("margin_won",10000.0)
+    ss.setdefault("theme", "light")
+    ss.setdefault("fx_base", "USD")
+    ss.setdefault("sale_foreign", 1.00)
+    ss.setdefault("m_base", "USD")
+    ss.setdefault("purchase_foreign", 0.00)
+    ss.setdefault("card_fee_pct", 4.00)
+    ss.setdefault("market_fee_pct", 14.00)
+    ss.setdefault("shipping_won", 0.0)
+    ss.setdefault("margin_mode", "퍼센트")
+    ss.setdefault("margin_pct", 10.00)
+    ss.setdefault("margin_won", 10000.0)
     # Stopwords manager 상태
     ss.setdefault("STOP_GLOBAL", list(STOPWORDS_GLOBAL))
     ss.setdefault("STOP_BY_CAT", dict(STOPWORDS_BY_CAT))
@@ -128,120 +128,116 @@ def _ensure_session_defaults():
     })
 
 def _toggle_theme():
-    st.session_state["theme"] = (
-        "dark" if st.session_state.get("theme","light")=="light" else "light"
-    )
+    st.session_state["theme"] = "dark" if st.session_state.get("theme", "light") == "light" else "light"
 
 def _inject_css():
-    """메인 영역만 스타일 적용(사이드바/로고 비침범) + 고대비 고정 + 버튼 블루계열 강제"""
-    theme = st.session_state.get("theme","light")
-
+    # 테마 색 변수(라이트/다크 모두 대비 강화)
+    theme = st.session_state.get("theme", "light")
     if theme == "dark":
-        BG = "#0e1117"; FG = "#e6edf3"; FG_MUTED = "#e6edf3cc"  # 80% alpha
-        CARD_BG = "#111827"; CARD_BORDER = "rgba(255,255,255,.08)"
-        INPUT_BG = "#0b1220"; INPUT_BORDER = "rgba(255,255,255,.18)"
+        bg = "#0e1117"; fg = "#e6edf3"
+        card_bg = "#12161e"; card_bd = "rgba(255,255,255,.08)"
+        ctrl_bg = "#161b22"; ctrl_fg = "#e6edf3"; ctrl_bd = "rgba(255,255,255,.12)"
+        ctrl_ph = "#a7b1c2"
+        blue = "#3b82f6"; blue_bd = "#1d4ed8"
+        red  = "#ef4444"; yellow = "#f59e0b"; green = "#22c55e"
+        pill_blue_bg = "#1e3a8a"; pill_blue_bd = "#1d4ed8"; pill_blue_fg = "#dbeafe"
+        pill_green_bg = "#134e4a"; pill_green_bd = "#10b981"; pill_green_fg = "#ccfbf1"
+        pill_yel_bg  = "#3f2f0a"; pill_yel_bd  = "#f59e0b"; pill_yel_fg  = "#fde68a"
     else:
-        BG = "#ffffff"; FG = "#111111"; FG_MUTED = "#111111b3"  # 70% alpha
-        CARD_BG = "#ffffff"; CARD_BORDER = "rgba(0,0,0,.08)"
-        INPUT_BG = "#ffffff"; INPUT_BORDER = "rgba(0,0,0,.15)"
-
-    BLUE = "#2563eb"; BLUE_HOVER = "#1d4ed8"
+        bg = "#ffffff"; fg = "#111111"
+        card_bg = "#ffffff"; card_bd = "rgba(0,0,0,.06)"
+        ctrl_bg = "#ffffff"; ctrl_fg = "#111111"; ctrl_bd = "rgba(0,0,0,.20)"
+        ctrl_ph = "#6b7280"
+        blue = "#2563eb"; blue_bd = "#1e40af"
+        red  = "#dc2626"; yellow = "#d97706"; green = "#16a34a"
+        pill_blue_bg = "#dbe6ff"; pill_blue_bd = "#88a8ff"; pill_blue_fg = "#09245e"
+        pill_green_bg = "#b8f06c"; pill_green_bd = "#76c02a"; pill_green_fg = "#083500"
+        pill_yel_bg  = "#ffe29b"; pill_yel_bd  = "#d2a12c"; pill_yel_fg  = "#3e2a00"
 
     st.markdown(f"""
     <style>
-      /* === 메인 영역 루트: 특이도 올리고 !important 고정 === */
-      [data-testid="stAppViewContainer"] .block-container {{
-        background: {BG} !important;
-        color: {FG} !important;
-        max-width: 3800px !important;
-        padding-top: .55rem !important;
-        padding-bottom: 1rem !important;
+      :root {{
+        --bg: {bg}; --fg: {fg};
+        --card-bg: {card_bg}; --card-bd: {card_bd};
+        --ctrl-bg: {ctrl_bg}; --ctrl-fg: {ctrl_fg}; --ctrl-bd: {ctrl_bd}; --ctrl-ph: {ctrl_ph};
+        --blue: {blue}; --blue-bd: {blue_bd};
+        --red: {red}; --yellow: {yellow}; --green: {green};
+        --pill-blue-bg:{pill_blue_bg}; --pill-blue-bd:{pill_blue_bd}; --pill-blue-fg:{pill_blue_fg};
+        --pill-green-bg:{pill_green_bg}; --pill-green-bd:{pill_green_bd}; --pill-green-fg:{pill_green_fg};
+        --pill-yel-bg:{pill_yel_bg}; --pill-yel-bd:{pill_yel_bd}; --pill-yel-fg:{pill_yel_fg};
       }}
-
-      /* 본문/라벨/설명/탭텍스트 등 회색화 방지(강제 상속) */
-      [data-testid="stAppViewContainer"] .block-container h1,
-      [data-testid="stAppViewContainer"] .block-container h2,
-      [data-testid="stAppViewContainer"] .block-container h3,
-      [data-testid="stAppViewContainer"] .block-container h4,
-      [data-testid="stAppViewContainer"] .block-container h5,
-      [data-testid="stAppViewContainer"] .block-container h6,
-      [data-testid="stAppViewContainer"] .block-container p,
-      [data-testid="stAppViewContainer"] .block-container span,
-      [data-testid="stAppViewContainer"] .block-container li,
-      [data-testid="stAppViewContainer"] .block-container label,
-      [data-testid="stAppViewContainer"] .block-container .stMarkdown,
-      [data-testid="stAppViewContainer"] .block-container .stCaption,
-      [data-testid="stAppViewContainer"] .block-container .stTabs button,
-      [data-testid="stAppViewContainer"] .block-container .stMetric,
-      [data-testid="stAppViewContainer"] .block-container .stAlert,
-      [data-testid="stAppViewContainer"] .block-container .stRadio,
-      [data-testid="stAppViewContainer"] .block-container .stCheckbox {{
-        color: {FG} !important;
-      }}
-
-      /* 입력창/셀렉트/슬라이더 라벨 */
-      [data-testid="stAppViewContainer"] .block-container [data-baseweb="select"] *,
-      [data-testid="stAppViewContainer"] .block-container [data-baseweb="input"] *,
-      [data-testid="stAppViewContainer"] .block-container .stTextInput * {{
-        color: {FG} !important;
-      }}
-
-      /* 플레이스홀더도 고대비 */
-      [data-testid="stAppViewContainer"] .block-container input::placeholder,
-      [data-testid="stAppViewContainer"] .block-container textarea::placeholder {{
-        color: {FG_MUTED} !important;
-        opacity: 1 !important;
-      }}
-
-      /* 입력 배경/테두리 */
-      [data-testid="stAppViewContainer"] .block-container [data-baseweb="input"] input,
-      [data-testid="stAppViewContainer"] .block-container .stTextInput input,
-      [data-testid="stAppViewContainer"] .block-container .stNumberInput input,
-      [data-testid="stAppViewContainer"] .block-container [data-baseweb="select"] div[role="combobox"] {{
-        background: {INPUT_BG} !important;
-        border: 1px solid {INPUT_BORDER} !important;
-        border-radius: 12px !important;
-        height: 1.6rem !important;
-        padding: .12rem .6rem !important;
-        font-size: .96rem !important;
-      }}
+      .block-container{{max-width:3800px!important;padding-top:.55rem!important;padding-bottom:1rem!important}}
+      html,body,[data-testid="stAppViewContainer"]{{background:var(--bg)!important;color:var(--fg)!important}}
 
       /* 카드 */
-      [data-testid="stAppViewContainer"] .block-container .card {{
-        background: {CARD_BG} !important;
-        border: 1px solid {CARD_BORDER} !important;
-        border-radius: 14px !important;
-        box-shadow: 0 2px 12px rgba(0,0,0,.08) !important;
-      }}
+      .card{{border:1px solid var(--card-bd);border-radius:14px;padding:.85rem;background:var(--card-bg);
+            box-shadow:0 1px 6px rgba(0,0,0,.05)}}
+      .card-title{{font-size:1.18rem;font-weight:900;margin:.1rem 0 .55rem 0}}
 
-      /* 데이터프레임/테이블 고대비 */
-      [data-testid="stAppViewContainer"] .block-container [data-testid="stDataFrame"] *,
-      [data-testid="stAppViewContainer"] .block-container table th,
-      [data-testid="stAppViewContainer"] .block-container table td {{
-        color: {FG} !important;
-        background: {CARD_BG} !important;
-        border-color: {CARD_BORDER} !important;
+      /* 입력류(다크 대비 강화) */
+      [data-baseweb="input"] input,
+      .stNumberInput input,
+      [data-baseweb="select"] div[role="combobox"],
+      textarea, .stTextInput input {{
+        background:var(--ctrl-bg)!important;color:var(--ctrl-fg)!important;border:1px solid var(--ctrl-bd)!important;
+        border-radius:12px!important; height:1.65rem!important; padding:.18rem .6rem!important;
       }}
+      [data-baseweb="select"] div[role="combobox"] span, ::placeholder{{color:var(--ctrl-ph)!important}}
 
-      /* 메인 영역 모든 버튼을 블루 계열로 강제(다운로드/링크버튼 포함) */
-      [data-testid="stAppViewContainer"] .block-container .stButton > button,
-      [data-testid="stAppViewContainer"] .block-container .stDownloadButton > button,
-      [data-testid="stAppViewContainer"] .block-container a.stLinkButton,
-      [data-testid="stAppViewContainer"] .block-container button[kind="primary"] {{
-        background: {BLUE} !important;
-        color: #ffffff !important;
-        border: none !important;
-        border-radius: 10px !important;
-        font-weight: 800 !important;
-        padding: .5rem 1rem !important;
+      /* 버튼 – 파란계열 고정(아이템스카우트/셀러라이프/레이더/상품명) */
+      .stButton>button, .stDownloadButton>button, .stLinkButton>a, .stLinkButton>button{{
+        background:var(--blue)!important;border:1px solid var(--blue-bd)!important;color:#fff!important;
+        border-radius:10px!important;font-weight:700;padding:.45rem .9rem!important;
       }}
-      [data-testid="stAppViewContainer"] .block-container .stButton > button:hover,
-      [data-testid="stAppViewContainer"] .block-container .stDownloadButton > button:hover,
-      [data-testid="stAppViewContainer"] .block-container a.stLinkButton:hover,
-      [data-testid="stAppViewContainer"] .block-container button[kind="primary"]:hover {{
-        background: {BLUE_HOVER} !important;
-      }}
+      .stButton>button:hover, .stLinkButton>a:hover, .stLinkButton>button:hover{{filter:brightness(1.05)}}
+
+      /* 측면 스크롤 숨김(레이아웃 떨림 방지) */
+      [data-testid="stSidebar"] section{{overflow-y:auto!important}}
+      [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none!important}}
+
+      /* 로고: 원형, 작은 사이즈 — 사이드바만(다른 곳 영향 X) */
+      [data-testid="stSidebar"] .logo-circle{{width:56px;height:56px;border-radius:50%;overflow:hidden;margin:.2rem auto .4rem auto;
+          box-shadow:0 2px 8px rgba(0,0,0,.12);border:1px solid rgba(0,0,0,.06)}}
+      [data-testid="stSidebar"] .logo-circle img{{width:100%;height:100%;object-fit:contain}}
+
+      /* pill (계산기 읽기전용 상자 유지) */
+      .pill{{border-radius:9999px;padding:.40rem .9rem;font-weight:800;display:inline-block;margin:.10rem 0!important}}
+      .pill-blue{{background:var(--pill-blue-bg);border:1px solid var(--pill-blue-bd);color:var(--pill-blue-fg)}}
+      .pill-green{{background:var(--pill-green-bg);border:1px solid var(--pill-green-bd);color:var(--pill-green-fg)}}
+      .pill-yellow{{background:var(--pill-yel-bg);border:1px solid var(--pill-yel-bd);color:var(--pill-yel-fg)}}
+
+      /* 데이터프레임 가독성 */
+      #rk-card [data-testid="stDataFrame"] * {{ font-size: 0.92rem !important; }}
+      #rk-card [data-testid="stDataFrame"] div[role='grid']{{ overflow-x: hidden !important; }}
+      #rk-card [data-testid="stDataFrame"] div[role='gridcell']{{ white-space: normal !important; word-break: break-word !important; overflow-wrap: anywhere !important; }}
     </style>
+    """, unsafe_allow_html=True)
+
+def _inject_alert_center():
+    st.markdown("""
+    <div id="envy-alert-root" style="position:fixed;top:16px;right:16px;z-index:999999;pointer-events:none;"></div>
+    <style>
+      .envy-toast{min-width:220px;max-width:420px;margin:8px 0;padding:.7rem 1rem;border-radius:12px;color:#fff;font-weight:700;
+                  box-shadow:0 8px 24px rgba(0,0,0,.25);opacity:0;transform:translateY(-6px);
+                  transition:opacity .2s ease, transform .2s ease;}
+      .envy-toast.show{opacity:1;transform:translateY(0)}
+      .envy-info{background:#2563eb}.envy-warn{background:#d97706}.envy-error{background:#dc2626}
+    </style>
+    <script>
+      (function(){
+        const root = document.getElementById('envy-alert-root');
+        function toast(level, text){
+          const el = document.createElement('div');
+          el.className='envy-toast envy-'+(level||'info'); el.textContent=text||'알림';
+          el.style.pointerEvents='auto'; root.appendChild(el);
+          requestAnimationFrame(()=>el.classList.add('show'));
+          setTimeout(()=>{el.classList.remove('show'); setTimeout(()=>el.remove(), 300);}, 5000);
+        }
+        window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='alert'){toast(d.level,d.msg);} },false);
+        let heard=false; window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='title'){heard=true;}},false);
+        setTimeout(()=>{ if(!heard){ toast('warn','데이터랩 연결이 지연되고 있어요.'); } },8000);
+      })();
+    </script>
     """, unsafe_allow_html=True)
 
 # =========================
@@ -668,18 +664,40 @@ def section_korea_ui():
 @st.cache_data(ttl=1800, show_spinner=False)
 def _datalab_trend(groups: list, start_date: str, end_date: str,
                    time_unit: str = "week", device: str = "", gender: str = "", ages: list | None = None) -> pd.DataFrame:
-    if not requests: return pd.DataFrame()
-    cid  = _get_key("NAVER_CLIENT_ID"); csec = _get_key("NAVER_CLIENT_SECRET")
-    if not (cid and csec): return pd.DataFrame()
-    ref = _get_key("NAVER_WEB_REFERER").strip() or "https://2vrc9owdssnberky8hssf7.streamlit.app"
+    if not requests:
+        return pd.DataFrame()
+
+    cid  = _get_key("NAVER_CLIENT_ID").strip()
+    csec = _get_key("NAVER_CLIENT_SECRET").strip()
+
+    # ★ 403 방지: referer 고정(Secrets에 NAVER_WEB_REFERER 없으면 앱 URL 기본값 사용)
+    ref  = _get_key("NAVER_WEB_REFERER").strip() or "https://envy.streamlit.app/"
+
+    if not (cid and csec):
+        return pd.DataFrame()
+
     groups = (groups or [])[:5]
     url = "https://openapi.naver.com/v1/datalab/search"
-    headers = {"X-Naver-Client-Id": cid, "X-Naver-Client-Secret": csec, "Content-Type": "application/json; charset=utf-8", "Referer": ref}
-    payload = {"startDate": start_date, "endDate": end_date, "timeUnit": time_unit, "keywordGroups": groups}
+    headers = {
+        "X-Naver-Client-Id": cid,
+        "X-Naver-Client-Secret": csec,
+        "Content-Type": "application/json; charset=utf-8",
+        "Referer": ref,
+    }
+    payload = {
+        "startDate": start_date, "endDate": end_date,
+        "timeUnit": time_unit, "keywordGroups": groups
+    }
+    # 옵션 필드(비워두면 API가 기본 처리)
+    if device: payload["device"] = device
+    if gender: payload["gender"] = gender
+    if ages:   payload["ages"]   = ages
+
     try:
         r = requests.post(url, headers=headers, data=json.dumps(payload), timeout=12)
         r.raise_for_status()
-        js = r.json(); out=[]
+        js = r.json()
+        out=[]
         for gr in js.get("results", []):
             name = gr.get("title") or (gr.get("keywords") or [""])[0]
             tmp = pd.DataFrame(gr.get("data", []))
@@ -691,6 +709,10 @@ def _datalab_trend(groups: list, start_date: str, end_date: str,
         pivot = big.pivot_table(index="날짜", columns="keyword", values="검색지수", aggfunc="mean")
         pivot = pivot.reset_index().sort_values("날짜")
         return pivot
+    except requests.HTTPError as e:
+        # 403/401 등일 때 빈 DF 반환(상단 카드에서 메시지로 안내)
+        st.session_state["__datalab_error"] = f"DataLab 오류: {getattr(e.response,'status_code',None)} — referer/Client ID/Secret 확인"
+        return pd.DataFrame()
     except Exception:
         return pd.DataFrame()
 
@@ -704,7 +726,7 @@ SEED_MAP = {
 }
 
 def section_category_keyword_lab():
-    st.markdown('<div class="card main"><div class="card-title">카테고리 → 키워드 Top20 & 트렌드</div>', unsafe_allow_html=True)
+    st.markdown('<div class="card"><div class="card-title">카테고리 → 키워드 Top20 & 트렌드</div>', unsafe_allow_html=True)
     cA, cB, cC = st.columns([1,1,1])
     with cA:
         cat = st.selectbox("카테고리", list(SEED_MAP.keys()))
@@ -712,21 +734,18 @@ def section_category_keyword_lab():
         time_unit = st.selectbox("단위", ["week", "month"], index=0)
     with cC:
         months = st.slider("조회기간(개월)", 1, 12, 3)
-
     start = (dt.date.today() - dt.timedelta(days=30 * months)).strftime("%Y-%m-%d")
     end   = (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
 
     seeds = SEED_MAP.get(cat, [])
     df = _naver_keywordstool(seeds)
-
     if df.empty:
-        st.markdown("<div class='envy-chip-info main'>키워드도구 응답이 비었습니다. (API/권한/쿼터 확인)</div>", unsafe_allow_html=True)
-        sample = pd.DataFrame([{"키워드": k, "검색합계": 0, "PC월간검색수":0, "Mobile월간검색수":0, "월평균노출광고수":0, "광고경쟁정도":0} for k in seeds])
-        st.dataframe(sample, use_container_width=True, height=240)
-        st.markdown('</div>', unsafe_allow_html=True)
-        return
+        err = st.session_state.pop("__datalab_error", None)
+        st.warning("키워드도구 응답이 비었습니다. (API/권한/쿼터 확인)" + (f" · {err}" if err else ""))
+        st.markdown('</div>', unsafe_allow_html=True); return
 
-    df["검색합계"] = pd.to_numeric(df["PC월간검색수"], errors="coerce").fillna(0) + pd.to_numeric(df["Mobile월간검색수"], errors="coerce").fillna(0)
+    df["검색합계"] = pd.to_numeric(df["PC월간검색수"], errors="coerce").fillna(0) + \
+                     pd.to_numeric(df["Mobile월간검색수"], errors="coerce").fillna(0)
     top20 = df.sort_values("검색합계", ascending=False).head(20).reset_index(drop=True)
     st.dataframe(top20[["키워드","검색합계","PC월간검색수","Mobile월간검색수","월평균노출광고수","광고경쟁정도"]],
                  use_container_width=True, height=340)
@@ -736,20 +755,19 @@ def section_category_keyword_lab():
     topk = st.slider("라인차트 키워드 수", 3, 10, 5, help="상위 N개 키워드만 트렌드를 그립니다.")
     kws = top20["키워드"].head(topk).tolist()
     groups = [{"groupName": k, "keywords": [k]} for k in kws]
-
     ts = _datalab_trend(groups, start, end, time_unit=time_unit)
     if ts.empty:
-        st.markdown("<div class='envy-chip-warn main'>DataLab 트렌드 응답 없음 — ClientID/Secret/날짜/단위 확인</div>", unsafe_allow_html=True)
+        err = st.session_state.pop("__datalab_error", None)
+        st.info("DataLab 트렌드 응답이 비어 있어요. (Client ID/Secret, Referer/환경, 날짜/단위 확인)" + (f" · {err}" if err else ""))
     else:
         try:
             st.line_chart(ts.set_index("날짜"))
         except Exception:
             st.dataframe(ts, use_container_width=True, height=260)
-
     st.markdown('</div>', unsafe_allow_html=True)
 
 def section_keyword_trend_widget():
-    st.markdown('<div class="card main"><div class="card-title">키워드 트렌드 (직접 입력)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="card"><div class="card-title">키워드 트렌드 (직접 입력)</div>', unsafe_allow_html=True)
     kwtxt  = st.text_input("키워드(콤마)", "가방, 원피스", key="kw_txt")
     unit   = st.selectbox("단위", ["week", "month"], index=0, key="kw_unit")
     months = st.slider("조회기간(개월)", 1, 12, 3, key="kw_months")
@@ -760,7 +778,8 @@ def section_keyword_trend_widget():
         groups = [{"groupName": k, "keywords": [k]} for k in kws][:5]
         df = _datalab_trend(groups, start, end, time_unit=unit)
         if df.empty:
-            st.markdown("<div class='envy-chip-warn main'>DataLab 트렌드 응답이 비어 있어요. (Client ID/Secret, Referer/권한/쿼터/날짜/단위 확인)</div>", unsafe_allow_html=True)
+            err = st.session_state.pop("__datalab_error", None)
+            st.error("DataLab 트렌드 응답이 비어 있어요. (Client ID/Secret, Referer/환경, 권한/쿼터/날짜/단위 확인)" + (f" · {err}" if err else ""))
         else:
             st.dataframe(df, use_container_width=True, height=260)
             st.line_chart(df.set_index("날짜"))
