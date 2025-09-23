@@ -135,13 +135,13 @@ def _toggle_theme():
 
 def _inject_css():
     """
-    메인 뷰: 다크/라이트 토글 반영
-    사이드바: 항상 라이트톤(다크 무시) + 사이드바 자체 고정(100vh) & 내부만 스크롤
-    사이드바 컬러 pill 유지
+    본문: 다크/라이트 토글 반영
+    사이드바: *항상 라이트톤* 강제 + 100vh 고정 + 내부만 스크롤
+    컬러 pill 유지(메인/사이드바 공통)
     """
     theme = st.session_state.get("theme", "light")
 
-    # ===== 메인(본문) 팔레트: 토글 반영 =====
+    # ===== 본문 팔레트(토글 반영) =====
     if theme == "dark":
         bg = "#0e1117"; fg = "#e6edf3"; fg_sub = "#b6c2cf"; card_bg = "#11151c"
         border = "rgba(255,255,255,.08)"; btn_bg = "#2563eb"; btn_bg_hover = "#1e3fae"
@@ -159,7 +159,7 @@ def _inject_css():
         pill_yellow_bg, pill_yellow_bd, pill_yellow_fg = "linear-gradient(180deg, #fef3c7 0%, #fde68a 100%)", "rgba(234,179,8,.35)", "#7c2d12"
         pill_warn_bg,  pill_warn_bd,  pill_warn_fg  = "linear-gradient(180deg, #fee2e2 0%, #fecaca 100%)", "rgba(239,68,68,.35)", "#7f1d1d"
 
-    # ===== 사이드바: 라이트 고정 팔레트 =====
+    # ===== 사이드바(라이트 고정) 팔레트 =====
     sb_bg   = "#f6f8fb"
     sb_fg   = "#111111"
     sb_sub  = "#4b5563"
@@ -191,12 +191,10 @@ def _inject_css():
       [data-testid="stAppViewContainer"] .stNumberInput input,
       [data-testid="stAppViewContainer"] .stTextInput input {{ color:{fg} !important; }}
       [data-testid="stAppViewContainer"] input::placeholder {{ color:{fg_sub} !important; opacity:.9 !important; }}
-
       [data-testid="stAppViewContainer"] .card {{
         background:{card_bg}; border:1px solid {border}; border-radius:14px;
         box-shadow:0 1px 6px rgba(0,0,0,.12);
       }}
-
       [data-testid="stAppViewContainer"] .stButton>button {{
         background:{btn_bg} !important; color:#fff !important;
         border:1px solid rgba(255,255,255,.08) !important;
@@ -207,7 +205,7 @@ def _inject_css():
       }}
 
       /* =========================
-         공통 pill 스타일
+         공통 pill
          ========================= */
       .pill {{
         display:block; width:100%; border-radius:12px;
@@ -229,58 +227,62 @@ def _inject_css():
       }}
 
       /* =========================
-         사이드바: 라이트톤 강제 + 내부 스크롤만
+         사이드바: 라이트톤 강제 + 100vh 고정 + 내부 스크롤
          ========================= */
-      [data-testid="stSidebar"] {{
-        position: sticky; top: 0;
-        height: 100vh !important;
-        align-self: flex-start;
+      /* Streamlit은 aside/div 둘 다 쓰는 버전이 있어 둘 다 잡는다 */
+      aside[data-testid="stSidebar"], div[data-testid="stSidebar"] {{
+        position: sticky !important; top: 0 !important;
+        height: 100vh !important; max-height: 100vh !important;
+        align-self: flex-start !important;
         background:{sb_bg} !important;
         color:{sb_fg} !important;
-        overflow: hidden !important;          /* 바깥쪽 스크롤 잠금 */
-        /* 다크 테마 변수/필터 무시 */
-        filter: none !important;
-        -webkit-filter: none !important;
+        overflow: hidden !important;            /* 바깥쪽 스크롤 잠금 */
+        /* 다크 테마 변수/필터/상속 싹 차단 */
+        filter: none !important; -webkit-filter: none !important;
         color-scheme: light !important;
         --text-color: {sb_fg} !important;
         --background-color: {sb_bg} !important;
         --secondary-background-color: {sb_card} !important;
         --primary-color: #2563eb !important;
-        --gray-0: #ffffff !important;
-        --gray-100: #111111 !important;
       }}
-      /* 사이드바 컨텐츠 래퍼만 스크롤 허용 */
-      [data-testid="stSidebar"] [data-testid="stSidebarContent"] {{
-        height: 100%;
-        max-height: 100vh;
+      /* 사이드바 내부 컨텐츠만 스크롤 허용 */
+      aside[data-testid="stSidebar"] [data-testid="stSidebarContent"],
+      div[data-testid="stSidebar"]   [data-testid="stSidebarContent"] {{
+        height: 100% !important;
+        max-height: 100vh !important;
         overflow-y: auto !important;
         padding-bottom: 12px;
         scrollbar-gutter: stable both-edges;
       }}
-      /* 사이드바 내부 모든 요소도 라이트톤 유지 */
-      [data-testid="stSidebar"] *,
-      [data-testid="stSidebar"] .stMarkdown,
-      [data-testid="stSidebar"] .stMarkdown * {{
+      /* 사이드바 내부 모든 요소 라이트 고정 */
+      aside[data-testid="stSidebar"] *,
+      div[data-testid="stSidebar"] * {{
         color:{sb_fg} !important;
-        filter: none !important;
-        -webkit-filter: none !important;
+        filter: none !important; -webkit-filter: none !important;
       }}
-      [data-testid="stSidebar"] input::placeholder {{ color:{sb_sub} !important; opacity:.9 !important; }}
-      [data-testid="stSidebar"] .card {{
-        background:{sb_card}; border:1px solid {sb_bd}; border-radius:14px;
-        box-shadow:0 1px 6px rgba(0,0,0,.08);
+      aside[data-testid="stSidebar"] input::placeholder,
+      div[data-testid="stSidebar"] input::placeholder {{ color:{sb_sub} !important; opacity:.9 !important; }}
+      aside[data-testid="stSidebar"] .card,
+      div[data-testid="stSidebar"] .card {{
+        background:{sb_card} !important; border:1px solid {sb_bd} !important; border-radius:14px !important;
+        box-shadow:0 1px 6px rgba(0,0,0,.08) !important;
       }}
-      [data-testid="stSidebar"] [data-baseweb="select"] > div,
-      [data-testid="stSidebar"] [data-baseweb="input"] input,
-      [data-testid="stSidebar"] .stNumberInput input,
-      [data-testid="stSidebar"] .stTextInput input {{
-        background:#ffffff !important;
-        color:{sb_fg} !important;
+      aside[data-testid="stSidebar"] [data-baseweb="select"] > div,
+      div[data-testid="stSidebar"]   [data-baseweb="select"] > div,
+      aside[data-testid="stSidebar"] [data-baseweb="input"] input,
+      div[data-testid="stSidebar"]   [data-baseweb="input"] input,
+      aside[data-testid="stSidebar"] .stNumberInput input,
+      div[data-testid="stSidebar"]   .stNumberInput input,
+      aside[data-testid="stSidebar"] .stTextInput input,
+      div[data-testid="stSidebar"]   .stTextInput input {{
+        background:#ffffff !important; color:{sb_fg} !important;
       }}
-      /* 토글/라디오 라벨도 라이트 고정 */
-      [data-testid="stSidebar"] .stRadio label,
-      [data-testid="stSidebar"] .stCheckbox label,
-      [data-testid="stSidebar"] label {{ color:{sb_fg} !important; }}
+      aside[data-testid="stSidebar"] .stRadio label,
+      div[data-testid="stSidebar"]   .stRadio label,
+      aside[data-testid="stSidebar"] .stCheckbox label,
+      div[data-testid="stSidebar"]   .stCheckbox label,
+      aside[data-testid="stSidebar"] label,
+      div[data-testid="stSidebar"]   label {{ color:{sb_fg} !important; }}
     </style>
     """, unsafe_allow_html=True)
 
