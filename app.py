@@ -298,47 +298,36 @@ def _get_view_bin():
         return 3
 
 # =========================
-# 3) Generic proxy iframe
+# 3) Naver DataLab — 카테고리 Top20 & 트렌드
 # =========================
-def _proxy_iframe(proxy_base: str, target_url: str, height: int = 860, scroll=True, key=None):
-    proxy = (proxy_base or "").strip().rstrip("/")
-    url   = f"{proxy}/?url={quote(target_url, safe=':/?&=%')}"
-    h     = int(height)
-    try:
-        st.iframe(url, height=h); return
-    except Exception:
-        pass
-    try:
-        st.components.v1.iframe(url, height=h, scrolling=bool(scroll)); return
-    except Exception:
-        pass
-    st.markdown(f'<iframe src="{url}" style="width:100%;height:{h}px;border:0;border-radius:10px;"></iframe>',
-                unsafe_allow_html=True)
+def section_datalab():
+    st.header("카테고리 ➔ 키워드 Top20 & 트렌드")
 
-def _proxy_iframe_with_title(proxy_base: str, target_url: str, height: int = 860, key: str = "naver_home"):
-    proxy = (proxy_base or "").strip().rstrip("/")
-    url   = f"{proxy}/?url={quote(target_url, safe=':/?&=%')}"
-    h     = int(height)
-    html  = f'''
-<div id="{key}-wrap" class="main" style="width:100%;overflow:hidden;">
-  <div id="{key}-title"
-       style="display:inline-block;border-radius:9999px;padding:.40rem .9rem;
-              font-weight:800;background:#dbe6ff;border:1px solid #88a8ff;color:#09245e;margin:0 0 .5rem 0;">
-    DataLab
-  </div>
-  <iframe src="{url}" style="width:100%;height:{h}px;border:0;border-radius:10px"></iframe>
-</div>
-<script>
-(function(){{
-  var titleEl=document.getElementById("{key}-title");
-  window.addEventListener("message",function(e){{
-    try{{var d=e.data||{{}}; if(d.__envy && d.kind==="title" && d.title) titleEl.textContent=d.title;}}catch(_){{
-    }}
-  }},false);
-}})();
-</script>
-'''
-    st.components.v1.html(html, height=h+56, scrolling=False)
+    # ✅ 네이버 데이터랩 12개 대분류 카테고리
+    categories = [
+        "패션의류",
+        "패션잡화",
+        "뷰티",
+        "출산/육아",
+        "식품",
+        "생활/건강",
+        "가구/인테리어",
+        "디지털/가전",
+        "스포츠/레저",
+        "취미/반려동물",
+        "면세점",
+        "기타",
+    ]
+
+    col1, col2, col3 = st.columns([2, 1, 2])
+    with col1:
+        category = st.selectbox("카테고리", categories, key="datalab_category")
+    with col2:
+        unit = st.selectbox("단위", ["date", "week", "month"], key="datalab_unit")
+    with col3:
+        months = st.slider("조회기간(개월)", 1, 12, 3, key="datalab_months")
+
+    # 이후 API 호출 부분 그대로...
 
 # =========================
 # 4) Sidebar (theme + translator toggle + calculators)
@@ -1228,19 +1217,48 @@ def section_title_generator():
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
-# 10) 기타 카드
+# 10) 기타 카드  ✅ 새로고침 억제 패치 (11번가)
 # =========================
 def _11st_abest_url():
-    return ("https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160&_ts=%d" % int(time.time()))
+    # ⛔ 이전: 매 렌더마다 _ts=timestamp 를 붙여 강제 리프레시 유발
+    # ✅ 고정 URL로 변경해서 재실행 시에도 불필요한 새로고침이 발생하지 않도록 함
+    return "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
+
 def section_11st():
-    st.markdown('<div class="card main"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>', unsafe_allow_html=True)
-    _proxy_iframe(ELEVENST_PROXY, _11st_abest_url(), height=900, scroll=True, key="abest")
+    st.markdown('<div class="card main"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>',
+                unsafe_allow_html=True)
+
+    ss = st.session_state
+    ss.setdefault("__show_11st_embed", False)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("임베드 열기", disabled=ss["__show_11st_embed"]):
+            ss["__show_11st_embed"] = True
+    with c2:
+        if st.button("임베드 닫기", disabled=not ss["__show_11st_embed"]):
+            ss["__show_11st_embed"] = False
+
+    if ss["__show_11st_embed"]:
+        # 프록시를 통해 lazy-load로 임베드
+        url = f"{ELEVENST_PROXY.rstrip('/')}/?url={quote(_11st_abest_url(), safe=':/?&=%')}"
+        html = (
+            f'<iframe src="{url}" loading="lazy" '
+            f'style="width:100%;height:900px;border:0;border-radius:10px"></iframe>'
+        )
+        st.components.v1.html(html, height=920, scrolling=True)
+    else:
+        st.info("임베드는 닫혀 있습니다. 새 탭으로 여는 것이 가장 안정적입니다.")
+        st.link_button("11번가 아마존 베스트 (새 탭)", _11st_abest_url())
+
     st.markdown('</div>', unsafe_allow_html=True)
+
 def section_itemscout_placeholder():
     st.markdown('<div class="card main"><div class="card-title">아이템스카우트</div>', unsafe_allow_html=True)
     st.info("임베드 보류 중입니다. 아래 버튼으로 원본 페이지를 새 탭에서 여세요.")
     st.link_button("아이템스카우트 직접 열기(새 탭)", "https://app.itemscout.io/market/keyword")
     st.markdown('</div>', unsafe_allow_html=True)
+
 def section_sellerlife_placeholder():
     st.markdown('<div class="card main"><div class="card-title">셀러라이프</div>', unsafe_allow_html=True)
     st.info("임베드 보류 중입니다. 아래 버튼으로 원본 페이지를 새 탭에서 여세요.")
