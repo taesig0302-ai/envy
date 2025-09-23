@@ -43,13 +43,17 @@ DEFAULT_KEYS = {
     # Rakuten
     "RAKUTEN_APP_ID":       "1043271015809337425",
     "RAKUTEN_AFFILIATE_ID": "4c723498.cbfeca46.4c723499.1deb6f77",
+
     # NAVER Searchad(검색광고 API / 키워드도구)
     "NAVER_API_KEY":        "0100000000785cf1d8f039b13a5d3c3d1262b84e9ad4a04637e8887bbd003051b0d2a5cdf",
     "NAVER_SECRET_KEY":     "AQAAAAB4XPHY8DmxOl08PRJiuE6ao1LN3lh0kF9rOJ4m5b8O5g==",
     "NAVER_CUSTOMER_ID":    "2274338",
-    # NAVER Developers (DataLab Open API)
-    "NAVER_CLIENT_ID":      "nBay2VW6uz7E4bZnZ2y9",
-    "NAVER_CLIENT_SECRET":  "LNuLh1E3e1",
+
+    # NAVER Developers (DataLab Open API) — ★ 네가 준 값으로 반영
+    "NAVER_CLIENT_ID":      "T27iw3tyujrM1nG_shFT",
+    "NAVER_CLIENT_SECRET":  "s59xKPYLz1",
+
+    # (옵션) DataLab Referer가 필요한 환경이면 secrets.toml 에 NAVER_WEB_REFERER 를 넣어도 됨
 }
 def _get_key(name: str) -> str:
     return (st.secrets.get(name, "") or DEFAULT_KEYS.get(name, "")).strip()
@@ -96,7 +100,7 @@ STOP_PRESETS = {
 }
 
 # =========================
-# 1) UI defaults & CSS
+# 1) UI defaults & CSS   ← 통교체
 # =========================
 def _ensure_session_defaults():
     ss = st.session_state
@@ -127,93 +131,73 @@ def _toggle_theme():
     st.session_state["theme"]="dark" if st.session_state.get("theme","light")=="light" else "light"
 
 def _inject_css():
-    # 메인은 테마 적용, 사이드바는 그대로(완성형 유지)
     theme = st.session_state.get("theme","light")
-    is_dark = (theme == "dark")
-    bg, fg = ("#0e1117","#e6edf3") if is_dark else ("#ffffff","#111111")
+    # 메인 배경/전경
+    bg_main, fg_main = ("#0e1117","#e6edf3") if theme=="dark" else ("#ffffff","#111111")
+    # 카드/컨트롤 대비 색
+    card_bg   = "#12161e" if theme=="dark" else "#ffffff"
+    card_bord = "rgba(255,255,255,.08)" if theme=="dark" else "rgba(0,0,0,.06)"
+    ctrl_bg   = "#0f1724" if theme=="dark" else "#ffffff"
+    ctrl_bord = "#23314a" if theme=="dark" else "rgba(0,0,0,.12)"
+    btn_bg    = "#b8f06c" if theme=="dark" else "#2563eb"
+    btn_fg    = "#0b1220" if theme=="dark" else "#ffffff"
+    df_head   = "#1b2230" if theme=="dark" else "#f4f6fb"
 
     st.markdown(f"""
     <style>
-      /* 메인 컨테이너 배경/문자색 */
+      /* 전체 컨테이너 */
       .block-container{{max-width:3800px!important;padding-top:.55rem!important;padding-bottom:1rem!important}}
-      html,body,[data-testid="stAppViewContainer"]{{background:{bg}!important;color:{fg}!important}}
+      /* 메인 영역만 컬러 적용 — 사이드바는 건들지 않음 */
+      .main, .main *{{color:{fg_main}}}
+      [data-testid="stAppViewContainer"] .main{{background:{bg_main}!important}}
 
-      /* ===== 사이드바는 손대지 않음(고객 지정 완성형 유지) ===== */
-      [data-testid="stSidebar"] section{{height:100vh!important;overflow:hidden!important;padding:.15rem .25rem!important}}
-      [data-testid="stSidebar"] section{{overflow-y:auto!important}}
-      [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none!important}}
-      .logo-circle{{width:72px;height:72px;border-radius:50%;overflow:hidden;margin:.2rem auto .4rem auto;
-        box-shadow:0 2px 8px rgba(0,0,0,.12);border:1px solid rgba(0,0,0,.06)}}
-      .logo-circle img{{width:100%;height:100%;object-fit:cover}}
+      /* 제목들 */
+      .main h1,.main h2,.main h3,.main h4,.main h5,.main h6{{color:{fg_main}!important;margin-top:.3rem!important}}
 
-      /* ===== 카드 & 타이틀(메인만) ===== */
-      .card.main{{border:1px solid {"rgba(255,255,255,.12)" if is_dark else "rgba(0,0,0,.06)"};border-radius:14px;
-        padding:.85rem;background:{"#141923" if is_dark else "#ffffff"};
-        box-shadow:0 1px 6px {"rgba(0,0,0,.45)" if is_dark else "rgba(0,0,0,.05)"} }}
-      .card-title{{display:inline-flex;align-items:center;gap:.5rem;font-size:1.08rem;font-weight:900;margin:.1rem 0 .55rem 0;
-        color:{ "#eaf2ff" if is_dark else "#0b1e5e"} }}
-      .card-title::before{{
-         content:"";display:inline-block;width:10px;height:10px;border-radius:50%;
-         background:{ "#60a5fa" if is_dark else "#2563eb"};
-         box-shadow:0 0 0 4px { "rgba(96,165,250,.2)" if is_dark else "rgba(37,99,235,.15)"}; 
+      /* 카드 */
+      .main .card{{
+        background:{card_bg}!important; border:1px solid {card_bord}!important;
+        border-radius:14px;padding:.85rem;box-shadow:0 1px 6px rgba(0,0,0,.05)
+      }}
+      .main .card-title{{font-size:1.18rem;font-weight:900;margin:.1rem 0 .55rem 0;color:{fg_main}!important}}
+
+      /* 라벨/캡션/마크다운 */
+      .main label,
+      .main .stMarkdown,
+      .main .stCaption,
+      .main .stRadio label,
+      .main .stSelectbox label,
+      .main .stTextInput label,
+      .main .stNumberInput label,
+      .main .stSlider label{{color:{fg_main}!important}}
+
+      /* 입력 컨트롤 */
+      .main [data-baseweb="select"] div[role="combobox"],
+      .main .stTextInput>div>div>input,
+      .main .stNumberInput input,
+      .main .stTextArea textarea{{
+        background:{ctrl_bg}!important;color:{fg_main}!important;
+        border-radius:12px!important;border:1px solid {ctrl_bord}!important;
       }}
 
-      /* 공용 배지 */
+      /* 버튼 대비 */
+      .main button[kind="secondary"], .main button[kind="primary"]{{
+        color:{btn_fg}!important;background:{btn_bg}!important;border:none!important;
+        font-weight:800!important;border-radius:10px!important;
+      }}
+
+      /* 데이터프레임 가독성 */
+      .main [data-testid="stDataFrame"] * {{ color:{fg_main}!important; }}
+      .main [data-testid="stDataFrame"] thead th {{ background:{df_head}!important; }}
+      .main [data-testid="stDataFrame"] div[role='grid']{{ overflow-x: hidden !important; }}
+      .main [data-testid="stDataFrame"] div[role='gridcell']{{ white-space: normal !important; word-break: break-word !important; overflow-wrap: anywhere !important; }}
+
+      /* Pill */
       .pill{{border-radius:9999px;padding:.40rem .9rem;font-weight:800;display:inline-block;margin:.10rem 0!important}}
       .pill-green{{background:#b8f06c;border:1px solid #76c02a;color:#083500}}
       .pill-blue{{background:#dbe6ff;border:1px solid #88a8ff;color:#09245e}}
       .pill-yellow{{background:#ffe29b;border:1px solid #d2a12c;color:#3e2a00}}
-
-      /* 메인 영역 입력·선택 위젯 대비 강화 */
-      .main [data-baseweb="select"] div[role="combobox"],
-      .main input, .main textarea {{
-        background-color: {"#222834" if is_dark else "#ffffff"} !important;
-        color: {"#ffffff" if is_dark else "#111111"} !important;
-        border-radius:12px!important;border:1px solid {"#3a4456" if is_dark else "rgba(0,0,0,.15)"} !important;
-      }}
-      .main .stSelectbox label, 
-      .main .stTextInput label, 
-      .main .stNumberInput label, 
-      .main .stRadio label {{
-        color: {"#f3f7ff" if is_dark else "#111111"} !important;
-      }}
-      .main [data-baseweb="menu"] > div {{
-        background-color: {"#1a1f2a" if is_dark else "#ffffff"} !important;
-        color: {"#ffffff" if is_dark else "#111111"} !important;
-        border:1px solid {"#3a4456" if is_dark else "rgba(0,0,0,.12)"} !important;
-      }}
-
-      /* 슬라이더 라벨/트랙 대비 */
-      .main [data-testid="stSlider"] span{{color: {"#f5faff" if is_dark else "#111"} !important}}
-      .main [data-testid="stSlider"] div[role="slider"]{{box-shadow:none!important}}
-
-      /* DataFrame */
-      .main [data-testid="stDataFrame"] thead th {{
-        background: {"#202834" if is_dark else "#f3f6ff"} !important;
-        color: {"#eff6ff" if is_dark else "#0b1e5e"} !important;
-      }}
-      .main [data-testid="stDataFrame"] tbody td {{
-        color: {"#eaf2ff" if is_dark else "#111"} !important;
-        background: {"#0f141c" if is_dark else "#ffffff"} !important;
-      }}
-
-      /* 버튼(레이더 업데이트 / 상품명 생성 등) */
-      .main .stButton > button{{
-        background:{ "#2563eb" if is_dark else "#0ea5e9"} !important;
-        color:#fff !important;border:0!important;border-radius:10px!important;
-        padding:.55rem 1.0rem!important;font-weight:800!important;
-        box-shadow:0 6px 18px {"rgba(37,99,235,.35)" if is_dark else "rgba(14,165,233,.25)"} !important;
-      }}
-      .main .stButton > button:hover{{filter:brightness(1.05)}}
-
-      /* 텍스트 칩 */
-      .main .envy-chip-warn{{background:#7c2d12;color:#fff;border:1px solid #f59e0b;padding:.35rem .6rem;border-radius:10px;font-weight:800}}
-      .main .envy-chip-info{{background:#0b3b81;color:#eaf2ff;border:1px solid #60a5fa;padding:.35rem .6rem;border-radius:10px;font-weight:800}}
-
-      /* Rakuten 표 타이포 */
-      #rk-card [data-testid="stDataFrame"] * {{ font-size: 0.92rem !important; }}
-      #rk-card [data-testid="stDataFrame"] div[role='grid']{{ overflow-x: hidden !important; }}
-      #rk-card [data-testid="stDataFrame"] div[role='gridcell']{{ white-space: normal !important; word-break: break-word !important; overflow-wrap: anywhere !important; }}
+      .row-gap{{height:16px}}
     </style>
     """, unsafe_allow_html=True)
 
@@ -221,8 +205,7 @@ def _inject_alert_center():
     st.markdown("""
     <div id="envy-alert-root" style="position:fixed;top:16px;right:16px;z-index:999999;pointer-events:none;"></div>
     <style>
-      .envy-toast{min-width:220px;max-width:420px;margin:8px 0;padding:.7rem 1rem;border-radius:12px;color:#fff;font-weight:700;
-        box-shadow:0 8px 24px rgba(0,0,0,.25);opacity:0;transform:translateY(-6px);transition:opacity .2s ease, transform .2s ease;}
+      .envy-toast{min-width:220px;max-width:420px;margin:8px 0;padding:.7rem 1rem;border-radius:12px;color:#fff;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.25);opacity:0;transform:translateY(-6px);transition:opacity .2s ease, transform .2s ease;}
       .envy-toast.show{opacity:1;transform:translateY(0)}
       .envy-info{background:#2563eb}.envy-warn{background:#d97706}.envy-error{background:#dc2626}
     </style>
