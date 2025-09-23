@@ -126,27 +126,27 @@ def _ensure_session_defaults():
     ss.setdefault("STOP_AGGR", False)
     # Rakuten genre map
     ss.setdefault("rk_genre_map", {
-        "전체(샘플)": "100283", "뷰티/코스메틱": "100283", "의류/패션": "100283", "가전/디지털": "100283",
-        "가구/인테리어": "100283", "식품": "100283", "생활/건강": "100283", "스포츠/레저": "100283", "문구/취미": "100283",
+        "전체(샘플)": "100283","뷰티/코스메틱": "100283","의류/패션": "100283","가전/디지털": "100283",
+        "가구/인테리어": "100283","식품": "100283","생활/건강": "100283","스포츠/레저": "100283","문구/취미": "100283",
     })
 
 def _toggle_theme():
     st.session_state["theme"] = "dark" if st.session_state.get("theme", "light") == "light" else "light"
 
 def _inject_css():
-    """메인은 테마 색상, 사이드바 컬러박스는 항상 검정 폰트.
-       CSV/링크 버튼은 파란 배경 + 흰 글자 고정."""
+    """메인 뷰만 색상 오버라이드(사이드바 제외). 다크/라이트 대비 강화."""
     theme = st.session_state.get("theme", "light")
 
     # 팔레트
     if theme == "dark":
-        bg = "#0e1117"        # 메인 배경
-        fg = "#e6edf3"        # 본문/헤딩 기본
-        fg_sub = "#b6c2cf"    # 보조 텍스트
+        bg = "#0e1117"       # 메인 배경
+        fg = "#e6edf3"       # 본문/헤딩 기본
+        fg_sub = "#b6c2cf"   # 보조 텍스트
         card_bg = "#11151c"
         border = "rgba(255,255,255,.08)"
         btn_bg = "#2563eb"
         btn_bg_hover = "#1e3fae"
+        chip_bg = "#1f2937"
     else:
         bg = "#ffffff"
         fg = "#111111"
@@ -155,16 +155,17 @@ def _inject_css():
         border = "rgba(0,0,0,.06)"
         btn_bg = "#2563eb"
         btn_bg_hover = "#1e3fae"
+        chip_bg = "#f3f4f6"
 
     st.markdown(f"""
     <style>
-      /* ===== 메인 컨테이너(사이드바 제외) ===== */
+      /* 메인 컨테이너(사이드바 제외) */
       [data-testid="stAppViewContainer"] {{
         background:{bg} !important;
         color:{fg} !important;
       }}
 
-      /* 헤딩/본문 글자 */
+      /* 헤딩/본문을 선명한 색으로 고정 */
       [data-testid="stAppViewContainer"] h1,
       [data-testid="stAppViewContainer"] h2,
       [data-testid="stAppViewContainer"] h3,
@@ -180,14 +181,19 @@ def _inject_css():
         color:{fg} !important;
       }}
 
-      /* 입력/선택 필드 */
+      /* 입력/셀렉트/숫자필드 텍스트 */
       [data-testid="stAppViewContainer"] [data-baseweb="select"] *,
       [data-testid="stAppViewContainer"] [data-baseweb="input"] input,
       [data-testid="stAppViewContainer"] .stNumberInput input,
-      [data-testid="stAppViewContainer"] .stTextInput input {{ color:{fg} !important; }}
-      [data-testid="stAppViewContainer"] input::placeholder {{ color:{fg_sub} !important; opacity:.9 !important; }}
+      [data-testid="stAppViewContainer"] .stTextInput input {{
+        color:{fg} !important;
+      }}
+      /* 플레이스홀더도 보이게 */
+      [data-testid="stAppViewContainer"] input::placeholder {{
+        color:{fg_sub} !important; opacity:.9 !important;
+      }}
 
-      /* 카드 공통 */
+      /* 카드/경계선 */
       [data-testid="stAppViewContainer"] .card {{
         background:{card_bg};
         border:1px solid {border};
@@ -195,49 +201,71 @@ def _inject_css():
         box-shadow:0 1px 6px rgba(0,0,0,.12);
       }}
 
-      /* 메인 버튼(일반/다운로드/링크): 파란 배경 + 흰 글자 고정 */
-      [data-testid="stAppViewContainer"] .stButton>button,
-      [data-testid="stAppViewContainer"] .stDownloadButton>button,
-      [data-testid="stAppViewContainer"] .stLinkButton>button {{
+      /* ===== 버튼 — 라이트/다크 공통 파란배경+흰색 텍스트 고정 ===== */
+      /* 일반 버튼 (st.button / st.download_button 기본 커버) */
+      [data-testid="stAppViewContainer"] .stButton > button,
+      [data-testid="stAppViewContainer"] [data-testid="baseButton-secondary"],
+      [data-testid="stAppViewContainer"] [data-testid="baseButton-primary"],
+      [data-testid="stAppViewContainer"] [data-testid="stDownloadButton"] > button {{
         background:{btn_bg} !important;
-        color:#ffffff !important;
-        border:1px solid rgba(255,255,255,.08) !important;
+        color:#fff !important;
+        border:1px solid rgba(255,255,255,.12) !important;
         border-radius:10px !important;
         font-weight:700 !important;
       }}
-      [data-testid="stAppViewContainer"] .stButton>button:hover,
-      [data-testid="stAppViewContainer"] .stDownloadButton>button:hover,
-      [data-testid="stAppViewContainer"] .stLinkButton>button:hover {{
+      [data-testid="stAppViewContainer"] .stButton > button:hover,
+      [data-testid="stAppViewContainer"] [data-testid="stDownloadButton"] > button:hover,
+      [data-testid="stAppViewContainer"] [data-testid="baseButton-secondary"]:hover,
+      [data-testid="stAppViewContainer"] [data-testid="baseButton-primary"]:hover {{
         background:{btn_bg_hover} !important;
-        color:#ffffff !important;
-        border-color:rgba(255,255,255,.15) !important;
+        border-color:rgba(255,255,255,.18) !important;
+      }}
+
+      /* 링크 버튼(st.link_button)까지 강제 — 일부 버전 호환용 다중 셀렉터 */
+      [data-testid="stAppViewContainer"] a[role="button"],
+      [data-testid="stAppViewContainer"] a[data-testid="stLinkButton"],
+      [data-testid="stAppViewContainer"] .stLinkButton a {{
+        background:{btn_bg} !important;
+        color:#fff !important;
+        border:1px solid rgba(255,255,255,.12) !important;
+        border-radius:10px !important;
+        font-weight:700 !important;
+        padding:.45rem .9rem !important;
+        display:inline-block;
+      }}
+      [data-testid="stAppViewContainer"] a[role="button"]:hover,
+      [data-testid="stAppViewContainer"] a[data-testid="stLinkButton"]:hover,
+      [data-testid="stAppViewContainer"] .stLinkButton a:hover {{
+        background:{btn_bg_hover} !important;
+        text-decoration:none !important;
       }}
 
       /* 라디오/체크 라벨 */
       [data-testid="stAppViewContainer"] .stRadio label,
-      [data-testid="stAppViewContainer"] .stCheckbox label {{ color:{fg} !important; }}
+      [data-testid="stAppViewContainer"] .stCheckbox label {{
+        color:{fg} !important;
+      }}
 
       /* 데이터프레임 텍스트 */
-      [data-testid="stAppViewContainer"] [data-testid="stDataFrame"] * {{ color:{fg} !important; }}
+      [data-testid="stAppViewContainer"] [data-testid="stDataFrame"] * {{
+        color:{fg} !important;
+      }}
 
-      /* 여백 보정 */
-      [data-testid="stAppViewContainer"] h2,h3 {{ margin-top:.3rem !important; }}
+      /* 메인 컬러박스(pill) — 흰색 폰트 고정 */
+      [data-testid="stAppViewContainer"] .pill,
+      [data-testid="stAppViewContainer"] .pill * {{
+        color:#fff !important;
+      }}
 
-      /* ===== 사이드바 ===== */
-      [data-testid="stSidebar"] {{ color:{fg} !important; }}
-
-      /* 사이드바 컬러박스(.pill*)는 항상 검정 폰트 */
+      /* 사이드바 컬러박스 — 검정 폰트 고정 */
       [data-testid="stSidebar"] .pill,
       [data-testid="stSidebar"] .pill * {{
-        color:#111111 !important;
-        -webkit-text-fill-color:#111111 !important;
-        text-shadow:none !important;
-        filter:none !important;
+        color:#111 !important;
       }}
-      [data-testid="stSidebar"] .card .pill,
-      [data-testid="stSidebar"] .card .pill * {{
-        color:#111111 !important;
-        -webkit-text-fill-color:#111111 !important;
+
+      /* 기존 여백 유지 */
+      [data-testid="stAppViewContainer"] h2, [data-testid="stAppViewContainer"] h3 {{
+        margin-top:.3rem !important;
       }}
     </style>
     """, unsafe_allow_html=True)
