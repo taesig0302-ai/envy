@@ -301,53 +301,36 @@ def _proxy_iframe_with_title(proxy_base: str, target_url: str, height: int = 860
     st.components.v1.html(html, height=h+56, scrolling=False)
 
 # =========================
-# 4) Sidebar (theme + translator toggle + calculators)
+# 4) Sidebar (theme + translator toggle + calculators, with value pills)
 # =========================
+
+def sb_pill(label: str, main: str, sub: str = "", tone: str = "green"):
+    sub_html = f'<div style="font-size:.78rem;opacity:.85">{label}</div>' if label else ""
+    tail = f' <span style="opacity:.8;font-weight:700">{sub}</span>' if sub else ""
+    html = f'<div class="pill pill-{tone}">{sub_html}<div style="font-size:1.05rem"><b>{main}</b>{tail}</div></div>'
+    st.markdown(html, unsafe_allow_html=True)
+
 def _sidebar():
-    # 기본 세션 + CSS
-    _ensure_session_defaults()
-    _inject_css()
-    # 알림센터가 없는 경우에도 죽지 않도록 방어
-    try:
-        _inject_alert_center()
-    except Exception:
-        pass
+    _ensure_session_defaults(); _inject_css(); _inject_alert_center()
 
     with st.sidebar:
-        # ——— 로고: 원형 64px 고정 ———
-        st.markdown("""
-        <style>
-          [data-testid="stSidebar"] .logo-circle{
-            width:64px;height:64px;border-radius:9999px;overflow:hidden;
-            margin:.35rem auto .6rem auto; box-shadow:0 2px 8px rgba(0,0,0,.12);
-            border:1px solid rgba(0,0,0,.06);
-          }
-          [data-testid="stSidebar"] .logo-circle img{
-            width:100%;height:100%;object-fit:cover;display:block;
-          }
-        </style>
-        """, unsafe_allow_html=True)
-
+        # 로고
         lp = Path(__file__).parent / "logo.png"
         if lp.exists():
             b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
-            st.markdown(
-                f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>',
-                unsafe_allow_html=True
-            )
+            st.markdown(f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>', unsafe_allow_html=True)
 
-        # 토글
+        # 토글 영역
         c1, c2 = st.columns(2)
         with c1:
-            st.toggle("🌓 다크",
-                      value=(st.session_state.get("theme","light")=="dark"),
+            st.toggle("🌓 다크", value=(st.session_state.get("theme","light")=="dark"),
                       on_change=_toggle_theme, key="__theme_toggle")
         with c2:
             st.toggle("🌐 번역기", value=False, key="__show_translator")
 
         show_tr = st.session_state.get("__show_translator", False)
 
-        # ---- 위젯들 ----
+        # --- 번역기 블록 ---
         def translator_block(expanded=True):
             with st.expander("🌐 구글 번역기", expanded=expanded):
                 LANG_LABELS_SB = {
@@ -356,23 +339,32 @@ def _sidebar():
                     "de":"독일어","fr":"프랑스어","es":"스페인어","it":"이탈리아어","pt":"포르투갈어"
                 }
                 def _code_sb(x): return {v:k for k,v in LANG_LABELS_SB.items()}.get(x, x)
+
                 src_label = st.selectbox("원문 언어", list(LANG_LABELS_SB.values()),
                                          index=list(LANG_LABELS_SB.keys()).index("auto"), key="sb_tr_src")
                 tgt_label = st.selectbox("번역 언어", list(LANG_LABELS_SB.values()),
                                          index=list(LANG_LABELS_SB.keys()).index("ko"), key="sb_tr_tgt")
                 text_in = st.text_area("텍스트", height=120, key="sb_tr_in")
+
                 if st.button("번역 실행", key="sb_tr_btn"):
                     try:
                         from deep_translator import GoogleTranslator as _GT
-                        src_code = _code_sb(src_label); tgt_code = _code_sb(tgt_label)
-                        out_main = _GT(source=src_code, target=tgt_code).translate(text_in or "")
-                        st.text_area(f"결과 ({tgt_label})", value=out_main, height=120, key="sb_tr_out_main")
-                        if tgt_code != "ko":
-                            out_ko = _GT(source=tgt_code, target="ko").translate(out_main or "")
-                            st.text_area("결과 (한국어)", value=out_ko, height=120, key="sb_tr_out_ko")
-                    except Exception as e:
-                        st.error(f"번역 중 오류: {e}")
+                    except Exception:
+                        _GT = None
+                    if not _GT:
+                        st.error("deep-translator 설치 필요 또는 런타임 문제")
+                    else:
+                        try:
+                            src_code = _code_sb(src_label); tgt_code = _code_sb(tgt_label)
+                            out_main = _GT(source=src_code, target=tgt_code).translate(text_in or "")
+                            st.text_area(f"결과 ({tgt_label})", value=out_main, height=120, key="sb_tr_out_main")
+                            if tgt_code != "ko":
+                                out_ko = _GT(source=tgt_code, target="ko").translate(out_main or "")
+                                st.text_area("결과 (한국어)", value=out_ko, height=120, key="sb_tr_out_ko")
+                        except Exception as e:
+                            st.error(f"번역 중 오류: {e}")
 
+        # --- 환율 계산기 ---
         def fx_block(expanded=True):
             with st.expander("💱 환율 계산기", expanded=expanded):
                 fx_base = st.selectbox("기준 통화", list(CURRENCIES.keys()),
@@ -382,13 +374,10 @@ def _sidebar():
                                                value=float(st.session_state.get("sale_foreign",1.0)),
                                                step=0.01, format="%.2f", key="sale_foreign")
                 won = FX_DEFAULT[fx_base]*sale_foreign
-                st.markdown(
-                    f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b>'
-                    f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[fx_base]["symbol"]})</span></div>',
-                    unsafe_allow_html=True
-                )
+                sb_pill("환산 금액", f"{won:,.2f} 원", sub=f"({CURRENCIES[fx_base]['symbol']})", tone="green")
                 st.caption(f"환율 기준: {FX_DEFAULT[fx_base]:,.2f} ₩/{CURRENCIES[fx_base]['unit']}")
 
+        # --- 마진 계산기 ---
         def margin_block(expanded=True):
             with st.expander("📈 마진 계산기", expanded=expanded):
                 m_base = st.selectbox("매입 통화", list(CURRENCIES.keys()),
@@ -398,8 +387,9 @@ def _sidebar():
                                                    value=float(st.session_state.get("purchase_foreign",0.0)),
                                                    step=0.01, format="%.2f", key="purchase_foreign")
                 base_cost_won = FX_DEFAULT[m_base]*purchase_foreign if purchase_foreign>0 \
-                                else FX_DEFAULT[st.session_state.get("fx_base","USD")]*st.session_state.get("sale_foreign",1.0)
-                st.markdown(f'<div class="pill pill-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
+                    else FX_DEFAULT[st.session_state.get("fx_base","USD")]*st.session_state.get("sale_foreign",1.0)
+                sb_pill("원가(₩)", f"{base_cost_won:,.2f} 원", tone="green")
+
                 c1, c2 = st.columns(2)
                 with c1:
                     card_fee = st.number_input("카드수수료(%)",
@@ -409,10 +399,12 @@ def _sidebar():
                     market_fee = st.number_input("마켓수수료(%)",
                                                  value=float(st.session_state.get("market_fee_pct",14.0)),
                                                  step=0.01, format="%.2f", key="market_fee_pct")
+
                 shipping_won = st.number_input("배송비(₩)",
                                                value=float(st.session_state.get("shipping_won",0.0)),
                                                step=100.0, format="%.0f", key="shipping_won")
                 mode = st.radio("마진 방식", ["퍼센트","플러스"], horizontal=True, key="margin_mode")
+
                 if mode=="퍼센트":
                     margin_pct = st.number_input("마진율 (%)",
                                                  value=float(st.session_state.get("margin_pct",10.0)),
@@ -425,16 +417,16 @@ def _sidebar():
                                                  step=100.0, format="%.0f", key="margin_won")
                     target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)+margin_won+shipping_won
                     margin_value = margin_won; desc=f"+{margin_won:,.0f}"
-                st.markdown(f'<div class="pill pill-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="pill pill-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>', unsafe_allow_html=True)
 
-        # 토글 상태에 따라 펼침
+                sb_pill("판매가", f"{target_price:,.2f} 원", tone="blue")
+                sb_pill("순이익(마진)", f"{margin_value:,.2f} 원", sub=f"— {desc}", tone="yellow")
+
+        # --- 토글 상태에 따라 블록 배치 ---
         if show_tr:
             translator_block(expanded=True); fx_block(expanded=False); margin_block(expanded=False)
         else:
             fx_block(expanded=True); margin_block(expanded=True); translator_block(expanded=False)
 
-        # 관리자 박스(옵션)
         if SHOW_ADMIN_BOX:
             st.divider()
             st.text_input("PROXY_URL(디버그)", key="PROXY_URL", help="Cloudflare Worker 주소 (옵션)")
