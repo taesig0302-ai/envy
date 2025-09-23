@@ -125,57 +125,144 @@ def _toggle_theme():
     st.session_state["theme"]="dark" if st.session_state.get("theme","light")=="light" else "light"
 
 def _inject_css():
-    theme = st.session_state.get("theme","light")
-    bg, fg = ("#0e1117","#e6edf3") if theme=="dark" else ("#ffffff","#111111")
+    theme = st.session_state.get("theme", "light")
+
+    if theme == "dark":
+        # ── 다크: 검은배경, 화이트/레드/옐로우 대비 ──
+        vars_css = {
+            "--bg":"#000000", "--fg":"#FFFFFF",
+            "--muted":"#E0E6EF",
+            "--card":"#0E0E0E", "--card-border":"#262626",
+            "--grid":"#2E2E2E", "--hover":"#151515",
+            "--primary":"#FFD84D",   # 강조(링크/포커스) = 옐로우
+            "--accent":"#FF4D4D",    # 경고/위험 = 레드
+            "--success":"#A3FF7C",   # 보조 포지티브 = 연그린
+            "--focus":"#FFD84D",
+            "--link":"#FFD84D", "--link-hover":"#FFB800",
+            "--pill-text":"#0B0B0B"
+        }
+    else:
+        # ── 라이트: 흰배경, 블랙/블루/그린 대비 ──
+        vars_css = {
+            "--bg":"#FFFFFF", "--fg":"#111111",
+            "--muted":"#596272",
+            "--card":"#FFFFFF", "--card-border":"rgba(0,0,0,.12)",
+            "--grid":"#E9EEF5", "--hover":"#F5F7FB",
+            "--primary":"#1E6FFF",   # 강조(링크/포커스) = 블루
+            "--accent":"#1AAE5F",    # 포지티브 = 그린
+            "--success":"#1AAE5F",
+            "--focus":"#1E6FFF",
+            "--link":"#1E6FFF", "--link-hover":"#4D8DFF",
+            "--pill-text":"#0B1B10"
+        }
+
     st.markdown(f"""
     <style>
+      :root{{{"".join([f"{k}:{v};" for k,v in vars_css.items()])}}}
+
+      html,body,[data-testid="stAppViewContainer"]{{
+        background:var(--bg)!important; color:var(--fg)!important;
+      }}
       .block-container{{max-width:3800px!important;padding-top:.55rem!important;padding-bottom:1rem!important}}
-      html,body,[data-testid="stAppViewContainer"]{{background:{bg}!important;color:{fg}!important}}
-      h2,h3{{margin-top:.3rem!important}}
-      [data-testid="stSidebar"],[data-testid="stSidebar"]>div:first-child,[data-testid="stSidebar"] section{{height:100vh!important;overflow:hidden!important;padding:.15rem .25rem!important}}
+      h1,h2,h3,h4,h5,h6{{color:var(--fg)!important}}
+
+      /* ── 링크 ── */
+      a{{color:var(--link)!important;}}
+      a:hover{{color:var(--link-hover)!important;text-decoration:underline!important;}}
+
+      /* 유틸 텍스트 클래스 (필요시 사용)
+         .text-primary : 라이트=블루 / 다크=옐로우
+         .text-accent  : 라이트=그린 / 다크=레드
+      */
+      .text-primary{{ color: var(--primary)!important; }}
+      .text-accent{{ color: var(--accent)!important; }}
+
+      /* ── 사이드바 ── */
+      [data-testid="stSidebar"],[data-testid="stSidebar"]>div:first-child,[data-testid="stSidebar"] section{{
+        height:100vh!important;overflow:hidden!important;padding:.15rem .25rem!important;
+        background:var(--card)!important;border-right:1px solid var(--card-border)!important;
+      }}
       [data-testid="stSidebar"] section{{overflow-y:auto!important}}
       [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none!important}}
-      [data-testid="stSidebar"] .stSelectbox,.stNumberInput,.stRadio,.stMarkdown,.stTextInput,.stButton{{margin:.06rem 0!important}}
-      [data-baseweb="input"] input,.stNumberInput input,[data-baseweb="select"] div[role="combobox"]{{height:1.55rem!important;padding:.12rem .6rem!important;font-size:.96rem!important;border-radius:12px!important}}
-      .pill{{border-radius:9999px;padding:.40rem .9rem;font-weight:800;display:inline-block;margin:.10rem 0!important}}
-      .pill-green{{background:#b8f06c;border:1px solid #76c02a;color:#083500}}
-      .pill-blue{{background:#dbe6ff;border:1px solid #88a8ff;color:#09245e}}
-      .pill-yellow{{background:#ffe29b;border:1px solid #d2a12c;color:#3e2a00}}
-      .card{{border:1px solid rgba(0,0,0,.06);border-radius:14px;padding:.85rem;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.05)}}
-      .card-title{{font-size:1.18rem;font-weight:900;margin:.1rem 0 .55rem 0}}
-      .card iframe{{border:0;width:100%;border-radius:10px}}
-      .row-gap{{height:16px}}
-      .logo-circle{{width:72px;height:72px;border-radius:50%;overflow:hidden;margin:.2rem auto .4rem auto;box-shadow:0 2px 8px rgba(0,0,0,.12);border:1px solid rgba(0,0,0,.06)}}
-      .logo-circle img{{width:100%;height:100%;object-fit:cover}}
-      #rk-card [data-testid="stDataFrame"] * {{ font-size: 0.92rem !important; }}
-      #rk-card [data-testid="stDataFrame"] div[role='grid']{{ overflow-x: hidden !important; }}
-      #rk-card [data-testid="stDataFrame"] div[role='gridcell']{{ white-space: normal !important; word-break: break-word !important; overflow-wrap: anywhere !important; }}
-    </style>
-    """, unsafe_allow_html=True)
 
-def _inject_alert_center():
-    st.markdown("""
-    <div id="envy-alert-root" style="position:fixed;top:16px;right:16px;z-index:999999;pointer-events:none;"></div>
-    <style>
-      .envy-toast{min-width:220px;max-width:420px;margin:8px 0;padding:.7rem 1rem;border-radius:12px;color:#fff;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.25);opacity:0;transform:translateY(-6px);transition:opacity .2s ease, transform .2s ease;}
-      .envy-toast.show{opacity:1;transform:translateY(0)}
-      .envy-info{background:#2563eb}.envy-warn{background:#d97706}.envy-error{background:#dc2626}
+      /* ── 입력류 + 포커스 ── */
+      [data-baseweb="input"] input,
+      .stNumberInput input,
+      [data-baseweb="select"] div[role="combobox"],
+      .stTextInput>div>div>input {{
+        height:1.60rem!important;padding:.14rem .60rem!important;font-size:.96rem!important;
+        border-radius:12px!important;background:var(--card)!important;color:var(--fg)!important;
+        border:1px solid var(--card-border)!important;outline:none!important;
+      }}
+      [data-baseweb="input"] input:focus,
+      .stNumberInput input:focus,
+      [data-baseweb="select"] div[role="combobox"]:focus-within,
+      .stTextInput>div>div>input:focus {{
+        box-shadow: 0 0 0 2px var(--focus) inset!important; border-color: var(--focus)!important;
+      }}
+      [data-baseweb="input"] input::placeholder,
+      .stTextInput input::placeholder,
+      .stNumberInput input::placeholder, textarea::placeholder{{
+        color: color-mix(in oklab, var(--fg) 70%, transparent)!important; opacity:1!important;
+      }}
+      .stRadio label, .stCheckbox label, .stToggle label{{ color:var(--fg)!important; opacity:1!important; }}
+
+      /* ── 버튼 ── */
+      button[kind="primary"]{{
+        background:var(--primary)!important;border:1px solid var(--primary)!important;
+        color:{"#0B0B0B" if theme=="dark" else "#FFFFFF"}!important;font-weight:800!important;
+      }}
+      button[kind="secondary"]{{
+        background:var(--card)!important;border:1px solid var(--card-border)!important;color:var(--fg)!important;
+      }}
+
+      /* ── 카드 & 배지 ── */
+      .card{{background:var(--card)!important;border:1px solid var(--card-border)!important;border-radius:14px;
+            padding:.85rem;box-shadow:0 2px 10px rgba(0,0,0,.10)}}
+      .card-title{{font-size:1.18rem;font-weight:900;margin:.1rem 0 .55rem 0;color:var(--fg)!important}}
+      .pill{{border-radius:9999px;padding:.40rem .9rem;font-weight:800;display:inline-block;margin:.10rem 0!important}}
+      .pill-blue{{background:{"#231F00" if theme=="dark" else "var(--hover)"}; 
+                  border:1px solid {("#3A3000" if theme=="dark" else "var(--card-border)")};
+                  color: {("#FFD84D" if theme=="dark" else "#0D2C6D")} }}
+      .pill-green{{background:{"#1A0909" if theme=="dark" else "color-mix(in oklab, var(--accent) 35%, transparent)"};
+                   border:1px solid {("#3A0F0F" if theme=="dark" else "color-mix(in oklab, var(--accent) 55%, #0000)")};
+                   color: {("#FF4D4D" if theme=="dark" else "var(--pill-text)")} }}
+      .pill-yellow{{background:{"#2A2500" if theme=="dark" else "color-mix(in oklab, #FFD84D 40%, transparent)"};
+                    border:1px solid {("#3A3500" if theme=="dark" else "color-mix(in oklab, #FFD84D 60%, #0000)")};
+                    color: {("#FFEAA0" if theme=="dark" else "#3e2a00")} }}
+
+      /* ── 표(DataFrame) ── */
+      [data-testid="stDataFrame"] * {{ color:var(--fg)!important; opacity:1!important; }}
+      [data-testid="stDataFrame"] div[role='grid']{{
+        background:var(--card)!important;border:1px solid var(--card-border)!important;
+      }}
+      [data-testid="stDataFrame"] div[role='columnheader']{{
+        background:var(--hover)!important;font-weight:800!important;border-bottom:1px solid var(--grid)!important;
+      }}
+      [data-testid="stDataFrame"] div[role='gridcell']{{ border-bottom:1px solid var(--grid)!important; }}
+      [data-testid="stDataFrame"] div[role='row']:hover{{ background:var(--hover)!important; }}
+
+      /* ── iframe 경계 ── */
+      .card iframe, .stIframe iframe {{
+        border:1px solid var(--card-border)!important;border-radius:10px!important;
+        box-shadow:0 1px 6px rgba(0,0,0,.10)!important;
+      }}
+
+      /* ── 회색 바램 방지 ── */
+      [data-testid="stMarkdownContainer"] p,
+      [data-testid="stMarkdownContainer"] li,
+      [data-testid="stMarkdownContainer"] span,
+      [data-testid="stSidebar"] p,
+      [data-testid="stSidebar"] li,
+      [data-testid="stSidebar"] span,
+      [data-testid="stCaptionContainer"], .stCaption,
+      .markdown-text-container p, .markdown-text-container li,
+      .stAlert p, .stAlert div, .stMetric label, label, small {{
+        color: var(--fg) !important; opacity: 1 !important;
+      }}
+      button, button * {{ color: inherit !important; opacity: 1 !important; }}
+      .card .stMarkdown p, .card .stMarkdown span {{ color: var(--fg) !important; opacity: 1 !important; }}
     </style>
-    <script>
-      (function(){
-        const root = document.getElementById('envy-alert-root');
-        function toast(level, text){
-          const el = document.createElement('div');
-          el.className='envy-toast envy-'+(level||'info'); el.textContent=text||'알림';
-          el.style.pointerEvents='auto'; root.appendChild(el);
-          requestAnimationFrame(()=>el.classList.add('show'));
-          setTimeout(()=>{el.classList.remove('show'); setTimeout(()=>el.remove(), 300);}, 5000);
-        }
-        window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='alert'){toast(d.level,d.msg);} },false);
-        let heard=false; window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='title'){heard=true;}},false);
-        setTimeout(()=>{ if(!heard){ toast('warn','데이터랩 연결이 지연되고 있어요.'); } },8000);
-      })();
-    </script>
     """, unsafe_allow_html=True)
 
 # =========================
