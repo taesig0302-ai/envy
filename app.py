@@ -94,7 +94,7 @@ STOP_PRESETS = {
 }
 
 # =========================
-# 1) UI defaults & CSS
+# 1) UI defaults & CSS (최종)
 # =========================
 def _ensure_session_defaults():
     ss = st.session_state
@@ -122,59 +122,93 @@ def _ensure_session_defaults():
     })
 
 def _toggle_theme():
-    st.session_state["theme"]="dark" if st.session_state.get("theme","light")=="light" else "light"
+    st.session_state["theme"] = "dark" if st.session_state.get("theme","light")=="light" else "light"
 
 def _inject_css():
     theme = st.session_state.get("theme","light")
-    bg, fg = ("#0e1117","#e6edf3") if theme=="dark" else ("#ffffff","#111111")
+
+    if theme == "dark":
+        bg = "#0e1117"
+        fg = "#ffffff"   # 기본 텍스트 흰색
+        link = "#ff5555" # 강조 링크 레드
+        pill_green = "#ffeb99"   # 옐로우 톤
+        pill_blue  = "#ffffff"   # 화이트 톤
+        pill_yellow= "#ff5555"   # 레드 톤
+        card_bg = "#111418"
+        card_border = "#2a2a2a"
+    else:
+        bg = "#ffffff"
+        fg = "#111111"   # 기본 텍스트 검정
+        link = "#1E6FFF" # 강조 블루
+        pill_green = "#b8f06c"
+        pill_blue  = "#dbe6ff"
+        pill_yellow= "#ffe29b"
+        card_bg = "#ffffff"
+        card_border = "rgba(0,0,0,.12)"
+
     st.markdown(f"""
-    <style>
-      .block-container{{max-width:3800px!important;padding-top:.55rem!important;padding-bottom:1rem!important}}
-      html,body,[data-testid="stAppViewContainer"]{{background:{bg}!important;color:{fg}!important}}
-      h2,h3{{margin-top:.3rem!important}}
-      [data-testid="stSidebar"],[data-testid="stSidebar"]>div:first-child,[data-testid="stSidebar"] section{{height:100vh!important;overflow:hidden!important;padding:.15rem .25rem!important}}
-      [data-testid="stSidebar"] section{{overflow-y:auto!important}}
-      [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none!important}}
-      [data-testid="stSidebar"] .stSelectbox,.stNumberInput,.stRadio,.stMarkdown,.stTextInput,.stButton{{margin:.06rem 0!important}}
-      [data-baseweb="input"] input,.stNumberInput input,[data-baseweb="select"] div[role="combobox"]{{height:1.55rem!important;padding:.12rem .6rem!important;font-size:.96rem!important;border-radius:12px!important}}
-      .pill{{border-radius:9999px;padding:.40rem .9rem;font-weight:800;display:inline-block;margin:.10rem 0!important}}
-      .pill-green{{background:#b8f06c;border:1px solid #76c02a;color:#083500}}
-      .pill-blue{{background:#dbe6ff;border:1px solid #88a8ff;color:#09245e}}
-      .pill-yellow{{background:#ffe29b;border:1px solid #d2a12c;color:#3e2a00}}
-      .card{{border:1px solid rgba(0,0,0,.06);border-radius:14px;padding:.85rem;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.05)}}
-      .card-title{{font-size:1.18rem;font-weight:900;margin:.1rem 0 .55rem 0}}
-      .card iframe{{border:0;width:100%;border-radius:10px}}
-      .row-gap{{height:16px}}
-      .logo-circle{{width:72px;height:72px;border-radius:50%;overflow:hidden;margin:.2rem auto .4rem auto;box-shadow:0 2px 8px rgba(0,0,0,.12);border:1px solid rgba(0,0,0,.06)}}
-      .logo-circle img{{width:100%;height:100%;object-fit:cover;display:block;}}
-      #rk-card [data-testid="stDataFrame"] * {{ font-size: 0.92rem !important; }}
-      #rk-card [data-testid="stDataFrame"] div[role='grid']{{ overflow-x: hidden !important; }}
-      #rk-card [data-testid="stDataFrame"] div[role='gridcell']{{ white-space: normal !important; word-break: break-word !important; overflow-wrap: anywhere !important; }}
-    </style>
-    """, unsafe_allow_html=True)
+<style>
+  .block-container{{max-width:3800px!important;padding-top:.55rem!important;padding-bottom:1rem!important}}
+  html,body,[data-testid="stAppViewContainer"]{{background:{bg}!important;color:{fg}!important}}
+  h1,h2,h3,h4,h5,h6,label,small,span,p,div{{color:{fg}!important;opacity:1!important}}
+
+  [data-testid="stSidebar"],
+  [data-testid="stSidebar"]>div:first-child,
+  [data-testid="stSidebar"] section{{height:100vh!important;overflow:hidden!important;padding:.15rem .25rem!important}}
+  [data-testid="stSidebar"] section{{overflow-y:auto!important}}
+  [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none!important}}
+
+  .logo-circle{{width:72px;height:72px;border-radius:50%;overflow:hidden;margin:.2rem auto .4rem auto;
+                box-shadow:0 2px 8px rgba(0,0,0,.12);border:1px solid rgba(0,0,0,.06)}}
+  .logo-circle img{{width:100%;height:100%;object-fit:cover;display:block;}}
+
+  [data-baseweb="input"] input,
+  .stNumberInput input,
+  [data-baseweb="select"] div[role="combobox"]{{height:1.55rem!important;padding:.12rem .6rem!important;
+                                                font-size:.96rem!important;border-radius:12px!important}}
+
+  .pill{{border-radius:9999px;padding:.40rem .9rem;font-weight:800;display:inline-block;margin:.10rem 0!important}}
+  .pill-green{{background:{pill_green};border:1px solid #76c02a;color:#083500}}
+  .pill-blue{{background:{pill_blue};border:1px solid #88a8ff;color:#09245e}}
+  .pill-yellow{{background:{pill_yellow};border:1px solid #d2a12c;color:#3e2a00}}
+
+  .card{{background:{card_bg}!important;border:1px solid {card_border}!important;
+         border-radius:14px;padding:.85rem;box-shadow:0 1px 6px rgba(0,0,0,.05)}}
+  .card-title{{font-size:1.18rem;font-weight:900;margin:.1rem 0 .55rem 0}}
+
+  a{{color:{link}!important}}
+  a:hover{{opacity:0.8!important}}
+
+  #rk-card [data-testid="stDataFrame"] * {{ font-size: 0.92rem !important; color:{fg}!important; }}
+  #rk-card [data-testid="stDataFrame"] div[role='grid']{{ overflow-x: hidden !important; }}
+  #rk-card [data-testid="stDataFrame"] div[role='gridcell']{{ white-space: normal !important; word-break: break-word !important; overflow-wrap: anywhere !important; }}
+</style>
+""", unsafe_allow_html=True)
 
 def _inject_alert_center():
     st.markdown("""
     <div id="envy-alert-root" style="position:fixed;top:16px;right:16px;z-index:999999;pointer-events:none;"></div>
     <style>
-      .envy-toast{min-width:220px;max-width:420px;margin:8px 0;padding:.7rem 1rem;border-radius:12px;color:#fff;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.25);opacity:0;transform:translateY(-6px);transition:opacity .2s ease, transform .2s ease;}
+      .envy-toast{min-width:220px;max-width:420px;margin:8px 0;padding:.7rem 1rem;border-radius:12px;color:#fff;font-weight:700;
+                  box-shadow:0 8px 24px rgba(0,0,0,.25);opacity:0;transform:translateY(-6px);
+                  transition:opacity .2s ease, transform .2s ease;}
       .envy-toast.show{opacity:1;transform:translateY(0)}
       .envy-info{background:#2563eb}.envy-warn{background:#d97706}.envy-error{background:#dc2626}
     </style>
     <script>
-      (function(){
+      (function(){{
         const root = document.getElementById('envy-alert-root');
-        function toast(level, text){
+        function toast(level, text){{
           const el = document.createElement('div');
           el.className='envy-toast envy-'+(level||'info'); el.textContent=text||'알림';
           el.style.pointerEvents='auto'; root.appendChild(el);
           requestAnimationFrame(()=>el.classList.add('show'));
-          setTimeout(()=>{el.classList.remove('show'); setTimeout(()=>el.remove(), 300);}, 5000);
-        }
-        window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='alert'){toast(d.level,d.msg);} },false);
-        let heard=false; window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='title'){heard=true;}},false);
-        setTimeout(()=>{ if(!heard){ toast('warn','데이터랩 연결이 지연되고 있어요.'); } },8000);
-      })();
+          setTimeout(()=>{{el.classList.remove('show'); setTimeout(()=>el.remove(), 300);}}, 5000);
+        }}
+        window.addEventListener('message',(e)=>{{ const d=e.data||{{}}; if(d.__envy && d.kind==='alert'){{toast(d.level,d.msg);}} }},false);
+        let heard=false; window.addEventListener('message',(e)=>{{ const d=e.data||{{}}; if(d.__envy && d.kind==='title'){{heard=true;}}}},false);
+        setTimeout(()=>{{ if(!heard){{ toast('warn','데이터랩 연결이 지연되고 있어요.'); }} }},8000);
+      }})();
     </script>
     """, unsafe_allow_html=True)
 
