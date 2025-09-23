@@ -134,43 +134,31 @@ def _toggle_theme():
     st.session_state["theme"] = "dark" if st.session_state.get("theme", "light") == "light" else "light"
 
 def _inject_css():
-    """
-    본문: 다크/라이트 토글 반영
-    사이드바: *항상 라이트톤* 강제 + 100vh 고정 + 내부만 스크롤
-    컬러 pill 유지(메인/사이드바 공통)
-    """
+    """메인 뷰만 색상 오버라이드(사이드바 제외). 다크/라이트 대비 강화 + pill 스타일(전역)."""
     theme = st.session_state.get("theme", "light")
 
-    # ===== 본문 팔레트(토글 반영) =====
+    # 팔레트(본문)
     if theme == "dark":
         bg = "#0e1117"; fg = "#e6edf3"; fg_sub = "#b6c2cf"; card_bg = "#11151c"
         border = "rgba(255,255,255,.08)"; btn_bg = "#2563eb"; btn_bg_hover = "#1e3fae"
-        pill_shadow = "0 2px 10px rgba(0,0,0,.35)"
-        pill_green_bg, pill_green_bd, pill_green_fg = "linear-gradient(180deg, #0f5132 0%, #0b3d26 100%)", "rgba(86,207,150,.35)", "#d1fae5"
-        pill_blue_bg,  pill_blue_bd,  pill_blue_fg  = "linear-gradient(180deg, #0b3b8a 0%, #092a63 100%)", "rgba(147,197,253,.35)", "#dbeafe"
-        pill_yellow_bg, pill_yellow_bd, pill_yellow_fg = "linear-gradient(180deg, #7a5c0a 0%, #5b4307 100%)", "rgba(252,211,77,.35)", "#fef3c7"
-        pill_warn_bg,  pill_warn_bd,  pill_warn_fg  = "linear-gradient(180deg, #5c1a1a 0%, #3d1010 100%)", "rgba(248,113,113,.35)", "#fee2e2"
     else:
         bg = "#ffffff"; fg = "#111111"; fg_sub = "#4b5563"; card_bg = "#ffffff"
         border = "rgba(0,0,0,.06)"; btn_bg = "#2563eb"; btn_bg_hover = "#1e3fae"
-        pill_shadow = "0 2px 10px rgba(0,0,0,.08)"
-        pill_green_bg, pill_green_bd, pill_green_fg = "linear-gradient(180deg, #d1fae5 0%, #a7f3d0 100%)", "rgba(16,185,129,.35)", "#065f46"
-        pill_blue_bg,  pill_blue_bd,  pill_blue_fg  = "linear-gradient(180deg, #dbeafe 0%, #bfdbfe 100%)", "rgba(59,130,246,.35)", "#1e3a8a"
-        pill_yellow_bg, pill_yellow_bd, pill_yellow_fg = "linear-gradient(180deg, #fef3c7 0%, #fde68a 100%)", "rgba(234,179,8,.35)", "#7c2d12"
-        pill_warn_bg,  pill_warn_bd,  pill_warn_fg  = "linear-gradient(180deg, #fee2e2 0%, #fecaca 100%)", "rgba(239,68,68,.35)", "#7f1d1d"
 
-    # ===== 사이드바(라이트 고정) 팔레트 =====
-    sb_bg   = "#f6f8fb"
-    sb_fg   = "#111111"
-    sb_sub  = "#4b5563"
-    sb_card = "#ffffff"
-    sb_bd   = "rgba(0,0,0,.06)"
+    # pill 팔레트(라이트 고정) — 사이드바/본문 공통 사용
+    pill_shadow = "0 2px 10px rgba(0,0,0,.08)"
+    pill_green_bg, pill_green_bd, pill_green_fg = \
+        "linear-gradient(180deg, #d1fae5 0%, #a7f3d0 100%)", "rgba(16,185,129,.35)", "#065f46"
+    pill_blue_bg,  pill_blue_bd,  pill_blue_fg  = \
+        "linear-gradient(180deg, #dbeafe 0%, #bfdbfe 100%)", "rgba(59,130,246,.35)", "#1e3a8a"
+    pill_yellow_bg, pill_yellow_bd, pill_yellow_fg = \
+        "linear-gradient(180deg, #fef3c7 0%, #fde68a 100%)", "rgba(234,179,8,.35)", "#7c2d12"
+    pill_warn_bg,  pill_warn_bd,  pill_warn_fg  = \
+        "linear-gradient(180deg, #fee2e2 0%, #fecaca 100%)", "rgba(239,68,68,.35)", "#7f1d1d"
 
     st.markdown(f"""
     <style>
-      /* =========================
-         본문(다크/라이트 토글 반영)
-         ========================= */
+      /* ===== 본문(메인) 테마만 반전 — 사이드바는 건드리지 않음 ===== */
       [data-testid="stAppViewContainer"] {{
         background:{bg} !important; color:{fg} !important;
       }}
@@ -186,15 +174,19 @@ def _inject_css():
       [data-testid="stAppViewContainer"] label,
       [data-testid="stAppViewContainer"] .stMarkdown,
       [data-testid="stAppViewContainer"] .stMarkdown * {{ color:{fg} !important; }}
+
       [data-testid="stAppViewContainer"] [data-baseweb="select"] *,
       [data-testid="stAppViewContainer"] [data-baseweb="input"] input,
       [data-testid="stAppViewContainer"] .stNumberInput input,
       [data-testid="stAppViewContainer"] .stTextInput input {{ color:{fg} !important; }}
+
       [data-testid="stAppViewContainer"] input::placeholder {{ color:{fg_sub} !important; opacity:.9 !important; }}
+
       [data-testid="stAppViewContainer"] .card {{
         background:{card_bg}; border:1px solid {border}; border-radius:14px;
         box-shadow:0 1px 6px rgba(0,0,0,.12);
       }}
+
       [data-testid="stAppViewContainer"] .stButton>button {{
         background:{btn_bg} !important; color:#fff !important;
         border:1px solid rgba(255,255,255,.08) !important;
@@ -204,85 +196,30 @@ def _inject_css():
         background:{btn_bg_hover} !important; border-color:rgba(255,255,255,.15) !important;
       }}
 
-      /* =========================
-         공통 pill
-         ========================= */
+      [data-testid="stAppViewContainer"] .stRadio label,
+      [data-testid="stAppViewContainer"] .stCheckbox label {{ color:{fg} !important; }}
+
+      [data-testid="stAppViewContainer"] [data-testid="stDataFrame"] * {{ color:{fg} !important; }}
+
+      [data-testid="stAppViewContainer"] h2,h3 {{ margin-top:.3rem !important; }}
+
+      /* ===== pill: 전역(사이드바/본문 공용). 사이드바 사이즈·스크롤에는 영향 없음 ===== */
       .pill {{
         display:block; width:100%; border-radius:12px;
-        padding:.70rem .95rem; font-weight:800;
-        letter-spacing:.1px; box-shadow:{pill_shadow};
-        border:1px solid transparent; margin:.35rem 0 .5rem 0;
+        padding:.70rem .95rem; font-weight:800; letter-spacing:.1px;
+        box-shadow:{pill_shadow}; border:1px solid transparent; margin:.35rem 0 .5rem 0;
       }}
       .pill span {{ opacity:.8; font-weight:700; }}
+
       .pill-green {{ background:{pill_green_bg}; border-color:{pill_green_bd}; color:{pill_green_fg}; }}
       .pill-blue  {{ background:{pill_blue_bg};  border-color:{pill_blue_bd};  color:{pill_blue_fg}; }}
-      .pill-yellow{{ background:{pill_yellow_bg};border-color:{pill_yellow_bd};color:{pill_yellow_fg}; }}
+      .pill-yellow{{ background:{pill_yellow_bg}; border-color:{pill_yellow_bd}; color:{pill_yellow_fg}; }}
       .pill-warn  {{ background:{pill_warn_bg};  border-color:{pill_warn_bd};  color:{pill_warn_fg}; }}
 
       .envy-chip-warn {{
-        display:inline-block; padding:.35rem .7rem;
-        border-radius:9999px; font-weight:700;
-        background:{pill_warn_bg}; border:1px solid {pill_warn_bd};
-        color:{pill_warn_fg};
+        display:inline-block; padding:.35rem .7rem; border-radius:9999px; font-weight:700;
+        background:{pill_warn_bg}; border:1px solid {pill_warn_bd}; color:{pill_warn_fg};
       }}
-
-      /* =========================
-         사이드바: 라이트톤 강제 + 100vh 고정 + 내부 스크롤
-         ========================= */
-      /* Streamlit은 aside/div 둘 다 쓰는 버전이 있어 둘 다 잡는다 */
-      aside[data-testid="stSidebar"], div[data-testid="stSidebar"] {{
-        position: sticky !important; top: 0 !important;
-        height: 100vh !important; max-height: 100vh !important;
-        align-self: flex-start !important;
-        background:{sb_bg} !important;
-        color:{sb_fg} !important;
-        overflow: hidden !important;            /* 바깥쪽 스크롤 잠금 */
-        /* 다크 테마 변수/필터/상속 싹 차단 */
-        filter: none !important; -webkit-filter: none !important;
-        color-scheme: light !important;
-        --text-color: {sb_fg} !important;
-        --background-color: {sb_bg} !important;
-        --secondary-background-color: {sb_card} !important;
-        --primary-color: #2563eb !important;
-      }}
-      /* 사이드바 내부 컨텐츠만 스크롤 허용 */
-      aside[data-testid="stSidebar"] [data-testid="stSidebarContent"],
-      div[data-testid="stSidebar"]   [data-testid="stSidebarContent"] {{
-        height: 100% !important;
-        max-height: 100vh !important;
-        overflow-y: auto !important;
-        padding-bottom: 12px;
-        scrollbar-gutter: stable both-edges;
-      }}
-      /* 사이드바 내부 모든 요소 라이트 고정 */
-      aside[data-testid="stSidebar"] *,
-      div[data-testid="stSidebar"] * {{
-        color:{sb_fg} !important;
-        filter: none !important; -webkit-filter: none !important;
-      }}
-      aside[data-testid="stSidebar"] input::placeholder,
-      div[data-testid="stSidebar"] input::placeholder {{ color:{sb_sub} !important; opacity:.9 !important; }}
-      aside[data-testid="stSidebar"] .card,
-      div[data-testid="stSidebar"] .card {{
-        background:{sb_card} !important; border:1px solid {sb_bd} !important; border-radius:14px !important;
-        box-shadow:0 1px 6px rgba(0,0,0,.08) !important;
-      }}
-      aside[data-testid="stSidebar"] [data-baseweb="select"] > div,
-      div[data-testid="stSidebar"]   [data-baseweb="select"] > div,
-      aside[data-testid="stSidebar"] [data-baseweb="input"] input,
-      div[data-testid="stSidebar"]   [data-baseweb="input"] input,
-      aside[data-testid="stSidebar"] .stNumberInput input,
-      div[data-testid="stSidebar"]   .stNumberInput input,
-      aside[data-testid="stSidebar"] .stTextInput input,
-      div[data-testid="stSidebar"]   .stTextInput input {{
-        background:#ffffff !important; color:{sb_fg} !important;
-      }}
-      aside[data-testid="stSidebar"] .stRadio label,
-      div[data-testid="stSidebar"]   .stRadio label,
-      aside[data-testid="stSidebar"] .stCheckbox label,
-      div[data-testid="stSidebar"]   .stCheckbox label,
-      aside[data-testid="stSidebar"] label,
-      div[data-testid="stSidebar"]   label {{ color:{sb_fg} !important; }}
     </style>
     """, unsafe_allow_html=True)
 
