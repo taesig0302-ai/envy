@@ -301,104 +301,83 @@ def _proxy_iframe_with_title(proxy_base: str, target_url: str, height: int = 860
     st.components.v1.html(html, height=h+56, scrolling=False)
 
 # =========================
-# 4) Sidebar (color pills restored + scroll lock only)
+# 4) Sidebar (compact mode — no scrollbar needed)
 # =========================
 def _sidebar():
-    # 기본 세션 + 메인 영역 CSS (사이드바는 여기서 손대지 않음)
     _ensure_session_defaults()
     _inject_css()
-
-    # 알림센터가 없는 환경에서도 죽지 않도록 방어
     try:
         _inject_alert_center()
     except Exception:
         pass
 
     with st.sidebar:
-        # ── 사이드바 전용 스타일: 스크롤락 + pill 컬러 ──────────────────────────
+        # ── 사이드바 전용 Compact CSS ──
         st.markdown("""
         <style>
-          /* 스크롤바 자체 표시 제거 */
+          /* 사이드바 스크롤바 아예 제거 */
           [data-testid="stSidebar"]{
-            scrollbar-width: none !important; -ms-overflow-style: none !important;
+            scrollbar-width:none !important; -ms-overflow-style:none !important;
           }
-          [data-testid="stSidebar"]::-webkit-scrollbar{ width:0 !important; height:0 !important; display:none !important; }
+          [data-testid="stSidebar"]::-webkit-scrollbar{ display:none !important; }
 
-          /* 실제 스크롤 컨테이너를 뷰포트 높이에 고정하고 스크롤 차단 */
-          [data-testid="stSidebar"] section[tabindex="0"]{
-            height:100vh !important;
-            overflow: hidden !important;
+          /* compact: expander 간격 축소 */
+          [data-testid="stSidebar"] .stExpander{
+            padding:.25rem .4rem !important;
+            margin-bottom:.25rem !important;
           }
 
-          /* 컬러 pill 공통 */
+          /* compact: 입력 필드 높이 줄이기 */
+          [data-testid="stSidebar"] .stNumberInput input,
+          [data-testid="stSidebar"] .stTextInput input,
+          [data-testid="stSidebar"] textarea{
+            min-height:26px !important;
+            line-height:1.2 !important;
+            font-size:.85rem !important;
+            padding:.2rem .3rem !important;
+          }
+
+          /* compact: pill 박스 간격/폰트 줄이기 */
           [data-testid="stSidebar"] .pill{
-            display:block; width:100%;
-            border-radius:12px; padding:.70rem .95rem;
-            font-weight:800; letter-spacing:.1px;
-            box-shadow:0 2px 10px rgba(0,0,0,.08);
-            margin:.35rem 0 .5rem 0;
+            margin:.15rem 0 .25rem 0 !important;
+            padding:.5rem .7rem !important;
+            font-size:.85rem !important;
+            font-weight:700 !important;
           }
-          /* 세부 색상 (green/blue/yellow) */
-          [data-testid="stSidebar"] .pill-green{  background:#dcfce7; border:1px solid #22c55e; color:#064e3b; }
-          [data-testid="stSidebar"] .pill-blue{   background:#dbeafe; border:1px solid #3b82f6; color:#1e3a8a; }
-          [data-testid="stSidebar"] .pill-yellow{ background:#fef3c7; border:1px solid #eab308; color:#7c2d12; }
+          [data-testid="stSidebar"] .pill-green{background:#dcfce7;border:1px solid #22c55e;color:#064e3b;}
+          [data-testid="stSidebar"] .pill-blue{ background:#dbeafe;border:1px solid #3b82f6;color:#1e3a8a;}
+          [data-testid="stSidebar"] .pill-yellow{background:#fef3c7;border:1px solid #eab308;color:#7c2d12;}
 
-          /* 로고 원형 고정 */
+          /* 로고 크기 고정 */
           [data-testid="stSidebar"] .logo-circle{
-            width:64px;height:64px;border-radius:9999px;overflow:hidden;
-            margin:.35rem auto .6rem auto; box-shadow:0 2px 8px rgba(0,0,0,.12);
+            width:56px;height:56px;border-radius:9999px;overflow:hidden;
+            margin:.25rem auto .5rem auto; box-shadow:0 1px 4px rgba(0,0,0,.1);
             border:1px solid rgba(0,0,0,.06);
           }
           [data-testid="stSidebar"] .logo-circle img{
             width:100%;height:100%;object-fit:cover;display:block;
           }
         </style>
-
-        <script>
-        // 휠/터치 스크롤 입력 자체를 캡처해 사이드바를 락
-        (function(){
-          try{
-            var el=document.querySelector('[data-testid="stSidebar"] section[tabindex="0"]');
-            if(!el) return;
-            var stop=function(e){ e.preventDefault(); e.stopPropagation(); return false; };
-            ['wheel','touchmove'].forEach(function(evt){
-              el.addEventListener(evt, stop, {passive:false});
-            });
-          }catch(_){}
-        })();
-        </script>
         """, unsafe_allow_html=True)
 
-        # ── 로고: 원형 64px ──
-        st.markdown("""
-        <style>
-          [data-testid="stSidebar"] .logo-circle{ /* 위에서 정의했지만 안전하게 한번 더 */ 
-            width:64px;height:64px;border-radius:9999px;overflow:hidden;
-            margin:.35rem auto .6rem auto; box-shadow:0 2px 8px rgba(0,0,0,.12);
-            border:1px solid rgba(0,0,0,.06);
-          }
-        </style>
-        """, unsafe_allow_html=True)
+        # ── 로고 ──
         lp = Path(__file__).parent / "logo.png"
         if lp.exists():
             b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
-            st.markdown(
-                f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>',
-                unsafe_allow_html=True
-            )
+            st.markdown(f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>',
+                        unsafe_allow_html=True)
 
         # ── 토글 ──
         c1, c2 = st.columns(2)
         with c1:
-            st.toggle("🌓 다크",
-                      value=(st.session_state.get("theme","light")=="dark"),
+            st.toggle("🌓 다크", value=(st.session_state.get("theme","light")=="dark"),
                       on_change=_toggle_theme, key="__theme_toggle")
         with c2:
             st.toggle("🌐 번역기", value=False, key="__show_translator")
 
         show_tr = st.session_state.get("__show_translator", False)
 
-        # ── 위젯들 (기존 로직 유지) ──
+        # ── 위젯들 (기존 그대로, compact CSS만 적용됨) ──
         def translator_block(expanded=True):
             with st.expander("🌐 구글 번역기", expanded=expanded):
                 LANG_LABELS_SB = {
@@ -411,16 +390,16 @@ def _sidebar():
                                          index=list(LANG_LABELS_SB.keys()).index("auto"), key="sb_tr_src")
                 tgt_label = st.selectbox("번역 언어", list(LANG_LABELS_SB.values()),
                                          index=list(LANG_LABELS_SB.keys()).index("ko"), key="sb_tr_tgt")
-                text_in = st.text_area("텍스트", height=120, key="sb_tr_in")
+                text_in = st.text_area("텍스트", height=80, key="sb_tr_in")
                 if st.button("번역 실행", key="sb_tr_btn"):
                     try:
                         from deep_translator import GoogleTranslator as _GT
                         src_code = _code_sb(src_label); tgt_code = _code_sb(tgt_label)
                         out_main = _GT(source=src_code, target=tgt_code).translate(text_in or "")
-                        st.text_area(f"결과 ({tgt_label})", value=out_main, height=120, key="sb_tr_out_main")
+                        st.text_area(f"결과 ({tgt_label})", value=out_main, height=80, key="sb_tr_out_main")
                         if tgt_code != "ko":
                             out_ko = _GT(source=tgt_code, target="ko").translate(out_main or "")
-                            st.text_area("결과 (한국어)", value=out_ko, height=120, key="sb_tr_out_ko")
+                            st.text_area("결과 (한국어)", value=out_ko, height=80, key="sb_tr_out_ko")
                     except Exception as e:
                         st.error(f"번역 중 오류: {e}")
 
@@ -435,7 +414,7 @@ def _sidebar():
                 won = FX_DEFAULT[fx_base]*sale_foreign
                 st.markdown(
                     f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b>'
-                    f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[fx_base]["symbol"]})</span></div>',
+                    f'<span style="opacity:.7;font-weight:700"> ({CURRENCIES[fx_base]["symbol"]})</span></div>',
                     unsafe_allow_html=True
                 )
                 st.caption(f"환율 기준: {FX_DEFAULT[fx_base]:,.2f} ₩/{CURRENCIES[fx_base]['unit']}")
@@ -450,7 +429,8 @@ def _sidebar():
                                                    step=0.01, format="%.2f", key="purchase_foreign")
                 base_cost_won = FX_DEFAULT[m_base]*purchase_foreign if purchase_foreign>0 \
                                 else FX_DEFAULT[st.session_state.get("fx_base","USD")]*st.session_state.get("sale_foreign",1.0)
-                st.markdown(f'<div class="pill pill-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="pill pill-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>',
+                            unsafe_allow_html=True)
 
                 c1, c2 = st.columns(2)
                 with c1:
@@ -479,17 +459,17 @@ def _sidebar():
                     target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)+margin_won+shipping_won
                     margin_value = margin_won; desc=f"+{margin_won:,.0f}"
 
-                st.markdown(f'<div class="pill pill-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="pill pill-blue">판매가: <b>{target_price:,.2f} 원</b></div>',
+                            unsafe_allow_html=True)
                 st.markdown(f'<div class="pill pill-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>',
                             unsafe_allow_html=True)
 
-        # 토글 상태에 따라 펼침 제어(기존 요구 유지)
+        # ── 토글 상태에 따라 펼침 제어 ──
         if show_tr:
             translator_block(expanded=True); fx_block(expanded=False); margin_block(expanded=False)
         else:
             fx_block(expanded=True); margin_block(expanded=True); translator_block(expanded=False)
 
-        # 관리자 박스(옵션)
         if SHOW_ADMIN_BOX:
             st.divider()
             st.text_input("PROXY_URL(디버그)", key="PROXY_URL", help="Cloudflare Worker 주소 (옵션)")
