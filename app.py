@@ -134,10 +134,10 @@ def _toggle_theme():
     st.session_state["theme"] = "dark" if st.session_state.get("theme", "light") == "light" else "light"
 
 def _inject_css():
-    """메인 뷰만 색상 오버라이드(사이드바 제외). 다크/라이트 대비 강화."""
+    """메인 뷰만 색상 오버라이드. 사이드바는 항상 라이트(흰배경/검정폰트) 고정."""
     theme = st.session_state.get("theme", "light")
 
-    # 팔레트
+    # 메인 영역 팔레트
     if theme == "dark":
         bg = "#0e1117"       # 메인 배경
         fg = "#e6edf3"       # 본문/헤딩 기본
@@ -146,7 +146,6 @@ def _inject_css():
         border = "rgba(255,255,255,.08)"
         btn_bg = "#2563eb"
         btn_bg_hover = "#1e3fae"
-        chip_bg = "#1f2937"
     else:
         bg = "#ffffff"
         fg = "#111111"
@@ -155,17 +154,16 @@ def _inject_css():
         border = "rgba(0,0,0,.06)"
         btn_bg = "#2563eb"
         btn_bg_hover = "#1e3fae"
-        chip_bg = "#f3f4f6"
 
     st.markdown(f"""
     <style>
-      /* 메인 컨테이너(사이드바 제외) */
+      /* ───────── 메인 컨테이너(사이드바 제외) ───────── */
       [data-testid="stAppViewContainer"] {{
         background:{bg} !important;
         color:{fg} !important;
       }}
 
-      /* 헤딩/본문을 회색 대신 선명한 색으로 고정 */
+      /* 메인 텍스트/헤딩 강제 색상 */
       [data-testid="stAppViewContainer"] h1,
       [data-testid="stAppViewContainer"] h2,
       [data-testid="stAppViewContainer"] h3,
@@ -181,19 +179,22 @@ def _inject_css():
         color:{fg} !important;
       }}
 
-      /* 입력/셀렉트/숫자필드 텍스트 */
+      /* 메인: 입력/셀렉트/숫자필드 텍스트 */
       [data-testid="stAppViewContainer"] [data-baseweb="select"] *,
       [data-testid="stAppViewContainer"] [data-baseweb="input"] input,
       [data-testid="stAppViewContainer"] .stNumberInput input,
       [data-testid="stAppViewContainer"] .stTextInput input {{
         color:{fg} !important;
       }}
-      /* 플레이스홀더도 보이게 */
-      [data-testid="stAppViewContainer"] input::placeholder {{
-        color:{fg_sub} !important; opacity:.9 !important;
+
+      /* 메인: 플레이스홀더 */
+      [data-testid="stAppViewContainer"] input::placeholder,
+      [data-testid="stAppViewContainer"] textarea::placeholder {{
+        color:{fg_sub} !important;
+        opacity:.9 !important;
       }}
 
-      /* 카드/경계선 */
+      /* 메인: 카드 */
       [data-testid="stAppViewContainer"] .card {{
         background:{card_bg};
         border:1px solid {border};
@@ -201,7 +202,7 @@ def _inject_css():
         box-shadow:0 1px 6px rgba(0,0,0,.12);
       }}
 
-      /* 메인뷰의 파란 버튼(레이더 업데이트/상품명 생성/직접열기 등) */
+      /* 메인: 파란 버튼 */
       [data-testid="stAppViewContainer"] .stButton>button {{
         background:{btn_bg} !important;
         color:#fff !important;
@@ -214,19 +215,30 @@ def _inject_css():
         border-color:rgba(255,255,255,.15) !important;
       }}
 
-      /* 라디오/체크 라벨 */
+      /* 메인: 라디오/체크 라벨 */
       [data-testid="stAppViewContainer"] .stRadio label,
       [data-testid="stAppViewContainer"] .stCheckbox label {{
         color:{fg} !important;
       }}
 
-      /* 데이터프레임 텍스트 */
+      /* 메인: 데이터프레임 */
       [data-testid="stAppViewContainer"] [data-testid="stDataFrame"] * {{
         color:{fg} !important;
       }}
 
-      /* 기존 여백 유지 */
-      [data-testid="stAppViewContainer"] h2,h3 {{ margin-top:.3rem !important; }}
+      /* 메인: 여백 유지 */
+      [data-testid="stAppViewContainer"] h2,h3 {{
+        margin-top:.3rem !important;
+      }}
+
+      /* ───────── 사이드바는 항상 라이트 모드 고정 ───────── */
+      [data-testid="stSidebar"] {{
+        background:#ffffff !important;
+        color:#111111 !important;
+      }}
+      [data-testid="stSidebar"] * {{
+        color:#111111 !important;
+      }}
     </style>
     """, unsafe_allow_html=True)
 
