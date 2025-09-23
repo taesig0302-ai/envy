@@ -94,7 +94,7 @@ STOP_PRESETS = {
 }
 
 # =========================
-# 1) UI defaults & CSS
+# 1) UI defaults & CSS  ← 이 블록 통째로 교체
 # =========================
 def _ensure_session_defaults():
     ss = st.session_state
@@ -263,6 +263,31 @@ def _inject_css():
       button, button * {{ color: inherit !important; opacity: 1 !important; }}
       .card .stMarkdown p, .card .stMarkdown span {{ color: var(--fg) !important; opacity: 1 !important; }}
     </style>
+    """, unsafe_allow_html=True)
+
+def _inject_alert_center():
+    st.markdown("""
+    <div id="envy-alert-root" style="position:fixed;top:16px;right:16px;z-index:999999;pointer-events:none;"></div>
+    <style>
+      .envy-toast{min-width:220px;max-width:420px;margin:8px 0;padding:.7rem 1rem;border-radius:12px;color:#fff;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.25);opacity:0;transform:translateY(-6px);transition:opacity .2s ease, transform .2s ease;}
+      .envy-toast.show{opacity:1;transform:translateY(0)}
+      .envy-info{background:#2563eb}.envy-warn{background:#d97706}.envy-error{background:#dc2626}
+    </style>
+    <script>
+      (function(){
+        const root = document.getElementById('envy-alert-root');
+        function toast(level, text){
+          const el = document.createElement('div');
+          el.className='envy-toast envy-'+(level||'info'); el.textContent=text||'알림';
+          el.style.pointerEvents='auto'; root.appendChild(el);
+          requestAnimationFrame(()=>el.classList.add('show'));
+          setTimeout(()=>{el.classList.remove('show'); setTimeout(()=>el.remove(), 300);}, 5000);
+        }
+        window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='alert'){toast(d.level,d.msg);} },false);
+        let heard=false; window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='title'){heard=true;}},false);
+        setTimeout(()=>{ if(!heard){ toast('warn','데이터랩 연결이 지연되고 있어요.'); } },8000);
+      })();
+    </script>
     """, unsafe_allow_html=True)
 
 # =========================
