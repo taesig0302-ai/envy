@@ -54,7 +54,7 @@ DEFAULT_KEYS = {
     "NAVER_CLIENT_SECRET": "s59xKPYLz1",
 
     # 선택: DataLab Referer(허용 도메인 등록 시) — 필요 없으면 비워두기
-    "NAVER_WEB_REFERER": ""
+    "NAVER_WEB_REFERER": "https://2vrc9owdssnberky8hssf7.streamlit.app/#api-11-api"
 
     # (옵션) DataLab Referer가 필요한 환경이면 secrets.toml 에 NAVER_WEB_REFERER 를 넣어도 됨
 }
