@@ -133,111 +133,110 @@ def _toggle_theme():
 def _inject_css():
     # 테마 색 변수(라이트/다크 모두 대비 강화)
     theme = st.session_state.get("theme", "light")
+    def _inject_css():
+    """메인 뷰만 색상 오버라이드(사이드바 제외). 다크/라이트 대비 강화."""
+    theme = st.session_state.get("theme", "light")
+
+    # 색 팔레트
     if theme == "dark":
-        bg = "#0e1117"; fg = "#e6edf3"
-        card_bg = "#12161e"; card_bd = "rgba(255,255,255,.08)"
-        ctrl_bg = "#161b22"; ctrl_fg = "#e6edf3"; ctrl_bd = "rgba(255,255,255,.12)"
-        ctrl_ph = "#a7b1c2"
-        blue = "#3b82f6"; blue_bd = "#1d4ed8"
-        red  = "#ef4444"; yellow = "#f59e0b"; green = "#22c55e"
-        pill_blue_bg = "#1e3a8a"; pill_blue_bd = "#1d4ed8"; pill_blue_fg = "#dbeafe"
-        pill_green_bg = "#134e4a"; pill_green_bd = "#10b981"; pill_green_fg = "#ccfbf1"
-        pill_yel_bg  = "#3f2f0a"; pill_yel_bd  = "#f59e0b"; pill_yel_fg  = "#fde68a"
+        bg = "#0e1117"       # 메인 배경
+        fg = "#e6edf3"       # 본문/헤딩 기본
+        fg_sub = "#b6c2cf"   # 보조 텍스트
+        card_bg = "#11151c"
+        border = "rgba(255,255,255,.08)"
+        btn_bg = "#2563eb"
+        btn_bg_hover = "#1e3fae"
+        chip_bg = "#1f2937"
     else:
-        bg = "#ffffff"; fg = "#111111"
-        card_bg = "#ffffff"; card_bd = "rgba(0,0,0,.06)"
-        ctrl_bg = "#ffffff"; ctrl_fg = "#111111"; ctrl_bd = "rgba(0,0,0,.20)"
-        ctrl_ph = "#6b7280"
-        blue = "#2563eb"; blue_bd = "#1e40af"
-        red  = "#dc2626"; yellow = "#d97706"; green = "#16a34a"
-        pill_blue_bg = "#dbe6ff"; pill_blue_bd = "#88a8ff"; pill_blue_fg = "#09245e"
-        pill_green_bg = "#b8f06c"; pill_green_bd = "#76c02a"; pill_green_fg = "#083500"
-        pill_yel_bg  = "#ffe29b"; pill_yel_bd  = "#d2a12c"; pill_yel_fg  = "#3e2a00"
+        bg = "#ffffff"
+        fg = "#111111"
+        fg_sub = "#4b5563"
+        card_bg = "#ffffff"
+        border = "rgba(0,0,0,.06)"
+        btn_bg = "#2563eb"
+        btn_bg_hover = "#1e3fae"
+        chip_bg = "#f3f4f6"
 
     st.markdown(f"""
     <style>
-      :root {{
-        --bg: {bg}; --fg: {fg};
-        --card-bg: {card_bg}; --card-bd: {card_bd};
-        --ctrl-bg: {ctrl_bg}; --ctrl-fg: {ctrl_fg}; --ctrl-bd: {ctrl_bd}; --ctrl-ph: {ctrl_ph};
-        --blue: {blue}; --blue-bd: {blue_bd};
-        --red: {red}; --yellow: {yellow}; --green: {green};
-        --pill-blue-bg:{pill_blue_bg}; --pill-blue-bd:{pill_blue_bd}; --pill-blue-fg:{pill_blue_fg};
-        --pill-green-bg:{pill_green_bg}; --pill-green-bd:{pill_green_bd}; --pill-green-fg:{pill_green_fg};
-        --pill-yel-bg:{pill_yel_bg}; --pill-yel-bd:{pill_yel_bd}; --pill-yel-fg:{pill_yel_fg};
+      /* 메인 컨테이너만 적용 (사이드바 제외) */
+      [data-testid="stAppViewContainer"] {{
+        background:{bg} !important;
+        color:{fg} !important;
       }}
-      .block-container{{max-width:3800px!important;padding-top:.55rem!important;padding-bottom:1rem!important}}
-      html,body,[data-testid="stAppViewContainer"]{{background:var(--bg)!important;color:var(--fg)!important}}
 
-      /* 카드 */
-      .card{{border:1px solid var(--card-bd);border-radius:14px;padding:.85rem;background:var(--card-bg);
-            box-shadow:0 1px 6px rgba(0,0,0,.05)}}
-      .card-title{{font-size:1.18rem;font-weight:900;margin:.1rem 0 .55rem 0}}
-
-      /* 입력류(다크 대비 강화) */
-      [data-baseweb="input"] input,
-      .stNumberInput input,
-      [data-baseweb="select"] div[role="combobox"],
-      textarea, .stTextInput input {{
-        background:var(--ctrl-bg)!important;color:var(--ctrl-fg)!important;border:1px solid var(--ctrl-bd)!important;
-        border-radius:12px!important; height:1.65rem!important; padding:.18rem .6rem!important;
+      /* 헤딩/텍스트 가독성 고정 */
+      [data-testid="stAppViewContainer"] h1,
+      [data-testid="stAppViewContainer"] h2,
+      [data-testid="stAppViewContainer"] h3,
+      [data-testid="stAppViewContainer"] h4,
+      [data-testid="stAppViewContainer"] h5,
+      [data-testid="stAppViewContainer"] h6 {{
+        color:{fg} !important;
       }}
-      [data-baseweb="select"] div[role="combobox"] span, ::placeholder{{color:var(--ctrl-ph)!important}}
-
-      /* 버튼 – 파란계열 고정(아이템스카우트/셀러라이프/레이더/상품명) */
-      .stButton>button, .stDownloadButton>button, .stLinkButton>a, .stLinkButton>button{{
-        background:var(--blue)!important;border:1px solid var(--blue-bd)!important;color:#fff!important;
-        border-radius:10px!important;font-weight:700;padding:.45rem .9rem!important;
+      [data-testid="stAppViewContainer"] p,
+      [data-testid="stAppViewContainer"] li,
+      [data-testid="stAppViewContainer"] span,
+      [data-testid="stAppViewContainer"] label,
+      [data-testid="stAppViewContainer"] .stMarkdown,
+      [data-testid="stAppViewContainer"] .stMarkdown * {{
+        color:{fg} !important;
       }}
-      .stButton>button:hover, .stLinkButton>a:hover, .stLinkButton>button:hover{{filter:brightness(1.05)}}
 
-      /* 측면 스크롤 숨김(레이아웃 떨림 방지) */
-      [data-testid="stSidebar"] section{{overflow-y:auto!important}}
-      [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none!important}}
+      /* 입력 박스/셀렉트/슬라이더 라벨/값 */
+      [data-testid="stAppViewContainer"] [data-baseweb="select"] *,
+      [data-testid="stAppViewContainer"] [data-baseweb="input"] input,
+      [data-testid="stAppViewContainer"] .stNumberInput input,
+      [data-testid="stAppViewContainer"] .stTextInput input {{
+        color:{fg} !important;
+      }}
+      /* 플레이스홀더도 선명하게 */
+      [data-testid="stAppViewContainer"] input::placeholder {{
+        color:{fg_sub} !important; opacity: .9 !important;
+      }}
 
-      /* 로고: 원형, 작은 사이즈 — 사이드바만(다른 곳 영향 X) */
-      [data-testid="stSidebar"] .logo-circle{{width:56px;height:56px;border-radius:50%;overflow:hidden;margin:.2rem auto .4rem auto;
-          box-shadow:0 2px 8px rgba(0,0,0,.12);border:1px solid rgba(0,0,0,.06)}}
-      [data-testid="stSidebar"] .logo-circle img{{width:100%;height:100%;object-fit:contain}}
+      /* 카드/경계선 */
+      [data-testid="stAppViewContainer"] .card {{
+        background:{card_bg};
+        border:1px solid {border};
+        border-radius:14px;
+        box-shadow:0 1px 6px rgba(0,0,0,.12);
+      }}
 
-      /* pill (계산기 읽기전용 상자 유지) */
-      .pill{{border-radius:9999px;padding:.40rem .9rem;font-weight:800;display:inline-block;margin:.10rem 0!important}}
-      .pill-blue{{background:var(--pill-blue-bg);border:1px solid var(--pill-blue-bd);color:var(--pill-blue-fg)}}
-      .pill-green{{background:var(--pill-green-bg);border:1px solid var(--pill-green-bd);color:var(--pill-green-fg)}}
-      .pill-yellow{{background:var(--pill-yel-bg);border:1px solid var(--pill-yel-bd);color:var(--pill-yel-fg)}}
+      /* 블루 버튼(레이더 업데이트/상품명 생성/직접열기 등) – 메인뷰만 */
+      [data-testid="stAppViewContainer"] .stButton>button {{
+        background:{btn_bg} !important;
+        color:#ffffff !important;
+        border:1px solid rgba(255,255,255,.08) !important;
+        border-radius:10px !important;
+        font-weight:700 !important;
+      }}
+      [data-testid="stAppViewContainer"] .stButton>button:hover {{
+        background:{btn_bg_hover} !important;
+        border-color:rgba(255,255,255,.15) !important;
+      }}
 
-      /* 데이터프레임 가독성 */
-      #rk-card [data-testid="stDataFrame"] * {{ font-size: 0.92rem !important; }}
-      #rk-card [data-testid="stDataFrame"] div[role='grid']{{ overflow-x: hidden !important; }}
-      #rk-card [data-testid="stDataFrame"] div[role='gridcell']{{ white-space: normal !important; word-break: break-word !important; overflow-wrap: anywhere !important; }}
+      /* 라디오/체크/토글 라벨 대비 */
+      [data-testid="stAppViewContainer"] .stRadio label,
+      [data-testid="stAppViewContainer"] .stCheckbox label {{
+        color:{fg} !important;
+      }}
+
+      /* 데이터프레임 텍스트 */
+      [data-testid="stAppViewContainer"] [data-testid="stDataFrame"] * {{
+        color:{fg} !important;
+      }}
+
+      /* 작은 칩/뱃지류 */
+      [data-testid="stAppViewContainer"] .pill {{
+        background:{chip_bg};
+        color:{fg} !important;
+        border:1px solid {border};
+      }}
+
+      /* 제목 상단 간격 미세조정(원래 코드 유지) */
+      [data-testid="stAppViewContainer"] h2,h3 {{ margin-top:.3rem !important; }}
     </style>
-    """, unsafe_allow_html=True)
-
-def _inject_alert_center():
-    st.markdown("""
-    <div id="envy-alert-root" style="position:fixed;top:16px;right:16px;z-index:999999;pointer-events:none;"></div>
-    <style>
-      .envy-toast{min-width:220px;max-width:420px;margin:8px 0;padding:.7rem 1rem;border-radius:12px;color:#fff;font-weight:700;
-                  box-shadow:0 8px 24px rgba(0,0,0,.25);opacity:0;transform:translateY(-6px);
-                  transition:opacity .2s ease, transform .2s ease;}
-      .envy-toast.show{opacity:1;transform:translateY(0)}
-      .envy-info{background:#2563eb}.envy-warn{background:#d97706}.envy-error{background:#dc2626}
-    </style>
-    <script>
-      (function(){
-        const root = document.getElementById('envy-alert-root');
-        function toast(level, text){
-          const el = document.createElement('div');
-          el.className='envy-toast envy-'+(level||'info'); el.textContent=text||'알림';
-          el.style.pointerEvents='auto'; root.appendChild(el);
-          requestAnimationFrame(()=>el.classList.add('show'));
-          setTimeout(()=>{el.classList.remove('show'); setTimeout(()=>el.remove(), 300);}, 5000);
-        }
-        window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='alert'){toast(d.level,d.msg);} },false);
-        let heard=false; window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='title'){heard=true;}},false);
-        setTimeout(()=>{ if(!heard){ toast('warn','데이터랩 연결이 지연되고 있어요.'); } },8000);
-      })();
-    </script>
     """, unsafe_allow_html=True)
 
 # =========================
