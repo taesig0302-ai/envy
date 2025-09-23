@@ -6,6 +6,9 @@
 # - 사이드바: 다크+번역기 토글 / 번역기 ON: 번역기 펼침·계산기 접힘, OFF: 계산기 펼침·번역기 접힘
 # - 다크모드 시안성 패치(메인영역 위젯 전부 색상 반전) + 라이트 모드 대비 강화
 # - 네이버 키워드도구 실패 시 간단 디버그 메시지 표시
+# - [패치] 1행: 카테고리/레이더 위치 교체
+# - [패치] Light: 본문 버튼 파란배경+흰색 폰트 고정
+# - [패치] Dark: (레이더) 디바이스/키워드 소스, (카테고리) 카테고리/단위만 검정 폰트 강제
 
 import base64, time, re, math, json, io, datetime as dt
 from pathlib import Path
@@ -49,7 +52,7 @@ DEFAULT_KEYS = {
     "NAVER_SECRET_KEY": "AQAAAAB4XPHY8DmxOl08PRJiuE6ao1LN3lh0kF9rOJ4m5b8O5g==",
     "NAVER_CUSTOMER_ID": "2274338",
 
-    # NAVER Developers (DataLab Open API)  ← 여기 최신값으로 교체
+    # NAVER Developers (DataLab Open API)
     "NAVER_CLIENT_ID": "T27iw3tyujrM1nG_shFT",
     "NAVER_CLIENT_SECRET": "s59xKPYLz1",
 
@@ -267,6 +270,17 @@ def _inject_css():
       [data-testid="stAppViewContainer"] h2, [data-testid="stAppViewContainer"] h3 {{
         margin-top:.3rem !important;
       }}
+
+      /* ===== 다크 모드에서 특정 블록만 검정 폰트 강제 ===== */
+      {("""
+      [data-testid='stAppViewContainer'] .force-black,
+      [data-testid='stAppViewContainer'] .force-black *{
+        color:#111 !important;
+        -webkit-text-fill-color:#111 !important;
+        text-shadow:none !important;
+        filter:none !important;
+        opacity:1 !important;
+      }""" if theme == "dark" else "")}
     </style>
     """, unsafe_allow_html=True)
 
@@ -303,20 +317,9 @@ def _get_view_bin():
 def section_datalab():
     st.header("카테고리 ➔ 키워드 Top20 & 트렌드")
 
-    # ✅ 네이버 데이터랩 12개 대분류 카테고리
     categories = [
-        "패션의류",
-        "패션잡화",
-        "뷰티",
-        "출산/육아",
-        "식품",
-        "생활/건강",
-        "가구/인테리어",
-        "디지털/가전",
-        "스포츠/레저",
-        "취미/반려동물",
-        "면세점",
-        "기타",
+        "패션의류","패션잡화","뷰티","출산/육아","식품","생활/건강",
+        "가구/인테리어","디지털/가전","스포츠/레저","취미/반려동물","면세점","기타",
     ]
 
     col1, col2, col3 = st.columns([2, 1, 2])
@@ -326,14 +329,12 @@ def section_datalab():
         unit = st.selectbox("단위", ["date", "week", "month"], key="datalab_unit")
     with col3:
         months = st.slider("조회기간(개월)", 1, 12, 3, key="datalab_months")
-
     # 이후 API 호출 부분 그대로...
 
 # =========================
 # 4) Sidebar (theme + translator toggle + calculators)
 # =========================
 def _sidebar():
-    # 기본 세션 + CSS
     _ensure_session_defaults()
     _inject_css()
     try:
@@ -459,13 +460,11 @@ def _sidebar():
                 st.markdown(f'<div class="pill pill-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>',
                             unsafe_allow_html=True)
 
-        # 토글 상태에 따라 펼침
         if show_tr:
             translator_block(expanded=True); fx_block(expanded=False); margin_block(expanded=False)
         else:
             fx_block(expanded=True); margin_block(expanded=True); translator_block(expanded=False)
 
-        # 관리자 박스(옵션)
         if SHOW_ADMIN_BOX:
             st.divider()
             st.text_input("PROXY_URL(디버그)", key="PROXY_URL", help="Cloudflare Worker 주소 (옵션)")
@@ -473,7 +472,6 @@ def _sidebar():
         # ==== CSS: compact + scroll lock + pill styles + 사이드바 always light ====
         st.markdown("""
         <style>
-          /* 사이드바 스크롤락 */
           [data-testid="stSidebar"]{
             height:100vh !important;
             overflow-y:hidden !important;
@@ -488,56 +486,31 @@ def _sidebar():
           [data-testid="stSidebar"] > div:first-child::-webkit-scrollbar{
             display:none !important;
           }
-
-          /* block-container 패딩 제거 */
           [data-testid="stSidebar"] .block-container{
-            padding-top:.4rem !important;
-            padding-bottom:0 !important;
+            padding-top:.4rem !important; padding-bottom:0 !important;
           }
-          [data-testid="stSidebar"] .block-container > div:last-child{
-            margin-bottom:0 !important;
-          }
-
-          /* compact 모드 */
-          [data-testid="stSidebar"] .stExpander{
-            margin-bottom:.2rem !important;
-            padding:.25rem .4rem !important;
-          }
+          [data-testid="stSidebar"] .block-container > div:last-child{ margin-bottom:0 !important; }
+          [data-testid="stSidebar"] .stExpander{ margin-bottom:.2rem !important; padding:.25rem .4rem !important; }
           [data-testid="stSidebar"] .stNumberInput input,
           [data-testid="stSidebar"] .stTextInput input,
           [data-testid="stSidebar"] textarea{
-            min-height:26px !important;
-            line-height:1.2 !important;
-            font-size:0.85rem !important;
+            min-height:26px !important; line-height:1.2 !important; font-size:0.85rem !important;
           }
           [data-testid="stSidebar"] .pill{
-            margin:.15rem 0 .25rem 0 !important;
-            padding:.5rem .7rem !important;
-            font-size:0.85rem !important;
-            border-radius:8px !important;
-            font-weight:600 !important;
+            margin:.15rem 0 .25rem 0 !important; padding:.5rem .7rem !important;
+            font-size:0.85rem !important; border-radius:8px !important; font-weight:600 !important;
           }
           .pill-green{ background:#dcfce7 !important; border:1px solid #22c55e !important; color:#111 !important; }
           .pill-blue{  background:#dbeafe !important; border:1px solid #3b82f6 !important; color:#111 !important; }
           .pill-yellow{background:#fef3c7 !important; border:1px solid #eab308 !important; color:#111 !important; }
 
-          /* 사이드바 항상 라이트 모드 고정 */
-          :root [data-testid="stSidebar"]{
-            background:#ffffff !important;
-            color:#111111 !important;
-          }
+          :root [data-testid="stSidebar"]{ background:#ffffff !important; color:#111111 !important; }
           :root [data-testid="stSidebar"] *{
-            color:#111111 !important;
-            -webkit-text-fill-color:#111111 !important;
-            opacity:1 !important;
-            mix-blend-mode:normal !important;
-            text-shadow:none !important;
-            filter:none !important;
+            color:#111111 !important; -webkit-text-fill-color:#111111 !important; opacity:1 !important;
+            mix-blend-mode:normal !important; text-shadow:none !important; filter:none !important;
           }
           :root [data-testid="stSidebar"] .stExpanderHeader,
-          :root [data-testid="stSidebar"] .stExpanderHeader *{
-            color:#111111 !important;
-          }
+          :root [data-testid="stSidebar"] .stExpanderHeader *{ color:#111111 !important; }
         </style>
         """, unsafe_allow_html=True)
 
@@ -682,15 +655,22 @@ def _count_product_from_shopping(keyword: str) -> int|None:
         return None
 
 def section_korea_ui():
+    is_dark = (st.session_state.get("theme","light") == "dark")
     st.markdown('<div class="main">', unsafe_allow_html=True)
     st.caption("※ 검색지표는 네이버 검색광고 API(키워드도구) 기준, 상품수는 네이버쇼핑 ‘전체’ 탭 크롤링 기준입니다.")
     c1, c2, c3 = st.columns([1,1,1])
+
+    # 다크 모드일 때, 디바이스/키워드 소스 컨트롤만 검정 폰트로 보이도록 래퍼
+    if is_dark:
+        st.markdown("<div class='force-black'>", unsafe_allow_html=True)
     with c1:
         months = st.slider("분석기간(개월, 표시용)", 1, 6, 3)
     with c2:
         device = st.selectbox("디바이스", ["all","pc","mo"], index=0)
     with c3:
         src = st.selectbox("키워드 소스", ["직접 입력"], index=0)
+    if is_dark:
+        st.markdown("</div>", unsafe_allow_html=True)
 
     keywords_txt = st.text_area("키워드(콤마로 구분)", "핸드메이드코트, 남자코트, 여자코트", height=96)
     kw_list = [k.strip() for k in (keywords_txt or "").split(",") if k.strip()]
@@ -753,7 +733,6 @@ def section_korea_ui():
 # =========================
 # 7) DataLab Trend (Open API) + Category → Top20 UI (+ Direct Trend)
 # =========================
-#
 @st.cache_data(ttl=1800, show_spinner=False)
 def _datalab_trend(
     groups: list,
@@ -764,7 +743,6 @@ def _datalab_trend(
     gender: str = "",
     ages: list | None = None,
 ) -> pd.DataFrame:
-    """Naver DataLab Search Trend → (날짜, 키워드 열) 피벗 형태"""
     if not requests:
         return pd.DataFrame()
 
@@ -779,15 +757,12 @@ def _datalab_trend(
         "X-Naver-Client-Secret": csec,
         "Content-Type": "application/json; charset=utf-8",
     }
-    # 등록된 Referer가 있으면만 추가
     ref = (_get_key("NAVER_WEB_REFERER") or "").strip()
     if ref:
         headers["Referer"] = ref
 
     payload = {
-        "startDate": start_date,
-        "endDate": end_date,
-        "timeUnit": time_unit,
+        "startDate": start_date, "endDate": end_date, "timeUnit": time_unit,
         "keywordGroups": (groups or [])[:5],
     }
 
@@ -800,13 +775,11 @@ def _datalab_trend(
         for gr in js.get("results", []):
             title = gr.get("title") or (gr.get("keywords") or [""])[0]
             df = pd.DataFrame(gr.get("data", []))
-            if df.empty:
-                continue
+            if df.empty: continue
             df["keyword"] = title
             rows.append(df)
 
-        if not rows:
-            return pd.DataFrame()
+        if not rows: return pd.DataFrame()
 
         big = pd.concat(rows, ignore_index=True)
         big.rename(columns={"period": "날짜", "ratio": "검색지수"}, inplace=True)
@@ -814,18 +787,14 @@ def _datalab_trend(
         return pv.reset_index().sort_values("날짜")
 
     except requests.HTTPError as e:
-        try:
-            msg = r.text
-        except Exception:
-            msg = str(e)
+        try: msg = r.text
+        except Exception: msg = str(e)
         st.error(f"DataLab HTTP {r.status_code}: {msg}")
         return pd.DataFrame()
     except Exception as e:
         st.error(f"DataLab 호출 오류: {e}")
         return pd.DataFrame()
 
-
-# DataLab 카테고리 12개(스마트스토어 기준과 유사한 대분류)
 SEED_MAP = {
     "패션의류":        ["원피스", "코트", "니트", "셔츠", "블라우스"],
     "패션잡화":        ["가방", "지갑", "모자", "스카프", "벨트"],
@@ -841,31 +810,35 @@ SEED_MAP = {
     "여행/문화":       ["캐리어", "여권지갑", "목베개", "여행용파우치", "슬리퍼"],
 }
 
-
 def section_category_keyword_lab():
     """카테고리 → 키워드 Top20 + DataLab 라인차트"""
     st.markdown('<div class="card"><div class="card-title">카테고리 → 키워드 Top20 & 트렌드</div>', unsafe_allow_html=True)
 
+    is_dark = (st.session_state.get("theme","light") == "dark")
     cA, cB, cC = st.columns([1, 1, 1])
+
+    # 다크 모드에서 (카테고리, 단위)만 검정 폰트로 보이게 래핑
+    if is_dark:
+        st.markdown("<div class='force-black'>", unsafe_allow_html=True)
     with cA:
         cat = st.selectbox("카테고리", list(SEED_MAP.keys()))
     with cB:
         time_unit = st.selectbox("단위", ["week", "month"], index=0)
     with cC:
         months = st.slider("조회기간(개월)", 1, 12, 3)
+    if is_dark:
+        st.markdown("</div>", unsafe_allow_html=True)
 
     start = (dt.date.today() - dt.timedelta(days=30 * months)).strftime("%Y-%m-%d")
     end   = (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
 
-    # 1) 카테고리 씨드 → 키워드도구 조회
     seeds = SEED_MAP.get(cat, [])
-    df = _naver_keywordstool(seeds)  # <-- 기존 함수 사용
+    df = _naver_keywordstool(seeds)
     if df.empty:
         st.warning("키워드도구 응답이 비었습니다. (API/권한/쿼터 확인)")
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    # 2) Top20 테이블
     df["검색합계"] = pd.to_numeric(df["PC월간검색수"], errors="coerce").fillna(0) + \
                      pd.to_numeric(df["Mobile월간검색수"], errors="coerce").fillna(0)
     top20 = df.sort_values("검색합계", ascending=False).head(20).reset_index(drop=True)
@@ -883,7 +856,6 @@ def section_category_keyword_lab():
         key=f"dl_top20_{cat}",
     )
 
-    # 3) 상위 N개 라인차트 (DataLab)
     topk = st.slider("라인차트 키워드 수", 3, 10, 5, help="상위 N개 키워드만 트렌드를 그립니다.")
     kws = top20["키워드"].head(topk).tolist()
     groups = [{"groupName": k, "keywords": [k]} for k in kws]
@@ -903,9 +875,7 @@ def section_category_keyword_lab():
 # 7-B) Keyword Trend Widget (Direct Input)
 # =========================
 def section_keyword_trend_widget():
-    """키워드 트렌드 (직접 입력) — DataLab Open API 사용"""
-    st.markdown('<div class="card"><div class="card-title">키워드 트렌드 (직접 입력)</div>',
-                unsafe_allow_html=True)
+    st.markdown('<div class="card"><div class="card-title">키워드 트렌드 (직접 입력)</div>', unsafe_allow_html=True)
 
     kwtxt  = st.text_input("키워드(콤마)", "가방, 원피스", key="kw_txt_direct")
     unit   = st.selectbox("단위", ["week", "month"], index=0, key="kw_unit_direct")
@@ -947,7 +917,7 @@ def section_radar():
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
-# Stopwords Manager UI (공용) — 생성기 탭/외부 섹션에서 재사용
+# Stopwords Manager UI (공용)
 # =========================
 def _stopwords_manager_ui(compact: bool = False):
     ss = st.session_state
@@ -957,7 +927,6 @@ def _stopwords_manager_ui(compact: bool = False):
     ss.setdefault("STOP_REPLACE", ["무배=> ", "무료배송=> ", "정품=> "])
     ss.setdefault("STOP_AGGR", False)
 
-    # 프리셋(컴팩트 모드에선 숨김)
     if not compact:
         with st.expander("🔧 프리셋", expanded=False):
             preset = st.selectbox("프리셋", list(STOP_PRESETS.keys()), key="stop_preset_sel")
@@ -1031,9 +1000,8 @@ def _stopwords_manager_ui(compact: bool = False):
                 st.error(f"가져오기 실패: {e}")
 
 # =========================
-# 9) 상품명 추천 생성기 — 스마트스토어 최적화(Top-N, 금칙어/브랜드 보호)
+# 9) 상품명 추천 생성기 — 스마트스토어 최적화(Top-N)
 # =========================
-
 PATTERN_STOPWORDS_GEN = [
     r"포르노", r"섹스|섹쓰|쎅스|쌕스", r"섹도구", r"오나홀", r"사정지연", r"애널",
     r"음란|음모|음부|성교|성기", r"시부트라민|sibutramine", r"실데나필|sildenafil",
@@ -1268,7 +1236,6 @@ def section_11st():
     try:
         from urllib.parse import quote as _q
     except Exception:
-        # 일부 환경 보정
         def _q(s, safe=None): 
             return s
 
@@ -1277,19 +1244,16 @@ def section_11st():
         unsafe_allow_html=True
     )
 
-    # 새로고침용 논스(iframe 강제 리로드)
     ss = st.session_state
     ss.setdefault("__11st_nonce", int(time.time()))
     if st.button("🔄 새로고침 (11번가)", key="btn_refresh_11st"):
         ss["__11st_nonce"] = int(time.time())
 
-    # 프록시 우선 사용, 없으면 원본 직접
     base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
     raw_url = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
     src_raw = raw_url if not base_proxy else f"{base_proxy}/?url={_q(raw_url, safe=':/?&=%')}"
     src = f"{src_raw}{'&' if '?' in src_raw else '?'}r={ss['__11st_nonce']}"
 
-    # 겉 래퍼 스크롤 제거 + iframe만 보여주기
     html = f"""
     <style>
       .embed-11st-wrap {{
@@ -1325,7 +1289,6 @@ def section_itemscout_placeholder():
     st.link_button("아이템스카우트 직접 열기 (새 탭)", "https://app.itemscout.io/market/keyword")
     st.markdown('</div>', unsafe_allow_html=True)
 
-
 def section_sellerlife_placeholder():
     st.markdown(
         '<div class="card main"><div class="card-title">셀러라이프</div>',
@@ -1343,7 +1306,7 @@ def section_stopwords_manager():
     _stopwords_manager_ui(compact=False)
 
 # =========================
-# 11) Layout — row1: Radar | (카테고리 or 직접 입력) | 상품명 생성기
+# 11) Layout — row1: (카테고리 or 직접 입력) | Radar | 상품명 생성기
 # =========================
 _ = _sidebar()
 _responsive_probe()
@@ -1351,16 +1314,16 @@ vwbin = _get_view_bin()
 
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
-# 1행
+# 1행 — [패치] 카테고리(탭) ↔ 레이더 위치 교체
 row1_a, row1_b, row1_c = st.columns([8, 4, 4], gap="medium")
 with row1_a:
-    section_radar()
-with row1_b:
     tab_cat, tab_direct = st.tabs(["카테고리", "직접 입력"])
     with tab_cat:
         section_category_keyword_lab()
     with tab_direct:
         section_keyword_trend_widget()
+with row1_b:
+    section_radar()
 with row1_c:
     section_title_generator()
 
