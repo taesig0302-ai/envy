@@ -1259,45 +1259,42 @@ def section_title_generator():
         )
     st.markdown("</div>", unsafe_allow_html=True)
 
-# (필요 시) 파일 어딘가에 한 번만 존재하면 됩니다.
+# =========================
+# 10) 기타 카드 — 11번가 (항상 열림 + 수동 새로고침)
+# =========================
+
 def _11st_abest_url():
+    # 고정 URL (자동 새로고침 유발하는 timestamp 제거)
     return "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
 
-# =========================
-# 10) 11번가 섹션 (이 함수만 통으로 교체)
-# =========================
 def section_11st():
-    """11번가 임베드: 항상 열림 + 새로고침 버튼 + 높이 940"""
-    st.markdown('<div class="card main"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>',
-                unsafe_allow_html=True)
+    import urllib.parse as _url
 
-    # 수동 새로고침
-    try:
-        st.rerun  # 최신 버전
-        if st.button("🔄 새로고침 (11번가)", key="btn_refresh_11st"):
-            st.rerun()
-    except AttributeError:
-        if st.button("🔄 새로고침 (11번가)", key="btn_refresh_11st"):
-            st.experimental_rerun()
+    st.markdown(
+        '<div class="card main"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>',
+        unsafe_allow_html=True
+    )
 
-    # ⚙️ 여기서 quote를 로컬 임포트 → NameError 방지
-    try:
-        from urllib.parse import quote as _q
-    except Exception:
-        def _q(s, safe=None):  # 실패시 그냥 원문
-            return s
+    # 새로고침용 리비전 카운터(버튼 클릭시만 증가 → iframe 캐시 우회)
+    ss = st.session_state
+    ss.setdefault("__11st_rev", 0)
 
-    # 프록시가 있으면 프록시 경유, 없으면 원본 URL
-    base = (st.secrets.get("ELEVENST_PROXY", "") or ELEVENST_PROXY).rstrip("/")
-    raw  = _11st_abest_url()
-    src  = f"{base}/?url={_q(raw, safe=':/?&=%')}" if base else raw
+    col_btn, _ = st.columns([1, 5])
+    with col_btn:
+        if st.button("새로고침"):
+            ss["__11st_rev"] += 1
 
-    # 항상 열림, 높이 940
-    html = f'''
-      <iframe src="{src}" loading="lazy"
-              style="width:100%;height:940px;border:0;border-radius:10px"></iframe>
-    '''
-    st.components.v1.html(html, height=960, scrolling=True)
+    # 프록시 + 캐시 우회 쿼리(rev) — 버튼 클릭시에만 값이 바뀜
+    base = _11st_abest_url()
+    proxied = f"{ELEVENST_PROXY.rstrip('/')}/?url={_url.quote(base, safe=':/?&=%')}&rev={ss['__11st_rev']}"
+
+    # 높이 930px 고정
+    html = (
+        f'<iframe src="{proxied}" loading="lazy" '
+        f'style="width:100%;height:930px;border:0;border-radius:10px"></iframe>'
+    )
+    st.components.v1.html(html, height=950, scrolling=True)
+
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
