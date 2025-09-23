@@ -127,53 +127,57 @@ def _toggle_theme():
 def _inject_css():
     theme = st.session_state.get("theme", "light")
 
+    # ── 팔레트 사전준비(조건은 파이썬에서 계산) ──
     if theme == "dark":
-        # ── 다크: 검은배경, 화이트/레드/옐로우 대비 ──
         vars_css = {
             "--bg":"#000000", "--fg":"#FFFFFF",
             "--muted":"#E0E6EF",
             "--card":"#0E0E0E", "--card-border":"#262626",
             "--grid":"#2E2E2E", "--hover":"#151515",
-            "--primary":"#FFD84D",   # 강조(링크/포커스) = 옐로우
-            "--accent":"#FF4D4D",    # 경고/위험 = 레드
-            "--success":"#A3FF7C",   # 보조 포지티브 = 연그린
-            "--focus":"#FFD84D",
+            "--primary":"#FFD84D", "--accent":"#FF4D4D",
+            "--success":"#A3FF7C", "--focus":"#FFD84D",
             "--link":"#FFD84D", "--link-hover":"#FFB800",
             "--pill-text":"#0B0B0B"
         }
+        btn_primary_text = "#0B0B0B"
+        pill_blue_bg, pill_blue_bd, pill_blue_fg = "#231F00", "#3A3000", "#FFD84D"
+        pill_green_bg, pill_green_bd, pill_green_fg = "#1A0909", "#3A0F0F", "#FF4D4D"
+        pill_yellow_bg, pill_yellow_bd, pill_yellow_fg = "#2A2500", "#3A3500", "#FFEAA0"
     else:
-        # ── 라이트: 흰배경, 블랙/블루/그린 대비 ──
         vars_css = {
             "--bg":"#FFFFFF", "--fg":"#111111",
             "--muted":"#596272",
             "--card":"#FFFFFF", "--card-border":"rgba(0,0,0,.12)",
             "--grid":"#E9EEF5", "--hover":"#F5F7FB",
-            "--primary":"#1E6FFF",   # 강조(링크/포커스) = 블루
-            "--accent":"#1AAE5F",    # 포지티브 = 그린
-            "--success":"#1AAE5F",
-            "--focus":"#1E6FFF",
+            "--primary":"#1E6FFF", "--accent":"#1AAE5F",
+            "--success":"#1AAE5F", "--focus":"#1E6FFF",
             "--link":"#1E6FFF", "--link-hover":"#4D8DFF",
             "--pill-text":"#0B1B10"
         }
+        btn_primary_text = "#FFFFFF"
+        pill_blue_bg, pill_blue_bd, pill_blue_fg = "var(--hover)", "var(--card-border)", "#0D2C6D"
+        pill_green_bg, pill_green_bd, pill_green_fg = "color-mix(in oklab, var(--accent) 35%, transparent)", \
+                                                      "color-mix(in oklab, var(--accent) 55%, #0000)", \
+                                                      "var(--pill-text)"
+        pill_yellow_bg, pill_yellow_bd, pill_yellow_fg = "color-mix(in oklab, #FFD84D 40%, transparent)", \
+                                                         "color-mix(in oklab, #FFD84D 60%, #0000)", \
+                                                         "#3e2a00"
+
+    vars_blob = "".join([f"{k}:{v};" for k, v in vars_css.items()])
 
     st.markdown(f"""
     <style>
-      :root{{{"".join([f"{k}:{v};" for k,v in vars_css.items()])}}}
+      :root{{{vars_blob}}}
 
-      html,body,[data-testid="stAppViewContainer"]{{
-        background:var(--bg)!important; color:var(--fg)!important;
-      }}
+      html,body,[data-testid="stAppViewContainer"]{{background:var(--bg)!important;color:var(--fg)!important;}}
       .block-container{{max-width:3800px!important;padding-top:.55rem!important;padding-bottom:1rem!important}}
       h1,h2,h3,h4,h5,h6{{color:var(--fg)!important}}
 
-      /* ── 링크 ── */
+      /* 링크 */
       a{{color:var(--link)!important;}}
       a:hover{{color:var(--link-hover)!important;text-decoration:underline!important;}}
 
-      /* 유틸 텍스트 클래스 (필요시 사용)
-         .text-primary : 라이트=블루 / 다크=옐로우
-         .text-accent  : 라이트=그린 / 다크=레드
-      */
+      /* 유틸 텍스트 */
       .text-primary{{ color: var(--primary)!important; }}
       .text-accent{{ color: var(--accent)!important; }}
 
@@ -185,7 +189,13 @@ def _inject_css():
       [data-testid="stSidebar"] section{{overflow-y:auto!important}}
       [data-testid="stSidebar"] ::-webkit-scrollbar{{display:none!important}}
 
-      /* ── 입력류 + 포커스 ── */
+      /* ✅ 로고: 고정 크기 & 비율 유지 (원형 크롭) */
+      .logo-circle{{width:72px;height:72px;border-radius:50%;overflow:hidden;
+                    margin:.2rem auto .4rem auto;box-shadow:0 2px 8px rgba(0,0,0,.12);
+                    border:1px solid var(--card-border)!important;background:#fff;}}
+      .logo-circle img{{display:block;width:100%!important;height:100%!important;object-fit:cover!important;}}
+
+      /* 입력류 + 포커스 */
       [data-baseweb="input"] input,
       .stNumberInput input,
       [data-baseweb="select"] div[role="combobox"],
@@ -207,48 +217,35 @@ def _inject_css():
       }}
       .stRadio label, .stCheckbox label, .stToggle label{{ color:var(--fg)!important; opacity:1!important; }}
 
-      /* ── 버튼 ── */
+      /* 버튼 */
       button[kind="primary"]{{
         background:var(--primary)!important;border:1px solid var(--primary)!important;
-        color:{"#0B0B0B" if theme=="dark" else "#FFFFFF"}!important;font-weight:800!important;
+        color:{btn_primary_text}!important;font-weight:800!important;
       }}
       button[kind="secondary"]{{
         background:var(--card)!important;border:1px solid var(--card-border)!important;color:var(--fg)!important;
       }}
 
-      /* ── 카드 & 배지 ── */
+      /* 카드 & 배지 */
       .card{{background:var(--card)!important;border:1px solid var(--card-border)!important;border-radius:14px;
             padding:.85rem;box-shadow:0 2px 10px rgba(0,0,0,.10)}}
       .card-title{{font-size:1.18rem;font-weight:900;margin:.1rem 0 .55rem 0;color:var(--fg)!important}}
       .pill{{border-radius:9999px;padding:.40rem .9rem;font-weight:800;display:inline-block;margin:.10rem 0!important}}
-      .pill-blue{{background:{"#231F00" if theme=="dark" else "var(--hover)"}; 
-                  border:1px solid {("#3A3000" if theme=="dark" else "var(--card-border)")};
-                  color: {("#FFD84D" if theme=="dark" else "#0D2C6D")} }}
-      .pill-green{{background:{"#1A0909" if theme=="dark" else "color-mix(in oklab, var(--accent) 35%, transparent)"};
-                   border:1px solid {("#3A0F0F" if theme=="dark" else "color-mix(in oklab, var(--accent) 55%, #0000)")};
-                   color: {("#FF4D4D" if theme=="dark" else "var(--pill-text)")} }}
-      .pill-yellow{{background:{"#2A2500" if theme=="dark" else "color-mix(in oklab, #FFD84D 40%, transparent)"};
-                    border:1px solid {("#3A3500" if theme=="dark" else "color-mix(in oklab, #FFD84D 60%, #0000)")};
-                    color: {("#FFEAA0" if theme=="dark" else "#3e2a00")} }}
+      .pill-blue{{background:{pill_blue_bg};border:1px solid {pill_blue_bd};color:{pill_blue_fg};}}
+      .pill-green{{background:{pill_green_bg};border:1px solid {pill_green_bd};color:{pill_green_fg};}}
+      .pill-yellow{{background:{pill_yellow_bg};border:1px solid {pill_yellow_bd};color:{pill_yellow_fg};}}
 
-      /* ── 표(DataFrame) ── */
+      /* 표(DataFrame) */
       [data-testid="stDataFrame"] * {{ color:var(--fg)!important; opacity:1!important; }}
-      [data-testid="stDataFrame"] div[role='grid']{{
-        background:var(--card)!important;border:1px solid var(--card-border)!important;
-      }}
-      [data-testid="stDataFrame"] div[role='columnheader']{{
-        background:var(--hover)!important;font-weight:800!important;border-bottom:1px solid var(--grid)!important;
-      }}
+      [data-testid="stDataFrame"] div[role='grid']{{ background:var(--card)!important;border:1px solid var(--card-border)!important; }}
+      [data-testid="stDataFrame"] div[role='columnheader']{{ background:var(--hover)!important;font-weight:800!important;border-bottom:1px solid var(--grid)!important; }}
       [data-testid="stDataFrame"] div[role='gridcell']{{ border-bottom:1px solid var(--grid)!important; }}
       [data-testid="stDataFrame"] div[role='row']:hover{{ background:var(--hover)!important; }}
 
-      /* ── iframe 경계 ── */
-      .card iframe, .stIframe iframe {{
-        border:1px solid var(--card-border)!important;border-radius:10px!important;
-        box-shadow:0 1px 6px rgba(0,0,0,.10)!important;
-      }}
+      /* iframe 경계 */
+      .card iframe, .stIframe iframe {{ border:1px solid var(--card-border)!important;border-radius:10px!important;box-shadow:0 1px 6px rgba(0,0,0,.10)!important; }}
 
-      /* ── 회색 바램 방지 ── */
+      /* 회색 바램 방지 */
       [data-testid="stMarkdownContainer"] p,
       [data-testid="stMarkdownContainer"] li,
       [data-testid="stMarkdownContainer"] span,
