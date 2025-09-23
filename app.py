@@ -1259,48 +1259,62 @@ def section_title_generator():
         )
     st.markdown("</div>", unsafe_allow_html=True)
 
-# =========================
-# 10) 11번가 — 항상 열림 + 새로고침 버튼(iframe만 리로드) + 높이 940
-# =========================
-def _11st_abest_url():
-    # 11번가 모바일 아마존 베스트 원본 URL (고정)
-    return "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
-
+# ─────────────────────────────────────────────────────────
+# 10) 11번가 — 항상 열림 + "새로고침" 버튼 + 외부 스크롤 제거(높이 940)
+# ─────────────────────────────────────────────────────────
 def section_11st():
-    """11번가 임베드: 항상 열림, 새로고침 버튼만, 높이 940px"""
+    """11번가 임베드: 항상 열림, 새로고침 버튼만, 겉 스크롤 제거, 높이 940px"""
     import time
     try:
         from urllib.parse import quote as _q
-    except Exception:
-        def _q(s, safe=None):  # 환경에 따라 urllib 미동작시 안전가드
-            return s
+    except Exception:  # 혹시 모듈 이슈 대비
+        def _q(s, safe=None): return s
 
     st.markdown(
         '<div class="card main"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>',
         unsafe_allow_html=True
     )
 
+    # 새로고침용 논스(iframe 강제 리로드)
     ss = st.session_state
     ss.setdefault("__11st_nonce", int(time.time()))
 
-    # 새로고침(iframe만 리로드; 앱 전체 rerun 없음)
-    if st.button("🔄 새로고침 (11번가)", key="btn_refresh_11st"):
-        ss["__11st_nonce"] = int(time.time())
+    # 상단 우측에 새로고침 버튼 노출
+    _left, _btn_col = st.columns([1, 1])
+    with _btn_col:
+        if st.button("🔄 새로고침 (11번가)", key="btn_refresh_11st", use_container_width=True):
+            ss["__11st_nonce"] = int(time.time())
 
-    # 프록시가 있으면 경유, 없으면 원본 직접
+    # 프록시 우선 사용, 없으면 원본 직접
     base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
-    raw = _11st_abest_url()
-    src_raw = raw if not base_proxy else f"{base_proxy}/?url={_q(raw, safe=':/?&=%')}"
-    # iframe 캐시무효화를 위한 논스 부착
-    src = f"{src_raw}{'&' if '?' in src_raw else '?'}reload={ss['__11st_nonce']}"
+    raw_url = _11st_abest_url()
+    src_raw = raw_url if not base_proxy else f"{base_proxy}/?url={_q(raw_url, safe=':/?&=%')}"
+    src = f"{src_raw}{'&' if '?' in src_raw else '?'}r={ss['__11st_nonce']}"
 
-    # 항상 열린 iframe (높이 950px, 카드 렌더 높이는 약간 여유)
-    html = f'''
-      <iframe src="{src}" loading="lazy"
-              style="width:100%;height:950px;border:0;border-radius:10px"></iframe>
-    '''
-    st.components.v1.html(html, height=950, scrolling=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    # 겉 래퍼 스크롤 제거 + iframe만 스크롤
+    html = f"""
+    <style>
+      .embed-11st-wrap {{
+        height: 940px;
+        overflow: hidden;           /* 바깥(겉) 스크롤 제거 */
+        border-radius: 10px;
+      }}
+      .embed-11st-wrap iframe {{
+        width: 100%;
+        height: 100%;
+        border: 0;
+        border-radius: 10px;
+        overflow: hidden;           /* iframe 자체 스크롤만 사용 (scrolling=no와 함께) */
+      }}
+    </style>
+    <div class="embed-11st-wrap">
+      <iframe src="{src}" loading="lazy" scrolling="no"></iframe>
+    </div>
+    """
+    # 컴포넌트를 감싸는 Streamlit 컨테이너 자체 높이만 살짝 여유
+    st.components.v1.html(html, height=960, scrolling=False)
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
 # (보류) 아이템스카우트 / 셀러라이프 플레이스홀더 섹션
