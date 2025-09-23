@@ -63,10 +63,10 @@ def _get_key(name: str) -> str:
 
 # Simple FX
 CURRENCIES = {
-    "USD $":{"kr":"미국 달러","symbol":"$","unit":"USD"},
-    "EUR €":{"kr":"유로","symbol":"€","unit":"EUR"},
-    "JPY ¥":{"kr":"일본 엔","symbol":"¥","unit":"JPY"},
-    "CNY 元":{"kr":"중국 위안","symbol":"元","unit":"CNY"},
+    "USD":{"kr":"미국 달러","symbol":"$","unit":"USD"},
+    "EUR":{"kr":"유로","symbol":"€","unit":"EUR"},
+    "JPY":{"kr":"일본 엔","symbol":"¥","unit":"JPY"},
+    "CNY":{"kr":"중국 위안","symbol":"元","unit":"CNY"},
 }
 FX_DEFAULT = {"USD":1400.0,"EUR":1500.0,"JPY":10.0,"CNY":200.0}
 
