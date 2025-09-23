@@ -1260,42 +1260,57 @@ def section_title_generator():
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
-# 10) 기타 카드 — 11번가 (항상 열림 + 수동 새로고침)
+# 3) 11번가 + 아이템스카우트/셀러라이프
 # =========================
+def section_commerce_tools():
+    st.markdown("### 📦 11번가 / 아이템스카우트 / 셀러라이프")
 
-def _11st_abest_url():
-    # 고정 URL (자동 새로고침 유발하는 timestamp 제거)
-    return "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
+    PROXY_URL = st.session_state.get("PROXY_URL", "").strip()
+    if not PROXY_URL:
+        st.warning("⚠️ PROXY_URL을 설정하세요. (Cloudflare Worker 주소)")
+        return
 
-def section_11st():
-    import urllib.parse as _url
+    # ---- 11번가 ----
+    st.subheader("📱 11번가 (모바일)")
+    if st.button("🔄 새로고침 (11번가)"):
+        st.experimental_rerun()
 
-    st.markdown(
-        '<div class="card main"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>',
-        unsafe_allow_html=True
+    url_11st = "https://m.11st.co.kr/page/main/home"
+    src_11st = f"{PROXY_URL}?url={url_11st}"
+
+    st.components.v1.iframe(
+        src_11st,
+        height=940,     # 높이값 조정
+        scrolling=True
     )
 
-    # 새로고침용 리비전 카운터(버튼 클릭시만 증가 → iframe 캐시 우회)
-    ss = st.session_state
-    ss.setdefault("__11st_rev", 0)
-
-    col_btn, _ = st.columns([1, 5])
-    with col_btn:
-        if st.button("새로고침"):
-            ss["__11st_rev"] += 1
-
-    # 프록시 + 캐시 우회 쿼리(rev) — 버튼 클릭시에만 값이 바뀜
-    base = _11st_abest_url()
-    proxied = f"{ELEVENST_PROXY.rstrip('/')}/?url={_url.quote(base, safe=':/?&=%')}&rev={ss['__11st_rev']}"
-
-    # 높이 930px 고정
-    html = (
-        f'<iframe src="{proxied}" loading="lazy" '
-        f'style="width:100%;height:930px;border:0;border-radius:10px"></iframe>'
+    # ---- 아이템스카우트 ----
+    st.subheader("📊 아이템스카우트")
+    url_itemscout = st.text_input(
+        "아이템스카우트 URL 입력",
+        "https://www.itemscout.io/"
     )
-    st.components.v1.html(html, height=950, scrolling=True)
+    if url_itemscout.strip():
+        src_itemscout = f"{PROXY_URL}?url={url_itemscout}"
+        st.components.v1.iframe(
+            src_itemscout,
+            height=800,
+            scrolling=True
+        )
 
-    st.markdown('</div>', unsafe_allow_html=True)
+    # ---- 셀러라이프 ----
+    st.subheader("📊 셀러라이프")
+    url_sellerlife = st.text_input(
+        "셀러라이프 URL 입력",
+        "https://sellerlife.co.kr/"
+    )
+    if url_sellerlife.strip():
+        src_sellerlife = f"{PROXY_URL}?url={url_sellerlife}"
+        st.components.v1.iframe(
+            src_sellerlife,
+            height=800,
+            scrolling=True
+        )
 
 # =========================
 # 외부 Stopwords 섹션(선택)
