@@ -751,68 +751,144 @@ def section_korea_ui():
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
-# 7) DataLab Category → Top20 & Trend  (12개 카테고리 버전)
+# 7) DataLab Trend (Open API) + Category → Top20 UI (+ Direct Trend)
 # =========================
-def section_category_keyword_lab():
-    st.markdown('<div class="card"><div class="card-title">카테고리 → 키워드 Top20 & 트렌드</div>',
-                unsafe_allow_html=True)
+#
+@st.cache_data(ttl=1800, show_spinner=False)
+def _datalab_trend(
+    groups: list,
+    start_date: str,
+    end_date: str,
+    time_unit: str = "week",
+    device: str = "",
+    gender: str = "",
+    ages: list | None = None,
+) -> pd.DataFrame:
+    """Naver DataLab Search Trend → (날짜, 키워드 열) 피벗 형태"""
+    if not requests:
+        return pd.DataFrame()
 
-    # 카테고리 12개 + 각 5개 시드
-    SEED_MAP_12 = {
-        "패션의류":   ["원피스","코트","니트","셔츠","블라우스"],
-        "패션잡화":   ["가방","지갑","모자","스카프","벨트"],
-        "뷰티/미용":  ["쿠션","립스틱","선크림","마스카라","토너"],
-        "출산/육아":  ["기저귀","분유","젖병","아기띠","유모차"],
-        "식품":      ["간편식","커피","간식","라면","캔음료"],
-        "생활/건강":  ["칫솔","치약","샴푸","세제","물티슈"],
-        "가전/디지털":["블루투스이어폰","스피커","모니터","노트북","로봇청소기"],
-        "스포츠/레저":["러닝화","요가복","캠핑의자","텐트","자전거"],
-        "도서/문구":  ["볼펜","노트","다이어리","수첩","풀"],
-        "자동차/공구": ["블랙박스","차량용거치대","세차용품","엔진오일","타이어압측정기"],
-        "여행/문화":  ["캐리어","여행가방","목베개","보조배터리","수영복"],
-        "반려동물/취미":["강아지사료","고양이모래","장난감","스크래처","간식"],
+    cid  = _get_key("NAVER_CLIENT_ID")
+    csec = _get_key("NAVER_CLIENT_SECRET")
+    if not (cid and csec):
+        return pd.DataFrame()
+
+    url = "https://openapi.naver.com/v1/datalab/search"
+    headers = {
+        "X-Naver-Client-Id": cid,
+        "X-Naver-Client-Secret": csec,
+        "Content-Type": "application/json; charset=utf-8",
+    }
+    # 등록된 Referer가 있으면만 추가
+    ref = (_get_key("NAVER_WEB_REFERER") or "").strip()
+    if ref:
+        headers["Referer"] = ref
+
+    payload = {
+        "startDate": start_date,
+        "endDate": end_date,
+        "timeUnit": time_unit,
+        "keywordGroups": (groups or [])[:5],
     }
 
-    cA, cB, cC = st.columns([1,1,1])
-    with cA:
-        cat = st.selectbox("카테고리", list(SEED_MAP_12.keys()), key="cat12_sel")
-    with cB:
-        time_unit = st.selectbox("단위", ["week","month"], index=0, key="cat12_unit")
-    with cC:
-        months = st.slider("조회기간(개월)", 1, 12, 3, key="cat12_months")
+    try:
+        r = requests.post(url, headers=headers, data=json.dumps(payload), timeout=12)
+        r.raise_for_status()
+        js = r.json()
 
-    # Top20 표
-    seeds = SEED_MAP_12.get(cat, [])
-    df = _naver_keywordstool(seeds)
+        rows = []
+        for gr in js.get("results", []):
+            title = gr.get("title") or (gr.get("keywords") or [""])[0]
+            df = pd.DataFrame(gr.get("data", []))
+            if df.empty:
+                continue
+            df["keyword"] = title
+            rows.append(df)
+
+        if not rows:
+            return pd.DataFrame()
+
+        big = pd.concat(rows, ignore_index=True)
+        big.rename(columns={"period": "날짜", "ratio": "검색지수"}, inplace=True)
+        pv = big.pivot_table(index="날짜", columns="keyword", values="검색지수", aggfunc="mean")
+        return pv.reset_index().sort_values("날짜")
+
+    except requests.HTTPError as e:
+        try:
+            msg = r.text
+        except Exception:
+            msg = str(e)
+        st.error(f"DataLab HTTP {r.status_code}: {msg}")
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"DataLab 호출 오류: {e}")
+        return pd.DataFrame()
+
+
+# DataLab 카테고리 12개(스마트스토어 기준과 유사한 대분류)
+SEED_MAP = {
+    "패션의류":        ["원피스", "코트", "니트", "셔츠", "블라우스"],
+    "패션잡화":        ["가방", "지갑", "모자", "스카프", "벨트"],
+    "뷰티/미용":       ["쿠션", "립스틱", "선크림", "마스카라", "토너"],
+    "디지털/가전":     ["블루투스이어폰", "스피커", "모니터", "노트북", "로봇청소기"],
+    "가구/인테리어":   ["소파", "식탁", "행거", "수납장", "러그"],
+    "생활/건강":       ["칫솔", "치약", "샴푸", "세제", "물티슈"],
+    "식품":           ["간편식", "커피", "차", "과자", "즉석밥"],
+    "출산/육아":       ["기저귀", "물티슈", "유모차", "카시트", "아기띠"],
+    "스포츠/레저":     ["러닝화", "요가복", "캠핑의자", "텐트", "자전거"],
+    "자동차/공구":      ["블랙박스", "엔진오일", "차량용청소기", "공구세트", "와이퍼"],
+    "도서/취미/오피스": ["문구세트", "다이어리", "스티커", "보드게임", "퍼즐"],
+    "여행/문화":       ["캐리어", "여권지갑", "목베개", "여행용파우치", "슬리퍼"],
+}
+
+
+def section_category_keyword_lab():
+    """카테고리 → 키워드 Top20 + DataLab 라인차트"""
+    st.markdown('<div class="card"><div class="card-title">카테고리 → 키워드 Top20 & 트렌드</div>', unsafe_allow_html=True)
+
+    cA, cB, cC = st.columns([1, 1, 1])
+    with cA:
+        cat = st.selectbox("카테고리", list(SEED_MAP.keys()))
+    with cB:
+        time_unit = st.selectbox("단위", ["week", "month"], index=0)
+    with cC:
+        months = st.slider("조회기간(개월)", 1, 12, 3)
+
+    start = (dt.date.today() - dt.timedelta(days=30 * months)).strftime("%Y-%m-%d")
+    end   = (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # 1) 카테고리 씨드 → 키워드도구 조회
+    seeds = SEED_MAP.get(cat, [])
+    df = _naver_keywordstool(seeds)  # <-- 기존 함수 사용
     if df.empty:
         st.warning("키워드도구 응답이 비었습니다. (API/권한/쿼터 확인)")
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
         return
 
+    # 2) Top20 테이블
     df["검색합계"] = pd.to_numeric(df["PC월간검색수"], errors="coerce").fillna(0) + \
                      pd.to_numeric(df["Mobile월간검색수"], errors="coerce").fillna(0)
     top20 = df.sort_values("검색합계", ascending=False).head(20).reset_index(drop=True)
 
     st.dataframe(
-        top20[["키워드","검색합계","PC월간검색수","Mobile월간검색수","월평균노출광고수","광고경쟁정도"]],
-        use_container_width=True, height=340
+        top20[["키워드", "검색합계", "PC월간검색수", "Mobile월간검색수", "월평균노출광고수", "광고경쟁정도"]],
+        use_container_width=True,
+        height=340,
     )
     st.download_button(
         "CSV 다운로드",
         top20.to_csv(index=False).encode("utf-8-sig"),
-        file_name=f"category_{cat}_top20.csv", mime="text/csv"
+        file_name=f"category_{cat}_top20.csv",
+        mime="text/csv",
+        key=f"dl_top20_{cat}",
     )
 
-    # 트렌드 라인차트
-    topk = st.slider("라인차트 키워드 수", 3, 10, 5, key="cat12_topk",
-                     help="상위 N개 키워드만 트렌드를 그립니다.")
+    # 3) 상위 N개 라인차트 (DataLab)
+    topk = st.slider("라인차트 키워드 수", 3, 10, 5, help="상위 N개 키워드만 트렌드를 그립니다.")
     kws = top20["키워드"].head(topk).tolist()
     groups = [{"groupName": k, "keywords": [k]} for k in kws]
-
-    start = (dt.date.today() - dt.timedelta(days=30 * months)).strftime("%Y-%m-%d")
-    end   = (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
-
     ts = _datalab_trend(groups, start, end, time_unit=time_unit)
+
     if ts.empty:
         st.info("DataLab 트렌드 응답이 비어 있어요. (Client ID/Secret, Referer/환경, 날짜/단위 확인)")
     else:
@@ -821,7 +897,7 @@ def section_category_keyword_lab():
         except Exception:
             st.dataframe(ts, use_container_width=True, height=260)
 
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
 # 8) Radar Card (tabs: 국내 -> 해외)
