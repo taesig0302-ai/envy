@@ -314,6 +314,44 @@ def _sidebar():
         pass
 
     with st.sidebar:
+# with st.sidebar: 바로 아래에 추가
+st.markdown("""
+<style>
+  /* ── 사이드바 스크롤락(표시/동작 모두 차단) ───────────────────── */
+  [data-testid="stSidebar"]{ scrollbar-width:none !important; -ms-overflow-style:none !important; }
+  [data-testid="stSidebar"]::-webkit-scrollbar{ width:0 !important; height:0 !important; display:none !important; }
+  [data-testid="stSidebar"] section[tabindex="0"]{
+    height:100vh !important;      /* 보이는 범위를 뷰포트로 제한 */
+    overflow:hidden !important;   /* 스크롤 자체 차단 */
+  }
+
+  /* ── pill 컬러박스: 노란색 통일(환율/원가/판매가/순이익) ─────────── */
+  [data-testid="stSidebar"] .pill{
+    display:block; width:100%;
+    border-radius:12px; padding:.70rem .95rem;
+    font-weight:800; letter-spacing:.1px;
+    background:#fef3c7 !important;           /* 노란 박스 */
+    border:1px solid #eab308 !important;     /* 테두리 */
+    color:#7c2d12 !important;                /* 글자색 */
+    box-shadow:0 2px 10px rgba(0,0,0,.08);
+    margin:.35rem 0 .5rem 0;
+  }
+</style>
+
+<script>
+(function(){
+  try{
+    var el=document.querySelector('[data-testid="stSidebar"] section[tabindex="0"]');
+    if(!el) return;
+    var stop=function(e){ e.preventDefault(); e.stopPropagation(); return false; };
+    ['wheel','touchmove'].forEach(function(evt){
+      el.addEventListener(evt, stop, {passive:false});
+    });
+  }catch(_){}
+})();
+</script>
+""", unsafe_allow_html=True)
+
         # ——— 로고: 원형 64px 고정 ———
         st.markdown("""
         <style>
