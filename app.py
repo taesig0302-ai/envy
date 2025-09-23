@@ -301,60 +301,49 @@ def _proxy_iframe_with_title(proxy_base: str, target_url: str, height: int = 860
     st.components.v1.html(html, height=h+56, scrolling=False)
 
 # =========================
-# 4) Sidebar (theme + translator toggle + calculators)
+# 4) Sidebar (color pills restored + scroll lock only)
 # =========================
 def _sidebar():
-    # 기본 세션 + CSS
+    # 기본 세션 + 메인 영역 CSS (사이드바는 여기서 손대지 않음)
     _ensure_session_defaults()
     _inject_css()
-    # 알림센터가 없는 경우에도 죽지 않도록 방어
+
+    # 알림센터가 없는 환경에서도 죽지 않도록 방어
     try:
         _inject_alert_center()
     except Exception:
         pass
 
     with st.sidebar:
-# with st.sidebar: 바로 아래에 추가
-st.markdown("""
-<style>
-  /* ── 사이드바 스크롤락(표시/동작 모두 차단) ───────────────────── */
-  [data-testid="stSidebar"]{ scrollbar-width:none !important; -ms-overflow-style:none !important; }
-  [data-testid="stSidebar"]::-webkit-scrollbar{ width:0 !important; height:0 !important; display:none !important; }
-  [data-testid="stSidebar"] section[tabindex="0"]{
-    height:100vh !important;      /* 보이는 범위를 뷰포트로 제한 */
-    overflow:hidden !important;   /* 스크롤 자체 차단 */
-  }
-
-  /* ── pill 컬러박스: 노란색 통일(환율/원가/판매가/순이익) ─────────── */
-  [data-testid="stSidebar"] .pill{
-    display:block; width:100%;
-    border-radius:12px; padding:.70rem .95rem;
-    font-weight:800; letter-spacing:.1px;
-    background:#fef3c7 !important;           /* 노란 박스 */
-    border:1px solid #eab308 !important;     /* 테두리 */
-    color:#7c2d12 !important;                /* 글자색 */
-    box-shadow:0 2px 10px rgba(0,0,0,.08);
-    margin:.35rem 0 .5rem 0;
-  }
-</style>
-
-<script>
-(function(){
-  try{
-    var el=document.querySelector('[data-testid="stSidebar"] section[tabindex="0"]');
-    if(!el) return;
-    var stop=function(e){ e.preventDefault(); e.stopPropagation(); return false; };
-    ['wheel','touchmove'].forEach(function(evt){
-      el.addEventListener(evt, stop, {passive:false});
-    });
-  }catch(_){}
-})();
-</script>
-""", unsafe_allow_html=True)
-
-        # ——— 로고: 원형 64px 고정 ———
+        # ── 사이드바 전용 스타일: 스크롤락 + pill 컬러 ──────────────────────────
         st.markdown("""
         <style>
+          /* 스크롤바 자체 표시 제거 */
+          [data-testid="stSidebar"]{
+            scrollbar-width: none !important; -ms-overflow-style: none !important;
+          }
+          [data-testid="stSidebar"]::-webkit-scrollbar{ width:0 !important; height:0 !important; display:none !important; }
+
+          /* 실제 스크롤 컨테이너를 뷰포트 높이에 고정하고 스크롤 차단 */
+          [data-testid="stSidebar"] section[tabindex="0"]{
+            height:100vh !important;
+            overflow: hidden !important;
+          }
+
+          /* 컬러 pill 공통 */
+          [data-testid="stSidebar"] .pill{
+            display:block; width:100%;
+            border-radius:12px; padding:.70rem .95rem;
+            font-weight:800; letter-spacing:.1px;
+            box-shadow:0 2px 10px rgba(0,0,0,.08);
+            margin:.35rem 0 .5rem 0;
+          }
+          /* 세부 색상 (green/blue/yellow) */
+          [data-testid="stSidebar"] .pill-green{  background:#dcfce7; border:1px solid #22c55e; color:#064e3b; }
+          [data-testid="stSidebar"] .pill-blue{   background:#dbeafe; border:1px solid #3b82f6; color:#1e3a8a; }
+          [data-testid="stSidebar"] .pill-yellow{ background:#fef3c7; border:1px solid #eab308; color:#7c2d12; }
+
+          /* 로고 원형 고정 */
           [data-testid="stSidebar"] .logo-circle{
             width:64px;height:64px;border-radius:9999px;overflow:hidden;
             margin:.35rem auto .6rem auto; box-shadow:0 2px 8px rgba(0,0,0,.12);
@@ -364,8 +353,32 @@ st.markdown("""
             width:100%;height:100%;object-fit:cover;display:block;
           }
         </style>
+
+        <script>
+        // 휠/터치 스크롤 입력 자체를 캡처해 사이드바를 락
+        (function(){
+          try{
+            var el=document.querySelector('[data-testid="stSidebar"] section[tabindex="0"]');
+            if(!el) return;
+            var stop=function(e){ e.preventDefault(); e.stopPropagation(); return false; };
+            ['wheel','touchmove'].forEach(function(evt){
+              el.addEventListener(evt, stop, {passive:false});
+            });
+          }catch(_){}
+        })();
+        </script>
         """, unsafe_allow_html=True)
 
+        # ── 로고: 원형 64px ──
+        st.markdown("""
+        <style>
+          [data-testid="stSidebar"] .logo-circle{ /* 위에서 정의했지만 안전하게 한번 더 */ 
+            width:64px;height:64px;border-radius:9999px;overflow:hidden;
+            margin:.35rem auto .6rem auto; box-shadow:0 2px 8px rgba(0,0,0,.12);
+            border:1px solid rgba(0,0,0,.06);
+          }
+        </style>
+        """, unsafe_allow_html=True)
         lp = Path(__file__).parent / "logo.png"
         if lp.exists():
             b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
@@ -374,7 +387,7 @@ st.markdown("""
                 unsafe_allow_html=True
             )
 
-        # 토글
+        # ── 토글 ──
         c1, c2 = st.columns(2)
         with c1:
             st.toggle("🌓 다크",
@@ -385,7 +398,7 @@ st.markdown("""
 
         show_tr = st.session_state.get("__show_translator", False)
 
-        # ---- 위젯들 ----
+        # ── 위젯들 (기존 로직 유지) ──
         def translator_block(expanded=True):
             with st.expander("🌐 구글 번역기", expanded=expanded):
                 LANG_LABELS_SB = {
@@ -438,6 +451,7 @@ st.markdown("""
                 base_cost_won = FX_DEFAULT[m_base]*purchase_foreign if purchase_foreign>0 \
                                 else FX_DEFAULT[st.session_state.get("fx_base","USD")]*st.session_state.get("sale_foreign",1.0)
                 st.markdown(f'<div class="pill pill-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
+
                 c1, c2 = st.columns(2)
                 with c1:
                     card_fee = st.number_input("카드수수료(%)",
@@ -450,6 +464,7 @@ st.markdown("""
                 shipping_won = st.number_input("배송비(₩)",
                                                value=float(st.session_state.get("shipping_won",0.0)),
                                                step=100.0, format="%.0f", key="shipping_won")
+
                 mode = st.radio("마진 방식", ["퍼센트","플러스"], horizontal=True, key="margin_mode")
                 if mode=="퍼센트":
                     margin_pct = st.number_input("마진율 (%)",
@@ -463,10 +478,12 @@ st.markdown("""
                                                  step=100.0, format="%.0f", key="margin_won")
                     target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)+margin_won+shipping_won
                     margin_value = margin_won; desc=f"+{margin_won:,.0f}"
-                st.markdown(f'<div class="pill pill-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="pill pill-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>', unsafe_allow_html=True)
 
-        # 토글 상태에 따라 펼침
+                st.markdown(f'<div class="pill pill-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="pill pill-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>',
+                            unsafe_allow_html=True)
+
+        # 토글 상태에 따라 펼침 제어(기존 요구 유지)
         if show_tr:
             translator_block(expanded=True); fx_block(expanded=False); margin_block(expanded=False)
         else:
