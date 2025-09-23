@@ -136,12 +136,12 @@ def _toggle_theme():
 def _inject_css():
     """
     메인 뷰: 다크/라이트 토글 반영
-    사이드바: 항상 라이트 톤 고정(시안성), 내부만 스크롤(100vh sticky)
-    사이드바 컬러 pill 복구
+    사이드바: 항상 라이트톤(다크 무시) + 사이드바 자체 고정(100vh) & 내부만 스크롤
+    사이드바 컬러 pill 유지
     """
     theme = st.session_state.get("theme", "light")
 
-    # ===== 메인 영역 팔레트(토글 반영) =====
+    # ===== 메인(본문) 팔레트: 토글 반영 =====
     if theme == "dark":
         bg = "#0e1117"; fg = "#e6edf3"; fg_sub = "#b6c2cf"; card_bg = "#11151c"
         border = "rgba(255,255,255,.08)"; btn_bg = "#2563eb"; btn_bg_hover = "#1e3fae"
@@ -159,7 +159,7 @@ def _inject_css():
         pill_yellow_bg, pill_yellow_bd, pill_yellow_fg = "linear-gradient(180deg, #fef3c7 0%, #fde68a 100%)", "rgba(234,179,8,.35)", "#7c2d12"
         pill_warn_bg,  pill_warn_bd,  pill_warn_fg  = "linear-gradient(180deg, #fee2e2 0%, #fecaca 100%)", "rgba(239,68,68,.35)", "#7f1d1d"
 
-    # ===== 사이드바(항상 라이트 고정) 팔레트 =====
+    # ===== 사이드바: 라이트 고정 팔레트 =====
     sb_bg   = "#f6f8fb"
     sb_fg   = "#111111"
     sb_sub  = "#4b5563"
@@ -169,7 +169,7 @@ def _inject_css():
     st.markdown(f"""
     <style>
       /* =========================
-         메인 컨테이너(다크/라이트 적용)
+         본문(다크/라이트 토글 반영)
          ========================= */
       [data-testid="stAppViewContainer"] {{
         background:{bg} !important; color:{fg} !important;
@@ -206,6 +206,9 @@ def _inject_css():
         background:{btn_bg_hover} !important; border-color:rgba(255,255,255,.15) !important;
       }}
 
+      /* =========================
+         공통 pill 스타일
+         ========================= */
       .pill {{
         display:block; width:100%; border-radius:12px;
         padding:.70rem .95rem; font-weight:800;
@@ -213,8 +216,6 @@ def _inject_css():
         border:1px solid transparent; margin:.35rem 0 .5rem 0;
       }}
       .pill span {{ opacity:.8; font-weight:700; }}
-
-      /* 메인/사이드바 공통 pill 색상 */
       .pill-green {{ background:{pill_green_bg}; border-color:{pill_green_bd}; color:{pill_green_fg}; }}
       .pill-blue  {{ background:{pill_blue_bg};  border-color:{pill_blue_bd};  color:{pill_blue_fg}; }}
       .pill-yellow{{ background:{pill_yellow_bg};border-color:{pill_yellow_bd};color:{pill_yellow_fg}; }}
@@ -228,35 +229,55 @@ def _inject_css():
       }}
 
       /* =========================
-         사이드바: 항상 라이트 톤 + 내부 스크롤만 허용
+         사이드바: 라이트톤 강제 + 내부 스크롤만
          ========================= */
       [data-testid="stSidebar"] {{
+        position: sticky; top: 0;
+        height: 100vh !important;
+        align-self: flex-start;
         background:{sb_bg} !important;
         color:{sb_fg} !important;
-        overflow:hidden !important;                /* 바깥쪽 스크롤 잠금 */
+        overflow: hidden !important;          /* 바깥쪽 스크롤 잠금 */
+        /* 다크 테마 변수/필터 무시 */
+        filter: none !important;
+        -webkit-filter: none !important;
+        color-scheme: light !important;
+        --text-color: {sb_fg} !important;
+        --background-color: {sb_bg} !important;
+        --secondary-background-color: {sb_card} !important;
+        --primary-color: #2563eb !important;
+        --gray-0: #ffffff !important;
+        --gray-100: #111111 !important;
       }}
-      /* 사이드바 컨텐츠 래퍼만 스크롤 */
+      /* 사이드바 컨텐츠 래퍼만 스크롤 허용 */
       [data-testid="stSidebar"] [data-testid="stSidebarContent"] {{
-        position: sticky; top: 0;
-        height: 100vh; max-height: 100vh;
+        height: 100%;
+        max-height: 100vh;
         overflow-y: auto !important;
-        padding-bottom: 1rem;
+        padding-bottom: 12px;
+        scrollbar-gutter: stable both-edges;
       }}
-      /* 사이드바 내부 UI 대비(항상 라이트) */
+      /* 사이드바 내부 모든 요소도 라이트톤 유지 */
       [data-testid="stSidebar"] *,
       [data-testid="stSidebar"] .stMarkdown,
-      [data-testid="stSidebar"] .stMarkdown * {{ color:{sb_fg} !important; }}
+      [data-testid="stSidebar"] .stMarkdown * {{
+        color:{sb_fg} !important;
+        filter: none !important;
+        -webkit-filter: none !important;
+      }}
       [data-testid="stSidebar"] input::placeholder {{ color:{sb_sub} !important; opacity:.9 !important; }}
       [data-testid="stSidebar"] .card {{
         background:{sb_card}; border:1px solid {sb_bd}; border-radius:14px;
         box-shadow:0 1px 6px rgba(0,0,0,.08);
       }}
-      [data-testid="stSidebar"] [data-baseweb="select"] *,
+      [data-testid="stSidebar"] [data-baseweb="select"] > div,
       [data-testid="stSidebar"] [data-baseweb="input"] input,
       [data-testid="stSidebar"] .stNumberInput input,
-      [data-testid="stSidebar"] .stTextInput input {{ color:{sb_fg} !important; }}
-
-      /* 사이드바 토글/라디오 레이블도 라이트로 고정 */
+      [data-testid="stSidebar"] .stTextInput input {{
+        background:#ffffff !important;
+        color:{sb_fg} !important;
+      }}
+      /* 토글/라디오 라벨도 라이트 고정 */
       [data-testid="stSidebar"] .stRadio label,
       [data-testid="stSidebar"] .stCheckbox label,
       [data-testid="stSidebar"] label {{ color:{sb_fg} !important; }}
