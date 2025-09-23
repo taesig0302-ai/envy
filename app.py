@@ -294,7 +294,7 @@ def _proxy_iframe_with_title(proxy_base: str, target_url: str, height: int = 860
     st.components.v1.html(html, height=h+56, scrolling=False)
 
 # =========================
-# 4) Sidebar (locked, light, scoped)
+# 4) Sidebar (lock scroll / black font / yellow pills / light-only)
 # =========================
 def _sidebar():
     _ensure_session_defaults()
@@ -305,53 +305,44 @@ def _sidebar():
         pass
 
     with st.sidebar:
-        # ── 사이드바 전용 스코프(#sb-lock) : 여기만 스타일 고정 ──
+        # ── 사이드바 전용 CSS + JS (스코프: 사이드바 내부만) ──
         st.markdown("""
         <style>
-          /* 사이드바 전체 스크롤 자체 차단 + 높이 고정 */
-          [data-testid="stSidebar"] { overflow:hidden !important; }
-          [data-testid="stSidebar"] section[tabindex="0"]{
-            height:100vh !important;
-            overflow:hidden !important;
-          }
-
-          /* 스코프: 사이드바 콘텐츠 래퍼 */
-          #sb-lock{
-            position:sticky; top:0;
-            height:100vh;           /* 뷰포트까지만 표시 */
-            overflow:hidden;        /* 내부 스크롤도 불가 */
-            background:#f6f8fb;     /* 라이트톤 고정 */
-          }
-
-          /* 폰트 색 완전 고정(검정) — 다크테마 회색화 무력화 */
-          #sb-lock, #sb-lock *,
-          #sb-lock .stMarkdown, #sb-lock .stMarkdown * ,
-          #sb-lock h1,#sb-lock h2,#sb-lock h3,#sb-lock h4,#sb-lock h5,#sb-lock h6,
-          #sb-lock p,#sb-lock li,#sb-lock span,#sb-lock label,
-          #sb-lock [data-baseweb="select"] *, 
-          #sb-lock .stNumberInput input, #sb-lock .stTextInput input,
-          #sb-lock [data-baseweb="input"] input, #sb-lock input, #sb-lock textarea{
-            color:#111111 !important;
+          /* 라이트톤 강제 */
+          [data-testid="stSidebar"]{
+            background:#f6f8fb !important;
+            color-scheme: light !important;
             filter:none !important;
           }
 
-          /* 카드/입력 박스 시각 일관성 */
-          #sb-lock .card{
-            background:#ffffff !important;
-            border:1px solid rgba(0,0,0,.06) !important;
-            border-radius:14px !important;
-            box-shadow:0 1px 6px rgba(0,0,0,.08) !important;
+          /* 스크롤락(표시/동작 모두 차단) */
+          [data-testid="stSidebar"]{ scrollbar-width:none !important; -ms-overflow-style:none !important; }
+          [data-testid="stSidebar"] ::-webkit-scrollbar{ width:0 !important; height:0 !important; display:none !important; }
+          [data-testid="stSidebar"] section[tabindex="0"]{
+            height:100vh !important;          /* 보이는 범위를 뷰포트로 제한 */
+            overflow:hidden !important;       /* 스크롤 자체 차단 */
           }
-          #sb-lock [data-baseweb="select"] > div,
-          #sb-lock [data-baseweb="input"] input,
-          #sb-lock .stNumberInput input, #sb-lock .stTextInput input{
-            background:#ffffff !important;
-            color:#111111 !important;
-          }
-          #sb-lock input::placeholder{ color:#4b5563 !important; opacity:.9 !important; }
 
-          /* pill 컬러박스: 노란색으로 통일 */
-          #sb-lock .pill{
+          /* 폰트 항상 검정 — 다크모드 회색화 무력화 */
+          [data-testid="stSidebar"],
+          [data-testid="stSidebar"] * ,
+          [data-testid="stSidebar"] .stMarkdown,
+          [data-testid="stSidebar"] .stMarkdown * ,
+          [data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,[data-testid="stSidebar"] h3,
+          [data-testid="stSidebar"] h4,[data-testid="stSidebar"] h5,[data-testid="stSidebar"] h6,
+          [data-testid="stSidebar"] p,[data-testid="stSidebar"] li,[data-testid="stSidebar"] span,
+          [data-testid="stSidebar"] label,
+          [data-testid="stSidebar"] [data-baseweb="select"] *,
+          [data-testid="stSidebar"] .stNumberInput input,
+          [data-testid="stSidebar"] .stTextInput input,
+          [data-testid="stSidebar"] [data-baseweb="input"] input,
+          [data-testid="stSidebar"] input,
+          [data-testid="stSidebar"] textarea{
+            color:#111111 !important; filter:none !important;
+          }
+
+          /* pill 컬러박스: 노란색 통일 */
+          [data-testid="stSidebar"] .pill{
             display:block;width:100%;
             border-radius:12px;padding:.70rem .95rem;
             font-weight:800;letter-spacing:.1px;
@@ -362,27 +353,39 @@ def _sidebar():
             margin:.35rem 0 .5rem 0;
           }
 
-          /* 로고 원형 */
-          #sb-lock .logo-circle{
+          /* 로고 64×64 고정 */
+          [data-testid="stSidebar"] .logo-circle{
             width:64px;height:64px;border-radius:9999px;overflow:hidden;
             margin:.35rem auto .6rem auto; box-shadow:0 2px 8px rgba(0,0,0,.12);
-            border:1px solid rgba(0,0,0,.06);
-            background:#fff;
+            border:1px solid rgba(0,0,0,.06); background:#fff;
           }
-          #sb-lock .logo-circle img{ width:100%;height:100%;object-fit:cover;display:block; }
+          [data-testid="stSidebar"] .logo-circle img{
+            width:100%;height:100%;object-fit:cover;display:block;
+          }
         </style>
+
+        <script>
+        // 사이드바 내부에서 휠/터치 스크롤 자체를 막아 스크롤락 보장
+        (function(){
+          try{
+            var el=document.querySelector('[data-testid="stSidebar"] section[tabindex="0"]');
+            if(!el) return;
+            var stop=function(e){ e.preventDefault(); e.stopPropagation(); return false; };
+            ['wheel','touchmove','scroll'].forEach(function(evt){
+              el.addEventListener(evt, stop, {passive:false});
+            });
+          }catch(_){}
+        })();
+        </script>
         """, unsafe_allow_html=True)
 
-        # ── 여기부터 사이드바 표시 영역 (로고~순이익까지만 보임) ──
-        st.markdown('<div id="sb-lock">', unsafe_allow_html=True)
-
-        # 로고
+        # ── 표시 영역: 로고 → 토글 → 환율 → 마진(순이익까지). 그 아래는 클립됨 ──
         lp = Path(__file__).parent / "logo.png"
         if lp.exists():
             b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
-            st.markdown(f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>',
+                        unsafe_allow_html=True)
 
-        # 토글
         c1, c2 = st.columns(2)
         with c1:
             st.toggle("🌓 다크",
@@ -391,65 +394,98 @@ def _sidebar():
         with c2:
             st.toggle("🌐 번역기", value=False, key="__show_translator")
 
-        # 환율 계산기
-        with st.expander("💱 환율 계산기", expanded=True):
-            fx_base = st.selectbox("기준 통화", list(CURRENCIES.keys()),
-                                   index=list(CURRENCIES.keys()).index(st.session_state.get("fx_base","USD")),
-                                   key="fx_base")
-            sale_foreign = st.number_input("판매금액 (외화)",
-                                           value=float(st.session_state.get("sale_foreign",1.0)),
-                                           step=0.01, format="%.2f", key="sale_foreign")
-            won = FX_DEFAULT[fx_base]*sale_foreign
-            st.markdown(
-                f'<div class="pill">환산 금액: <b>{won:,.2f} 원</b>'
-                f'<span style="opacity:.8;font-weight:700"> ({CURRENCIES[fx_base]["symbol"]})</span></div>',
-                unsafe_allow_html=True
-            )
-            st.caption(f"환율 기준: {FX_DEFAULT[fx_base]:,.2f} ₩/{CURRENCIES[fx_base]['unit']}")
+        show_tr = st.session_state.get("__show_translator", False)
 
-        # 마진 계산기
-        with st.expander("📈 마진 계산기", expanded=True):
-            m_base = st.selectbox("매입 통화", list(CURRENCIES.keys()),
-                                  index=list(CURRENCIES.keys()).index(st.session_state.get("m_base","USD")),
-                                  key="m_base")
-            purchase_foreign = st.number_input("매입금액 (외화)",
-                                               value=float(st.session_state.get("purchase_foreign",0.0)),
-                                               step=0.01, format="%.2f", key="purchase_foreign")
-            base_cost_won = FX_DEFAULT[m_base]*purchase_foreign if purchase_foreign>0 \
-                            else FX_DEFAULT[st.session_state.get("fx_base","USD")]*st.session_state.get("sale_foreign",1.0)
-            st.markdown(f'<div class="pill">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
+        # ---- 위젯들 (기존 로직 그대로) ----
+        def translator_block(expanded=True):
+            with st.expander("🌐 구글 번역기", expanded=expanded):
+                LANG_LABELS_SB = {
+                    "auto":"자동 감지","ko":"한국어","en":"영어","ja":"일본어","zh-CN":"중국어(간체)",
+                    "zh-TW":"중국어(번체)","vi":"베트남어","th":"태국어","id":"인도네시아어",
+                    "de":"독일어","fr":"프랑스어","es":"스페인어","it":"이탈리아어","pt":"포르투갈어"
+                }
+                def _code_sb(x): return {v:k for k,v in LANG_LABELS_SB.items()}.get(x, x)
+                src_label = st.selectbox("원문 언어", list(LANG_LABELS_SB.values()),
+                                         index=list(LANG_LABELS_SB.keys()).index("auto"), key="sb_tr_src")
+                tgt_label = st.selectbox("번역 언어", list(LANG_LABELS_SB.values()),
+                                         index=list(LANG_LABELS_SB.keys()).index("ko"), key="sb_tr_tgt")
+                text_in = st.text_area("텍스트", height=120, key="sb_tr_in")
+                if st.button("번역 실행", key="sb_tr_btn"):
+                    try:
+                        from deep_translator import GoogleTranslator as _GT
+                        src_code = _code_sb(src_label); tgt_code = _code_sb(tgt_label)
+                        out_main = _GT(source=src_code, target=tgt_code).translate(text_in or "")
+                        st.text_area(f"결과 ({tgt_label})", value=out_main, height=120, key="sb_tr_out_main")
+                        if tgt_code != "ko":
+                            out_ko = _GT(source=tgt_code, target="ko").translate(out_main or "")
+                            st.text_area("결과 (한국어)", value=out_ko, height=120, key="sb_tr_out_ko")
+                    except Exception as e:
+                        st.error(f"번역 중 오류: {e}")
 
-            c1, c2 = st.columns(2)
-            with c1:
-                card_fee = st.number_input("카드수수료(%)",
-                                           value=float(st.session_state.get("card_fee_pct",4.0)),
-                                           step=0.01, format="%.2f", key="card_fee_pct")
-            with c2:
-                market_fee = st.number_input("마켓수수료(%)",
-                                             value=float(st.session_state.get("market_fee_pct",14.0)),
-                                             step=0.01, format="%.2f", key="market_fee_pct")
-            shipping_won = st.number_input("배송비(₩)",
-                                           value=float(st.session_state.get("shipping_won",0.0)),
-                                           step=100.0, format="%.0f", key="shipping_won")
-            mode = st.radio("마진 방식", ["퍼센트","플러스"], horizontal=True, key="margin_mode")
-            if mode=="퍼센트":
-                margin_pct = st.number_input("마진율 (%)",
-                                             value=float(st.session_state.get("margin_pct",10.0)),
-                                             step=0.01, format="%.2f", key="margin_pct")
-                target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)*(1+margin_pct/100)+shipping_won
-                margin_value = target_price - base_cost_won; desc=f"{margin_pct:.2f}%"
-            else:
-                margin_won = st.number_input("마진액 (₩)",
-                                             value=float(st.session_state.get("margin_won",10000.0)),
-                                             step=100.0, format="%.0f", key="margin_won")
-                target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)+margin_won+shipping_won
-                margin_value = margin_won; desc=f"+{margin_won:,.0f}"
+        def fx_block(expanded=True):
+            with st.expander("💱 환율 계산기", expanded=expanded):
+                fx_base = st.selectbox("기준 통화", list(CURRENCIES.keys()),
+                                       index=list(CURRENCIES.keys()).index(st.session_state.get("fx_base","USD")),
+                                       key="fx_base")
+                sale_foreign = st.number_input("판매금액 (외화)",
+                                               value=float(st.session_state.get("sale_foreign",1.0)),
+                                               step=0.01, format="%.2f", key="sale_foreign")
+                won = FX_DEFAULT[fx_base]*sale_foreign
+                st.markdown(
+                    f'<div class="pill">환산 금액: <b>{won:,.2f} 원</b>'
+                    f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[fx_base]["symbol"]})</span></div>',
+                    unsafe_allow_html=True
+                )
+                st.caption(f"환율 기준: {FX_DEFAULT[fx_base]:,.2f} ₩/{CURRENCIES[fx_base]['unit']}")
 
-            st.markdown(f'<div class="pill">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="pill">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>', unsafe_allow_html=True)
+        def margin_block(expanded=True):
+            with st.expander("📈 마진 계산기", expanded=expanded):
+                m_base = st.selectbox("매입 통화", list(CURRENCIES.keys()),
+                                      index=list(CURRENCRIES.keys()).index(st.session_state.get("m_base","USD")) if 'CURRENCRIES' in globals() else list(CURRENCIES.keys()).index(st.session_state.get("m_base","USD")),
+                                      key="m_base")
+                purchase_foreign = st.number_input("매입금액 (외화)",
+                                                   value=float(st.session_state.get("purchase_foreign",0.0)),
+                                                   step=0.01, format="%.2f", key="purchase_foreign")
+                base_cost_won = FX_DEFAULT[m_base]*purchase_foreign if purchase_foreign>0 \
+                                else FX_DEFAULT[st.session_state.get("fx_base","USD")]*st.session_state.get("sale_foreign",1.0)
+                st.markdown(f'<div class="pill">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
+                c1, c2 = st.columns(2)
+                with c1:
+                    card_fee = st.number_input("카드수수료(%)",
+                                               value=float(st.session_state.get("card_fee_pct",4.0)),
+                                               step=0.01, format="%.2f", key="card_fee_pct")
+                with c2:
+                    market_fee = st.number_input("마켓수수료(%)",
+                                                 value=float(st.session_state.get("market_fee_pct",14.0)),
+                                                 step=0.01, format="%.2f", key="market_fee_pct")
+                shipping_won = st.number_input("배송비(₩)",
+                                               value=float(st.session_state.get("shipping_won",0.0)),
+                                               step=100.0, format="%.0f", key="shipping_won")
+                mode = st.radio("마진 방식", ["퍼센트","플러스"], horizontal=True, key="margin_mode")
+                if mode=="퍼센트":
+                    margin_pct = st.number_input("마진율 (%)",
+                                                 value=float(st.session_state.get("margin_pct",10.0)),
+                                                 step=0.01, format="%.2f", key="margin_pct")
+                    target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)*(1+margin_pct/100)+shipping_won
+                    margin_value = target_price - base_cost_won; desc=f"{margin_pct:.2f}%"
+                else:
+                    margin_won = st.number_input("마진액 (₩)",
+                                                 value=float(st.session_state.get("margin_won",10000.0)),
+                                                 step=100.0, format="%.0f", key="margin_won")
+                    target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)+margin_won+shipping_won
+                    margin_value = margin_won; desc=f"+{margin_won:,.0f}"
+                st.markdown(f'<div class="pill">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="pill">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>', unsafe_allow_html=True)
 
-        # ── 여기서 끊는다: sb-lock 밖은 보이지도, 스크롤도 안 됨 ──
-        st.markdown('</div>', unsafe_allow_html=True)
+        # 토글 상태에 따라 펼침 제어 (기존 요구)
+        if show_tr:
+            translator_block(expanded=True); fx_block(expanded=False); margin_block(expanded=False)
+        else:
+            fx_block(expanded=True); margin_block(expanded=True); translator_block(expanded=False)
+
+        if SHOW_ADMIN_BOX:
+            st.divider()
+            st.text_input("PROXY_URL(디버그)", key="PROXY_URL", help="Cloudflare Worker 주소 (옵션)")
 
 # =========================
 # 5) Rakuten Ranking
