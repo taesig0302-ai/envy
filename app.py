@@ -93,213 +93,82 @@ STOP_PRESETS = {
     }
 }
 
-# =========================
-# 1) UI defaults & CSS  ← 이 블록 통째로 교체 (사이드바 비건드림, f-string 미사용)
-# =========================
-def _ensure_session_defaults():
-    ss = st.session_state
-    ss.setdefault("theme","light")
-    ss.setdefault("fx_base","USD")
-    ss.setdefault("sale_foreign",1.00)
-    ss.setdefault("m_base","USD")
-    ss.setdefault("purchase_foreign",0.00)
-    ss.setdefault("card_fee_pct",4.00)
-    ss.setdefault("market_fee_pct",14.00)
-    ss.setdefault("shipping_won",0.0)
-    ss.setdefault("margin_mode","퍼센트")
-    ss.setdefault("margin_pct",10.00)
-    ss.setdefault("margin_won",10000.0)
-    # Stopwords manager 상태
-    ss.setdefault("STOP_GLOBAL", list(STOPWORDS_GLOBAL))
-    ss.setdefault("STOP_BY_CAT", dict(STOPWORDS_BY_CAT))
-    ss.setdefault("STOP_WHITELIST", [])
-    ss.setdefault("STOP_REPLACE", ["무배=> ", "무료배송=> ", "정품=> "])
-    ss.setdefault("STOP_AGGR", False)
-    # Rakuten genre map
-    ss.setdefault("rk_genre_map", {
-        "전체(샘플)": "100283","뷰티/코스메틱": "100283","의류/패션": "100283","가전/디지털": "100283",
-        "가구/인테리어": "100283","식품": "100283","생활/건강": "100283","스포츠/레저": "100283","문구/취미": "100283",
-    })
-
-def _toggle_theme():
-    st.session_state["theme"] = "dark" if st.session_state.get("theme","light")=="light" else "light"
-
 def _inject_css():
     theme = st.session_state.get("theme","light")
 
-    # 팔레트 정의
     if theme == "dark":
         vars_css = {
-            "--bg":"#000000","--fg":"#FFFFFF","--muted":"#E0E6EF",
-            "--card":"#0E0E0E","--card-border":"#262626","--grid":"#2E2E2E","--hover":"#151515",
-            "--primary":"#FFD84D","--accent":"#FF4D4D","--success":"#A3FF7C","--focus":"#FFD84D",
-            "--link":"#FFD84D","--link-hover":"#FFB800","--pill-text":"#0B0B0B"
+            "--bg":"#0E0E0E","--fg":"#FFFFFF",
+            "--card":"#1A1A1A","--card-border":"#333333",
+            "--hover":"#151515","--primary":"#FFD84D",
+            "--accent":"#FF4D4D","--focus":"#FFD84D",
+            "--link":"#FFD84D","--link-hover":"#FFB800"
         }
         btn_primary_text = "#0B0B0B"
-        pill_blue_bg, pill_blue_bd, pill_blue_fg = "#231F00", "#3A3000", "#FFD84D"
-        pill_green_bg, pill_green_bd, pill_green_fg = "#1A0909", "#3A0F0F", "#FF4D4D"
-        pill_yellow_bg, pill_yellow_bd, pill_yellow_fg = "#2A2500", "#3A3500", "#FFEAA0"
     else:
         vars_css = {
-            "--bg":"#FFFFFF","--fg":"#111111","--muted":"#596272",
-            "--card":"#FFFFFF","--card-border":"rgba(0,0,0,.12)","--grid":"#E9EEF5","--hover":"#F5F7FB",
-            "--primary":"#1E6FFF","--accent":"#1AAE5F","--success":"#1AAE5F","--focus":"#1E6FFF",
-            "--link":"#1E6FFF","--link-hover":"#4D8DFF","--pill-text":"#0B1B10"
+            "--bg":"#FFFFFF","--fg":"#111111",
+            "--card":"#FFFFFF","--card-border":"rgba(0,0,0,.12)",
+            "--hover":"#F5F7FB","--primary":"#1E6FFF",
+            "--accent":"#1AAE5F","--focus":"#1E6FFF",
+            "--link":"#1E6FFF","--link-hover":"#4D8DFF"
         }
         btn_primary_text = "#FFFFFF"
-        pill_blue_bg, pill_blue_bd, pill_blue_fg = "var(--hover)", "var(--card-border)", "#0D2C6D"
-        pill_green_bg, pill_green_bd, pill_green_fg = "color-mix(in oklab, var(--accent) 35%, transparent)", \
-                                                      "color-mix(in oklab, var(--accent) 55%, #0000)", \
-                                                      "var(--pill-text)"
-        pill_yellow_bg, pill_yellow_bd, pill_yellow_fg = "color-mix(in oklab, #FFD84D 40%, transparent)", \
-                                                         "color-mix(in oklab, #FFD84D 60%, #0000)", \
-                                                         "#3e2a00"
 
     vars_blob = "".join([k+":"+v+";" for k,v in vars_css.items()])
 
-    css = """
-<style>
-  /* ===== 메인 영역(.block-container)만 대상: 사이드바 미적용 ===== */
-  [data-testid="stAppViewContainer"] .block-container {
-    max-width:3800px!important;
-    padding-top:.55rem!important;
-    padding-bottom:1rem!important;
-    BACKFILL_VARS
-    background:var(--bg)!important;
-    color:var(--fg)!important;
-  }
-
-  [data-testid="stAppViewContainer"] .block-container h1,
-  [data-testid="stAppViewContainer"] .block-container h2,
-  [data-testid="stAppViewContainer"] .block-container h3,
-  [data-testid="stAppViewContainer"] .block-container h4,
-  [data-testid="stAppViewContainer"] .block-container h5,
-  [data-testid="stAppViewContainer"] .block-container h6 { color:var(--fg)!important }
-
-  /* 링크 */
-  [data-testid="stAppViewContainer"] .block-container a{ color:var(--link)!important; }
-  [data-testid="stAppViewContainer"] .block-container a:hover{ color:var(--link-hover)!important; text-decoration:underline!important; }
-
-  /* 카드 */
-  [data-testid="stAppViewContainer"] .block-container .card{
-    background:var(--card)!important;border:1px solid var(--card-border)!important;border-radius:14px;
-    padding:.85rem;box-shadow:0 2px 10px rgba(0,0,0,.10)
-  }
-  [data-testid="stAppViewContainer"] .block-container .card-title{
-    font-size:1.18rem;font-weight:900;margin:.1rem 0 .55rem 0;color:var(--fg)!important
-  }
-
-  /* 배지 */
-  [data-testid="stAppViewContainer"] .block-container .pill{
-    border-radius:9999px;padding:.40rem .9rem;font-weight:800;display:inline-block;margin:.10rem 0!important
-  }
-  [data-testid="stAppViewContainer"] .block-container .pill-blue{
-    background:PILL_BLUE_BG;border:1px solid PILL_BLUE_BD;color:PILL_BLUE_FG;
-  }
-  [data-testid="stAppViewContainer"] .block-container .pill-green{
-    background:PILL_GREEN_BG;border:1px solid PILL_GREEN_BD;color:PILL_GREEN_FG;
-  }
-  [data-testid="stAppViewContainer"] .block-container .pill-yellow{
-    background:PILL_YELLOW_BG;border:1px solid PILL_YELLOW_BD;color:PILL_YELLOW_FG;
-  }
-
-  /* 입력류 */
-  [data-testid="stAppViewContainer"] .block-container [data-baseweb="input"] input,
-  [data-testid="stAppViewContainer"] .block-container .stNumberInput input,
-  [data-testid="stAppViewContainer"] .block-container [data-baseweb="select"] div[role="combobox"],
-  [data-testid="stAppViewContainer"] .block-container .stTextInput>div>div>input {
-    height:1.60rem!important;padding:.14rem .60rem!important;font-size:.96rem!important;
-    border-radius:12px!important;background:var(--card)!important;color:var(--fg)!important;
-    border:1px solid var(--card-border)!important;outline:none!important;
-  }
-  [data-testid="stAppViewContainer"] .block-container [data-baseweb="input"] input:focus,
-  [data-testid="stAppViewContainer"] .block-container .stNumberInput input:focus,
-  [data-testid="stAppViewContainer"] .block-container [data-baseweb="select"] div[role="combobox"]:focus-within,
-  [data-testid="stAppViewContainer"] .block-container .stTextInput>div>div>input:focus {
-    box-shadow:0 0 0 2px var(--focus) inset!important;border-color:var(--focus)!important;
-  }
-  [data-testid="stAppViewContainer"] .block-container [data-baseweb="input"] input::placeholder,
-  [data-testid="stAppViewContainer"] .block-container .stTextInput input::placeholder,
-  [data-testid="stAppViewContainer"] .block-container .stNumberInput input::placeholder,
-  [data-testid="stAppViewContainer"] .block-container textarea::placeholder{
-    color: color-mix(in oklab, var(--fg) 70%, transparent)!important; opacity:1!important;
-  }
-  [data-testid="stAppViewContainer"] .block-container .stRadio label,
-  [data-testid="stAppViewContainer"] .block-container .stCheckbox label,
-  [data-testid="stAppViewContainer"] .block-container .stToggle label{ color:var(--fg)!important; opacity:1!important; }
-
-  /* 버튼 */
-  [data-testid="stAppViewContainer"] .block-container button[kind="primary"]{
-    background:var(--primary)!important;border:1px solid var(--primary)!important;color:BTN_PRIMARY_TEXT!important;font-weight:800!important;
-  }
-  [data-testid="stAppViewContainer"] .block-container button[kind="secondary"]{
-    background:var(--card)!important;border:1px solid var(--card-border)!important;color:var(--fg)!important;
-  }
-
-  /* 표 */
-  [data-testid="stAppViewContainer"] .block-container [data-testid="stDataFrame"] * { color:var(--fg)!important; opacity:1!important; }
-  [data-testid="stAppViewContainer"] .block-container [data-testid="stDataFrame"] div[role='grid']{ background:var(--card)!important;border:1px solid var(--card-border)!important; }
-  [data-testid="stAppViewContainer"] .block-container [data-testid="stDataFrame"] div[role='columnheader']{ background:var(--hover)!important;font-weight:800!important;border-bottom:1px solid var(--grid)!important; }
-  [data-testid="stAppViewContainer"] .block-container [data-testid="stDataFrame"] div[role='gridcell']{ border-bottom:1px solid var(--grid)!important; }
-  [data-testid="stAppViewContainer"] .block-container [data-testid="stDataFrame"] div[role='row']:hover{ background:var(--hover)!important; }
-
-  /* iframe */
-  [data-testid="stAppViewContainer"] .block-container .card iframe,
-  [data-testid="stAppViewContainer"] .block-container .stIframe iframe {
-    border:1px solid var(--card-border)!important;border-radius:10px!important;box-shadow:0 1px 6px rgba(0,0,0,.10)!important;
-  }
-
-  /* 회색 바램 방지 */
-  [data-testid="stAppViewContainer"] .block-container [data-testid="stMarkdownContainer"] p,
-  [data-testid="stAppViewContainer"] .block-container [data-testid="stMarkdownContainer"] li,
-  [data-testid="stAppViewContainer"] .block-container [data-testid="stMarkdownContainer"] span,
-  [data-testid="stAppViewContainer"] .block-container [data-testid="stCaptionContainer"],
-  [data-testid="stAppViewContainer"] .block-container .stCaption,
-  [data-testid="stAppViewContainer"] .block-container .markdown-text-container p,
-  [data-testid="stAppViewContainer"] .block-container .markdown-text-container li,
-  [data-testid="stAppViewContainer"] .block-container .stAlert p,
-  [data-testid="stAppViewContainer"] .block-container .stAlert div,
-  [data-testid="stAppViewContainer"] .block-container .stMetric label,
-  [data-testid="stAppViewContainer"] .block-container label,
-  [data-testid="stAppViewContainer"] .block-container small {
-    color: var(--fg) !important; opacity: 1 !important;
-  }
-  [data-testid="stAppViewContainer"] .block-container button,
-  [data-testid="stAppViewContainer"] .block-container button * { color: inherit !important; opacity: 1 !important; }
-</style>
-""".replace("BACKFILL_VARS", vars_blob) \
-   .replace("PILL_BLUE_BG", pill_blue_bg).replace("PILL_BLUE_BD", pill_blue_bd).replace("PILL_BLUE_FG", pill_blue_fg) \
-   .replace("PILL_GREEN_BG", pill_green_bg).replace("PILL_GREEN_BD", pill_green_bd).replace("PILL_GREEN_FG", pill_green_fg) \
-   .replace("PILL_YELLOW_BG", pill_yellow_bg).replace("PILL_YELLOW_BD", pill_yellow_bd).replace("PILL_YELLOW_FG", pill_yellow_fg) \
-   .replace("BTN_PRIMARY_TEXT", btn_primary_text)
+    css = f"""
+    <style>
+      /* ===== 메인 컨테이너 전용 ===== */
+      [data-testid="stAppViewContainer"] .block-container {{
+        {vars_blob}
+        background:var(--bg)!important;
+        color:var(--fg)!important;
+      }}
+      [data-testid="stAppViewContainer"] .block-container h1,
+      [data-testid="stAppViewContainer"] .block-container h2,
+      [data-testid="stAppViewContainer"] .block-container h3,
+      [data-testid="stAppViewContainer"] .block-container h4,
+      [data-testid="stAppViewContainer"] .block-container h5,
+      [data-testid="stAppViewContainer"] .block-container h6 {{
+        color:var(--fg)!important;
+      }}
+      [data-testid="stAppViewContainer"] .block-container a {{
+        color:var(--link)!important;
+      }}
+      [data-testid="stAppViewContainer"] .block-container a:hover {{
+        color:var(--link-hover)!important;
+      }}
+      [data-testid="stAppViewContainer"] .block-container .card {{
+        background:var(--card)!important;
+        border:1px solid var(--card-border)!important;
+        border-radius:14px;
+        padding:.85rem;
+      }}
+      [data-testid="stAppViewContainer"] .block-container button[kind="primary"] {{
+        background:var(--primary)!important;
+        border:1px solid var(--primary)!important;
+        color:{btn_primary_text}!important;
+        font-weight:800!important;
+      }}
+      [data-testid="stAppViewContainer"] .block-container button[kind="secondary"] {{
+        background:var(--card)!important;
+        border:1px solid var(--card-border)!important;
+        color:var(--fg)!important;
+      }}
+      [data-testid="stAppViewContainer"] .block-container [data-baseweb="input"] input,
+      [data-testid="stAppViewContainer"] .block-container .stTextInput input {{
+        background:var(--card)!important;
+        color:var(--fg)!important;
+        border:1px solid var(--card-border)!important;
+      }}
+      [data-testid="stAppViewContainer"] .block-container .stDataFrame * {{
+        color:var(--fg)!important;
+      }}
+    </style>
+    """
 
     st.markdown(css, unsafe_allow_html=True)
-
-def _inject_alert_center():
-    # 기존 그대로 유지
-    st.markdown("""
-    <div id="envy-alert-root" style="position:fixed;top:16px;right:16px;z-index:999999;pointer-events:none;"></div>
-    <style>
-      .envy-toast{min-width:220px;max-width:420px;margin:8px 0;padding:.7rem 1rem;border-radius:12px;color:#fff;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.25);opacity:0;transform:translateY(-6px);transition:opacity .2s ease, transform .2s ease;}
-      .envy-toast.show{opacity:1;transform:translateY(0)}
-      .envy-info{background:#2563eb}.envy-warn{background:#d97706}.envy-error{background:#dc2626}
-    </style>
-    <script>
-      (function(){
-        const root = document.getElementById('envy-alert-root');
-        function toast(level, text){
-          const el = document.createElement('div');
-          el.className='envy-toast envy-'+(level||'info'); el.textContent=text||'알림';
-          el.style.pointerEvents='auto'; root.appendChild(el);
-          requestAnimationFrame(()=>el.classList.add('show'));
-          setTimeout(()=>{el.classList.remove('show'); setTimeout(()=>el.remove(), 300);}, 5000);
-        }
-        window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='alert'){toast(d.level,d.msg);} },false);
-        let heard=false; window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='title'){heard=true;}},false);
-        setTimeout(()=>{ if(!heard){ toast('warn','데이터랩 연결이 지연되고 있어요.'); } },8000);
-      })();
-    </script>
-    """, unsafe_allow_html=True)
 
 # =========================
 # 2) Responsive
