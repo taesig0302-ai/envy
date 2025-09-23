@@ -1,13 +1,20 @@
 # -*- coding: utf-8 -*-
 # ENVY — Season 1 (Dual Proxy Edition, Radar tabs=국내/해외, Rakuten scope radio removed, row1 ratio 8:5:3)
-# 이번 버전:
+# ⚠️ 중요 운영 포인트 (Season 1 규약):
+# - 11번가(모바일) 임베드는 반드시 프록시(Cloudflare Worker) 경유. 코드 상단/설명에 PROXY 강제 및 PROXY_URL 필요 배너 포함.
+# - PROXY_URL(Cloudflare Worker v2, ?url= 방식)만 앱에서 사용. 쿠키·API Key는 앱에 저장하지 말고 Worker Secrets에만.
+# - 프록시 기본 주소(Cloudflare Worker): https://envy-proxy.taesig0302.workers.dev/  (필수로 설정/유지)
+# - 네이버 데이터랩 엔드포인트: 
+#   • /shoppingInsight/getCategoryKeywordRank.naver  (cid, timeUnit=date, startDate, endDate, device, age, gender, page=1, count=20)
+#   • /shoppingInsight/getKeywordClickTrend.naver    (cid, timeUnit=date, startDate, endDate, device, age, gender, keyword)
+# 이번 버전 변경점:
 # - 상품명 생성기 카드 내부 탭: [생성기 | 금칙어 관리]
 # - 외부 금칙어 섹션은 유지(선택). 동일 세션키 공유로 동기화됨.
 # - 사이드바: 다크+번역기 토글 / 번역기 ON: 번역기 펼침·계산기 접힘, OFF: 계산기 펼침·번역기 접힘
 # - 다크모드 시안성 패치(메인영역 위젯 전부 색상 반전) + 라이트 모드 대비 강화
 # - 네이버 키워드도구 실패 시 간단 디버그 메시지 표시
 # - [패치] 1행: 카테고리/레이더 위치 교체
-# - [패치] Light: 본문 버튼 파란배경+흰색 폰트 고정
+# - [패치] Light: 본문 컬러박스( pill ) 파란배경 + 흰색 폰트 고정
 # - [패치] Dark: (레이더) 디바이스/키워드 소스, (카테고리) 카테고리/단위만 검정 폰트 강제
 
 import base64, time, re, math, json, io, datetime as dt
@@ -191,7 +198,6 @@ def _inject_css():
       [data-testid="stAppViewContainer"] .stTextInput input {{
         color:{fg} !important;
       }}
-      /* 플레이스홀더도 보이게 */
       [data-testid="stAppViewContainer"] input::placeholder {{
         color:{fg_sub} !important; opacity:.9 !important;
       }}
@@ -205,7 +211,6 @@ def _inject_css():
       }}
 
       /* ===== 버튼 — 라이트/다크 공통 파란배경+흰색 텍스트 고정 ===== */
-      /* 일반 버튼 (st.button / st.download_button 기본 커버) */
       [data-testid="stAppViewContainer"] .stButton > button,
       [data-testid="stAppViewContainer"] [data-testid="baseButton-secondary"],
       [data-testid="stAppViewContainer"] [data-testid="baseButton-primary"],
@@ -224,7 +229,7 @@ def _inject_css():
         border-color:rgba(255,255,255,.18) !important;
       }}
 
-      /* 링크 버튼(st.link_button)까지 강제 — 일부 버전 호환용 다중 셀렉터 */
+      /* 링크 버튼(st.link_button) */
       [data-testid="stAppViewContainer"] a[role="button"],
       [data-testid="stAppViewContainer"] a[data-testid="stLinkButton"],
       [data-testid="stAppViewContainer"] .stLinkButton a {{
@@ -254,11 +259,20 @@ def _inject_css():
         color:{fg} !important;
       }}
 
-      /* 메인 컬러박스(pill) — 흰색 폰트 고정 */
-      [data-testid="stAppViewContainer"] .pill,
-      [data-testid="stAppViewContainer"] .pill * {{
-        color:#fff !important;
-      }}
+      /* ===== 본문 컬러박스(pill) ===== */
+      /* 라이트모드: 파란 배경 + 흰색 폰트 고정 */
+      {("""[data-testid='stAppViewContainer'] .pill,
+          [data-testid='stAppViewContainer'] .pill *{
+            background:#2563eb !important;
+            color:#fff !important;
+            border:1px solid rgba(255,255,255,.18) !important;
+            border-radius:10px !important;
+            font-weight:700 !important;
+          }""" if theme == "light" else
+          """[data-testid='stAppViewContainer'] .pill,
+             [data-testid='stAppViewContainer'] .pill *{
+               color:#fff !important;
+             }""")}
 
       /* 사이드바 컬러박스 — 검정 폰트 고정 */
       [data-testid="stSidebar"] .pill,
@@ -272,15 +286,14 @@ def _inject_css():
       }}
 
       /* ===== 다크 모드에서 특정 블록만 검정 폰트 강제 ===== */
-      {("""
-      [data-testid='stAppViewContainer'] .force-black,
-      [data-testid='stAppViewContainer'] .force-black *{
-        color:#111 !important;
-        -webkit-text-fill-color:#111 !important;
-        text-shadow:none !important;
-        filter:none !important;
-        opacity:1 !important;
-      }""" if theme == "dark" else "")}
+      {("""[data-testid='stAppViewContainer'] .force-black,
+          [data-testid='stAppViewContainer'] .force-black *{
+            color:#111 !important;
+            -webkit-text-fill-color:#111 !important;
+            text-shadow:none !important;
+            filter:none !important;
+            opacity:1 !important;
+          }""" if theme == "dark" else "")}
     </style>
     """, unsafe_allow_html=True)
 
@@ -312,7 +325,7 @@ def _get_view_bin():
         return 3
 
 # =========================
-# 3) Naver DataLab — 카테고리 Top20 & 트렌드
+# 3) Naver DataLab — 카테고리 Top20 & 트렌드 (간단 탭용)
 # =========================
 def section_datalab():
     st.header("카테고리 ➔ 키워드 Top20 & 트렌드")
@@ -329,7 +342,7 @@ def section_datalab():
         unit = st.selectbox("단위", ["date", "week", "month"], key="datalab_unit")
     with col3:
         months = st.slider("조회기간(개월)", 1, 12, 3, key="datalab_months")
-    # 이후 API 호출 부분 그대로...
+    # 이후 API 호출 부분은 생략(이 섹션은 메인 카드는 아래 7)에서 구현)
 
 # =========================
 # 4) Sidebar (theme + translator toggle + calculators)
@@ -660,11 +673,13 @@ def section_korea_ui():
     st.caption("※ 검색지표는 네이버 검색광고 API(키워드도구) 기준, 상품수는 네이버쇼핑 ‘전체’ 탭 크롤링 기준입니다.")
     c1, c2, c3 = st.columns([1,1,1])
 
+    # months 슬라이더는 기존 컬러 유지
+    with c1:
+        months = st.slider("분석기간(개월, 표시용)", 1, 6, 3)
+
     # 다크 모드일 때, 디바이스/키워드 소스 컨트롤만 검정 폰트로 보이도록 래퍼
     if is_dark:
         st.markdown("<div class='force-black'>", unsafe_allow_html=True)
-    with c1:
-        months = st.slider("분석기간(개월, 표시용)", 1, 6, 3)
     with c2:
         device = st.selectbox("디바이스", ["all","pc","mo"], index=0)
     with c3:
@@ -731,7 +746,7 @@ def section_korea_ui():
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
-# 7) DataLab Trend (Open API) + Category → Top20 UI (+ Direct Trend)
+# 7) DataLab Trend + Category → Top20 UI (+ Direct Trend)
 # =========================
 @st.cache_data(ttl=1800, show_spinner=False)
 def _datalab_trend(
@@ -824,10 +839,12 @@ def section_category_keyword_lab():
         cat = st.selectbox("카테고리", list(SEED_MAP.keys()))
     with cB:
         time_unit = st.selectbox("단위", ["week", "month"], index=0)
-    with cC:
-        months = st.slider("조회기간(개월)", 1, 12, 3)
     if is_dark:
         st.markdown("</div>", unsafe_allow_html=True)
+
+    # months 슬라이더는 기존 컬러 유지
+    with cC:
+        months = st.slider("조회기간(개월)", 1, 12, 3)
 
     start = (dt.date.today() - dt.timedelta(days=30 * months)).strftime("%Y-%m-%d")
     end   = (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
@@ -1231,7 +1248,7 @@ def section_title_generator():
 # 10) 11번가 — 항상 열림 + "새로고침" 버튼 + 외부 스크롤 제거(높이 940)
 # ─────────────────────────────────────────────────────────
 def section_11st():
-    """11번가 임베드: 항상 열림, 새로고침 버튼, 겉 스크롤 제거, 높이 940px"""
+    """11번가 임베드: 반드시 프록시 경유, 항상 열림, 새로고침 버튼, 겉 스크롤 제거, 높이 940px"""
     import time
     try:
         from urllib.parse import quote as _q
@@ -1315,7 +1332,7 @@ vwbin = _get_view_bin()
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
 # 1행 — [패치] 카테고리(탭) ↔ 레이더 위치 교체
-row1_a, row1_b, row1_c = st.columns([4, 8, 4], gap="medium")
+row1_a, row1_b, row1_c = st.columns([8, 4, 4], gap="medium")
 with row1_a:
     tab_cat, tab_direct = st.tabs(["카테고리", "직접 입력"])
     with tab_cat:
