@@ -93,39 +93,8 @@ STOP_PRESETS = {
     }
 }
 
-# =========================
-# 1) UI defaults & CSS  ← 이 블록 통째로 교체 (사이드바/로고 무수정)
-# =========================
-def _ensure_session_defaults():
-    ss = st.session_state
-    ss.setdefault("theme","light")
-    ss.setdefault("fx_base","USD")
-    ss.setdefault("sale_foreign",1.00)
-    ss.setdefault("m_base","USD")
-    ss.setdefault("purchase_foreign",0.00)
-    ss.setdefault("card_fee_pct",4.00)
-    ss.setdefault("market_fee_pct",14.00)
-    ss.setdefault("shipping_won",0.0)
-    ss.setdefault("margin_mode","퍼센트")
-    ss.setdefault("margin_pct",10.00)
-    ss.setdefault("margin_won",10000.0)
-    # Stopwords manager 상태
-    ss.setdefault("STOP_GLOBAL", list(STOPWORDS_GLOBAL))
-    ss.setdefault("STOP_BY_CAT", dict(STOPWORDS_BY_CAT))
-    ss.setdefault("STOP_WHITELIST", [])
-    ss.setdefault("STOP_REPLACE", ["무배=> ", "무료배송=> ", "정품=> "])
-    ss.setdefault("STOP_AGGR", False)
-    # Rakuten genre map
-    ss.setdefault("rk_genre_map", {
-        "전체(샘플)": "100283","뷰티/코스메틱": "100283","의류/패션": "100283","가전/디지털": "100283",
-        "가구/인테리어": "100283","식품": "100283","생활/건강": "100283","스포츠/레저": "100283","문구/취미": "100283",
-    })
-
-def _toggle_theme():
-    st.session_state["theme"] = "dark" if st.session_state.get("theme","light")=="light" else "light"
-
 def _inject_css():
-    # 메인 컨테이너에만 적용. 사이드바(stSidebar)와 로고는 전혀 영향 없음.
+    # 메인 컨테이너 색 대비만 적용 (사이드바 전역 스타일은 손대지 않음)
     theme = st.session_state.get("theme","light")
 
     if theme == "dark":
@@ -142,27 +111,12 @@ def _inject_css():
   [data-testid="stAppViewContainer"] .block-container h5,
   [data-testid="stAppViewContainer"] .block-container h6{ color:#ffffff !important; }
 
-  /* 회색으로 바래는 텍스트 강제 화이트 */
-  [data-testid="stAppViewContainer"] .block-container [data-testid="stMarkdownContainer"],
-  [data-testid="stAppViewContainer"] .block-container [data-testid="stMarkdownContainer"] *,
-  [data-testid="stAppViewContainer"] .block-container .stCaption,
-  [data-testid="stAppViewContainer"] .block-container [data-testid="stCaptionContainer"],
-  [data-testid="stAppViewContainer"] .block-container label,
-  [data-testid="stAppViewContainer"] .block-container small,
-  [data-testid="stAppViewContainer"] .block-container .stAlert *{
-    color:#ffffff !important; opacity:1 !important;
-  }
-
-  /* 링크 색상(가독성 확보) */
   [data-testid="stAppViewContainer"] .block-container a{ color:#ffd84d !important; }
   [data-testid="stAppViewContainer"] .block-container a:hover{ color:#ffb800 !important; }
 
-  /* 카드 배경만 살짝 톤다운 */
   [data-testid="stAppViewContainer"] .block-container .card{
     background:#111418 !important; border:1px solid #2a2a2a !important;
   }
-
-  /* 표 텍스트 회색 방지 */
   [data-testid="stAppViewContainer"] .block-container [data-testid="stDataFrame"] *{
     color:#ffffff !important; opacity:1 !important;
   }
@@ -188,39 +142,26 @@ def _inject_css():
   [data-testid="stAppViewContainer"] .block-container .card{
     background:#ffffff !important; border:1px solid rgba(0,0,0,.12) !important;
   }
-
   [data-testid="stAppViewContainer"] .block-container [data-testid="stDataFrame"] *{
     color:#111111 !important; opacity:1 !important;
   }
 </style>
 """, unsafe_allow_html=True)
 
-def _inject_alert_center():
-    # 기존 코드 유지 (사이드바/로고 무관)
+    # ====== 사이드바 "로고 크기" & "스크롤바 숨김"만 복구 (다른 건 절대 변경 X) ======
     st.markdown("""
-    <div id="envy-alert-root" style="position:fixed;top:16px;right:16px;z-index:999999;pointer-events:none;"></div>
-    <style>
-      .envy-toast{min-width:220px;max-width:420px;margin:8px 0;padding:.7rem 1rem;border-radius:12px;color:#fff;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.25);opacity:0;transform:translateY(-6px);transition:opacity .2s ease, transform .2s ease;}
-      .envy-toast.show{opacity:1;transform:translateY(0)}
-      .envy-info{background:#2563eb}.envy-warn{background:#d97706}.envy-error{background:#dc2626}
-    </style>
-    <script>
-      (function(){
-        const root = document.getElementById('envy-alert-root');
-        function toast(level, text){
-          const el = document.createElement('div');
-          el.className='envy-toast envy-'+(level||'info'); el.textContent=text||'알림';
-          el.style.pointerEvents='auto'; root.appendChild(el);
-          requestAnimationFrame(()=>el.classList.add('show'));
-          setTimeout(()=>{el.classList.remove('show'); setTimeout(()=>el.remove(), 300);}, 5000);
-        }
-        window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='alert'){toast(d.level,d.msg);} },false);
-        let heard=false; window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='title'){heard=true;}},false);
-        setTimeout(()=>{ if(!heard){ toast('warn','데이터랩 연결이 지연되고 있어요.'); } },8000);
-      })();
-    </script>
-    """, unsafe_allow_html=True)
+<style>
+  /* 로고를 정확히 72x72로, 비율 깨짐 방지 */
+  [data-testid="stSidebar"] .logo-circle{ width:72px; height:72px; border-radius:50%;
+    overflow:hidden; margin:.2rem auto .4rem auto; box-shadow:0 2px 8px rgba(0,0,0,.12);
+    border:1px solid rgba(0,0,0,.06); }
+  [data-testid="stSidebar"] .logo-circle img{ width:100%; height:100%; object-fit:cover; }
 
+  /* 사이드바 스크롤바 감추기 (기능은 유지) */
+  [data-testid="stSidebar"] { scrollbar-width: none; }            /* Firefox */
+  [data-testid="stSidebar"] ::-webkit-scrollbar{ display:none; }  /* WebKit */
+</style>
+""", unsafe_allow_html=True)
 
 # =========================
 # 2) Responsive
