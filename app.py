@@ -1263,12 +1263,14 @@ def section_title_generator():
 # 10) 11번가 — 항상 열림 + "새로고침" 버튼 + 외부 스크롤 제거(높이 940)
 # ─────────────────────────────────────────────────────────
 def section_11st():
-    """11번가 임베드: 항상 열림, 새로고침 버튼만, 겉 스크롤 제거, 높이 940px"""
+    """11번가 임베드: 항상 열림, 새로고침 버튼, 겉 스크롤 제거, 높이 940px"""
     import time
     try:
         from urllib.parse import quote as _q
-    except Exception:  # 혹시 모듈 이슈 대비
-        def _q(s, safe=None): return s
+    except Exception:
+        # 일부 환경 보정
+        def _q(s, safe=None): 
+            return s
 
     st.markdown(
         '<div class="card main"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>',
@@ -1278,18 +1280,16 @@ def section_11st():
     # 새로고침용 논스(iframe 강제 리로드)
     ss = st.session_state
     ss.setdefault("__11st_nonce", int(time.time()))
-
-    # 상단에 새로고침 버튼
     if st.button("🔄 새로고침 (11번가)", key="btn_refresh_11st"):
         ss["__11st_nonce"] = int(time.time())
 
     # 프록시 우선 사용, 없으면 원본 직접
     base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
-    raw_url = _11st_abest_url()
+    raw_url = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
     src_raw = raw_url if not base_proxy else f"{base_proxy}/?url={_q(raw_url, safe=':/?&=%')}"
     src = f"{src_raw}{'&' if '?' in src_raw else '?'}r={ss['__11st_nonce']}"
 
-    # 겉 래퍼 스크롤 제거 + iframe만 스크롤
+    # 겉 래퍼 스크롤 제거 + iframe만 보여주기
     html = f"""
     <style>
       .embed-11st-wrap {{
