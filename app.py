@@ -307,9 +307,53 @@ def _sidebar():
         pass
 
     with st.sidebar:
-        # ——— 로고: 원형 64px 고정 ———
+        # ——— 사이드바 라이트톤 강제 + pill 복구(사이즈/스크롤 건드리지 않음) ———
         st.markdown("""
         <style>
+          /* 라이트톤 강제: 다크 영향 차단. width/height/overflow는 그대로 둔다 */
+          [data-testid="stSidebar"]{
+            background:#f6f8fb !important;
+            color:#111111 !important;
+            filter:none !important; -webkit-filter:none !important;
+            color-scheme: light !important;
+          }
+          [data-testid="stSidebar"] *,
+          [data-testid="stSidebar"] .stMarkdown,
+          [data-testid="stSidebar"] .stMarkdown *{
+            color:#111111 !important;
+            filter:none !important; -webkit-filter:none !important;
+          }
+          [data-testid="stSidebar"] input::placeholder{ color:#4b5563 !important; opacity:.9 !important; }
+
+          /* 사이드바 카드/입력 박스 */
+          [data-testid="stSidebar"] .card{
+            background:#ffffff !important;
+            border:1px solid rgba(0,0,0,.06) !important;
+            border-radius:14px !important;
+            box-shadow:0 1px 6px rgba(0,0,0,.08) !important;
+          }
+          [data-testid="stSidebar"] [data-baseweb="select"] > div,
+          [data-testid="stSidebar"] [data-baseweb="input"] input,
+          [data-testid="stSidebar"] .stNumberInput input,
+          [data-testid="stSidebar"] .stTextInput input{
+            background:#ffffff !important; color:#111111 !important;
+          }
+
+          /* pill 컬러박스: 사이드바 전용 */
+          [data-testid="stSidebar"] .pill{
+            display:block; width:100%;
+            border-radius:12px; padding:.70rem .95rem;
+            font-weight:800; letter-spacing:.1px;
+            box-shadow:0 2px 10px rgba(0,0,0,.08);
+            border:1px solid transparent; margin:.35rem 0 .5rem 0;
+          }
+          [data-testid="stSidebar"] .pill span{ opacity:.8; font-weight:700; }
+          [data-testid="stSidebar"] .pill-green  { background:linear-gradient(180deg,#d1fae5 0%,#a7f3d0 100%); border-color:rgba(16,185,129,.35); color:#065f46; }
+          [data-testid="stSidebar"] .pill-blue   { background:linear-gradient(180deg,#dbeafe 0%,#bfdbfe 100%);  border-color:rgba(59,130,246,.35); color:#1e3a8a; }
+          [data-testid="stSidebar"] .pill-yellow { background:linear-gradient(180deg,#fef3c7 0%,#fde68a 100%);  border-color:rgba(234,179,8,.35);  color:#7c2d12; }
+          [data-testid="stSidebar"] .pill-warn   { background:linear-gradient(180deg,#fee2e2 0%,#fecaca 100%); border-color:rgba(239,68,68,.35);  color:#7f1d1d; }
+
+          /* 로고 원형(네 코드 유지) */
           [data-testid="stSidebar"] .logo-circle{
             width:64px;height:64px;border-radius:9999px;overflow:hidden;
             margin:.35rem auto .6rem auto; box-shadow:0 2px 8px rgba(0,0,0,.12);
@@ -321,6 +365,7 @@ def _sidebar():
         </style>
         """, unsafe_allow_html=True)
 
+        # ——— 로고 ———
         lp = Path(__file__).parent / "logo.png"
         if lp.exists():
             b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
@@ -377,7 +422,7 @@ def _sidebar():
                 won = FX_DEFAULT[fx_base]*sale_foreign
                 st.markdown(
                     f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b>'
-                    f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[fx_base]["symbol"]})</span></div>',
+                    f'<span> ({CURRENCIES[fx_base]["symbol"]})</span></div>',
                     unsafe_allow_html=True
                 )
                 st.caption(f"환율 기준: {FX_DEFAULT[fx_base]:,.2f} ₩/{CURRENCIES[fx_base]['unit']}")
@@ -422,7 +467,7 @@ def _sidebar():
                 st.markdown(f'<div class="pill pill-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>', unsafe_allow_html=True)
 
         # 토글 상태에 따라 펼침
-        if show_tr:
+        if st.session_state.get("__show_translator", False):
             translator_block(expanded=True); fx_block(expanded=False); margin_block(expanded=False)
         else:
             fx_block(expanded=True); margin_block(expanded=True); translator_block(expanded=False)
