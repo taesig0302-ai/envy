@@ -339,6 +339,8 @@ def _sidebar():
           [data-testid="stSidebar"] .pill-green{background:#d1fae5;border-color:#10b981;color:#065f46;}
           [data-testid="stSidebar"] .pill-blue{background:#dbeafe;border-color:#3b82f6;color:#1e3a8a;}
           [data-testid="stSidebar"] .pill-yellow{background:#fef3c7;border-color:#eab308;color:#7c2d12;}
+          [data-testid="stSidebar"] * { color:#111111 !important; }
+          [data-testid="stSidebar"] .pill { background:#fef3c7; border:1px solid #eab308; color:#7c2d12; }
         </style>
         """, unsafe_allow_html=True)
 
