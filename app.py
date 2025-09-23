@@ -126,27 +126,27 @@ def _ensure_session_defaults():
     ss.setdefault("STOP_AGGR", False)
     # Rakuten genre map
     ss.setdefault("rk_genre_map", {
-        "전체(샘플)": "100283","뷰티/코스메틱": "100283","의류/패션": "100283","가전/디지털": "100283",
-        "가구/인테리어": "100283","식품": "100283","생활/건강": "100283","스포츠/레저": "100283","문구/취미": "100283",
+        "전체(샘플)": "100283", "뷰티/코스메틱": "100283", "의류/패션": "100283", "가전/디지털": "100283",
+        "가구/인테리어": "100283", "식품": "100283", "생활/건강": "100283", "스포츠/레저": "100283", "문구/취미": "100283",
     })
 
 def _toggle_theme():
     st.session_state["theme"] = "dark" if st.session_state.get("theme", "light") == "light" else "light"
 
 def _inject_css():
-    """메인 뷰만 색상 오버라이드(사이드바 제외). 버튼=흰색, 사이드바 컬러박스=검정 고정."""
+    """메인은 테마 색상, 사이드바 컬러박스는 항상 검정 폰트.
+       CSV/링크 버튼은 파란 배경 + 흰 글자 고정."""
     theme = st.session_state.get("theme", "light")
 
     # 팔레트
     if theme == "dark":
-        bg = "#0e1117"       # 메인 배경
-        fg = "#e6edf3"       # 본문/헤딩 기본
-        fg_sub = "#b6c2cf"   # 보조 텍스트
+        bg = "#0e1117"        # 메인 배경
+        fg = "#e6edf3"        # 본문/헤딩 기본
+        fg_sub = "#b6c2cf"    # 보조 텍스트
         card_bg = "#11151c"
         border = "rgba(255,255,255,.08)"
         btn_bg = "#2563eb"
         btn_bg_hover = "#1e3fae"
-        chip_bg = "#1f2937"
     else:
         bg = "#ffffff"
         fg = "#111111"
@@ -155,7 +155,6 @@ def _inject_css():
         border = "rgba(0,0,0,.06)"
         btn_bg = "#2563eb"
         btn_bg_hover = "#1e3fae"
-        chip_bg = "#f3f4f6"
 
     st.markdown(f"""
     <style>
@@ -165,7 +164,7 @@ def _inject_css():
         color:{fg} !important;
       }}
 
-      /* 헤딩/본문 색 */
+      /* 헤딩/본문 글자 */
       [data-testid="stAppViewContainer"] h1,
       [data-testid="stAppViewContainer"] h2,
       [data-testid="stAppViewContainer"] h3,
@@ -181,14 +180,14 @@ def _inject_css():
         color:{fg} !important;
       }}
 
-      /* 입력/셀렉트/숫자필드 텍스트 */
+      /* 입력/선택 필드 */
       [data-testid="stAppViewContainer"] [data-baseweb="select"] *,
       [data-testid="stAppViewContainer"] [data-baseweb="input"] input,
       [data-testid="stAppViewContainer"] .stNumberInput input,
       [data-testid="stAppViewContainer"] .stTextInput input {{ color:{fg} !important; }}
       [data-testid="stAppViewContainer"] input::placeholder {{ color:{fg_sub} !important; opacity:.9 !important; }}
 
-      /* 카드 */
+      /* 카드 공통 */
       [data-testid="stAppViewContainer"] .card {{
         background:{card_bg};
         border:1px solid {border};
@@ -196,15 +195,19 @@ def _inject_css():
         box-shadow:0 1px 6px rgba(0,0,0,.12);
       }}
 
-      /* 메인 영역 버튼: 항상 흰색 폰트 */
-      [data-testid="stAppViewContainer"] .stButton>button {{
+      /* 메인 버튼(일반/다운로드/링크): 파란 배경 + 흰 글자 고정 */
+      [data-testid="stAppViewContainer"] .stButton>button,
+      [data-testid="stAppViewContainer"] .stDownloadButton>button,
+      [data-testid="stAppViewContainer"] .stLinkButton>button {{
         background:{btn_bg} !important;
         color:#ffffff !important;
         border:1px solid rgba(255,255,255,.08) !important;
         border-radius:10px !important;
         font-weight:700 !important;
       }}
-      [data-testid="stAppViewContainer"] .stButton>button:hover {{
+      [data-testid="stAppViewContainer"] .stButton>button:hover,
+      [data-testid="stAppViewContainer"] .stDownloadButton>button:hover,
+      [data-testid="stAppViewContainer"] .stLinkButton>button:hover {{
         background:{btn_bg_hover} !important;
         color:#ffffff !important;
         border-color:rgba(255,255,255,.15) !important;
@@ -217,17 +220,20 @@ def _inject_css():
       /* 데이터프레임 텍스트 */
       [data-testid="stAppViewContainer"] [data-testid="stDataFrame"] * {{ color:{fg} !important; }}
 
-      /* 여백 */
+      /* 여백 보정 */
       [data-testid="stAppViewContainer"] h2,h3 {{ margin-top:.3rem !important; }}
 
-      /* ===== 사이드바: 컬러박스(환산 금액/원가/판매가/순이익 등) 글자 = 검정 고정 ===== */
+      /* ===== 사이드바 ===== */
+      [data-testid="stSidebar"] {{ color:{fg} !important; }}
+
+      /* 사이드바 컬러박스(.pill*)는 항상 검정 폰트 */
       [data-testid="stSidebar"] .pill,
       [data-testid="stSidebar"] .pill * {{
         color:#111111 !important;
         -webkit-text-fill-color:#111111 !important;
+        text-shadow:none !important;
+        filter:none !important;
       }}
-
-      /* 혹시 이전에 흰색으로 강제된 규칙이 있으면 무효화 (더 높은 우선순위) */
       [data-testid="stSidebar"] .card .pill,
       [data-testid="stSidebar"] .card .pill * {{
         color:#111111 !important;
