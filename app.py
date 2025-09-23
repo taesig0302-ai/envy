@@ -1260,45 +1260,45 @@ def section_title_generator():
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
-# 10) 기타 카드 — 11번가 (항상 열림 + 수동 새로고침)
+# 10) 11번가 — 항상 열림 + 새로고침 버튼(iframe만 리로드) + 높이 940
 # =========================
-
 def _11st_abest_url():
-    # 11번가 모바일 아마존 베스트 원본 URL
+    # 11번가 모바일 아마존 베스트 원본 URL (고정)
     return "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
 
 def section_11st():
-    """11번가 임베드: 항상 열림 + 새로고침 버튼 + 높이 940 (앱 리런 없이 iframe만 리로드)"""
+    """11번가 임베드: 항상 열림, 새로고침 버튼만, 높이 940px"""
     import time
     try:
         from urllib.parse import quote as _q
     except Exception:
-        def _q(s, safe=None):  # 실패해도 끊기지 않도록
+        def _q(s, safe=None):  # 환경에 따라 urllib 미동작시 안전가드
             return s
 
-    st.markdown('<div class="card main"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>',
-                unsafe_allow_html=True)
+    st.markdown(
+        '<div class="card main"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>',
+        unsafe_allow_html=True
+    )
 
-    # 새로고침 논스 (iframe 캐시 무효화용)
     ss = st.session_state
     ss.setdefault("__11st_nonce", int(time.time()))
 
+    # 새로고침(iframe만 리로드; 앱 전체 rerun 없음)
     if st.button("🔄 새로고침 (11번가)", key="btn_refresh_11st"):
         ss["__11st_nonce"] = int(time.time())
 
     # 프록시가 있으면 경유, 없으면 원본 직접
-    base = (st.secrets.get("ELEVENST_PROXY", "") or ELEVENST_PROXY).rstrip("/") if "ELEVENST_PROXY" in globals() else (st.secrets.get("ELEVENST_PROXY","").rstrip("/"))
-    raw  = _11st_abest_url()
-    src_raw = raw if not base else f"{base}/?url={_q(raw, safe=':/?&=%')}"
-    # iframe만 리로드하도록 논스 파라미터 부착
+    base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
+    raw = _11st_abest_url()
+    src_raw = raw if not base_proxy else f"{base_proxy}/?url={_q(raw, safe=':/?&=%')}"
+    # iframe 캐시무효화를 위한 논스 부착
     src = f"{src_raw}{'&' if '?' in src_raw else '?'}reload={ss['__11st_nonce']}"
 
-    # 항상 열림, 높이 940
+    # 항상 열린 iframe (높이 940px, 카드 렌더 높이는 약간 여유)
     html = f'''
       <iframe src="{src}" loading="lazy"
               style="width:100%;height:940px;border:0;border-radius:10px"></iframe>
     '''
-    # height는 iframe보다 약간 크게(스크롤 여유)
     st.components.v1.html(html, height=960, scrolling=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
