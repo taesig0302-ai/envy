@@ -1294,12 +1294,12 @@ def section_11st():
     # iframe 캐시무효화를 위한 논스 부착
     src = f"{src_raw}{'&' if '?' in src_raw else '?'}reload={ss['__11st_nonce']}"
 
-    # 항상 열린 iframe (높이 940px, 카드 렌더 높이는 약간 여유)
+    # 항상 열린 iframe (높이 950px, 카드 렌더 높이는 약간 여유)
     html = f'''
       <iframe src="{src}" loading="lazy"
-              style="width:100%;height:940px;border:0;border-radius:10px"></iframe>
+              style="width:100%;height:950px;border:0;border-radius:10px"></iframe>
     '''
-    st.components.v1.html(html, height=960, scrolling=True)
+    st.components.v1.html(html, height=950, scrolling=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
