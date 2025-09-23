@@ -105,73 +105,60 @@ STOP_PRESETS = {
 # =========================
 # 1) UI defaults & CSS
 # =========================
+def _ensure_session_defaults():
+    ss = st.session_state
+    ss.setdefault("theme", "light")
+    ss.setdefault("fx_base", "USD")
+    ss.setdefault("sale_foreign", 1.00)
+    ss.setdefault("m_base", "USD")
+    ss.setdefault("purchase_foreign", 0.00)
+    ss.setdefault("card_fee_pct", 4.00)
+    ss.setdefault("market_fee_pct", 14.00)
+    ss.setdefault("shipping_won", 0.0)
+    ss.setdefault("margin_mode", "퍼센트")
+    ss.setdefault("margin_pct", 10.00)
+    ss.setdefault("margin_won", 10000.0)
+    # Stopwords manager 상태
+    ss.setdefault("STOP_GLOBAL", list(STOPWORDS_GLOBAL))
+    ss.setdefault("STOP_BY_CAT", dict(STOPWORDS_BY_CAT))
+    ss.setdefault("STOP_WHITELIST", [])
+    ss.setdefault("STOP_REPLACE", ["무배=> ", "무료배송=> ", "정품=> "])
+    ss.setdefault("STOP_AGGR", False)
+    # Rakuten genre map
+    ss.setdefault("rk_genre_map", {
+        "전체(샘플)": "100283","뷰티/코스메틱": "100283","의류/패션": "100283","가전/디지털": "100283",
+        "가구/인테리어": "100283","식품": "100283","생활/건강": "100283","스포츠/레저": "100283","문구/취미": "100283",
+    })
+
+def _toggle_theme():
+    st.session_state["theme"] = "dark" if st.session_state.get("theme", "light") == "light" else "light"
+
 def _inject_css():
-    """메인 뷰만 색상 오버라이드(사이드바 포함 컬러 pill 복구). 다크/라이트 대비 강화."""
+    """메인 뷰와 사이드바 모두에 색상 오버라이드. 다크/라이트 대비 강화 + 사이드바 컬러 pill 복구"""
     theme = st.session_state.get("theme", "light")
 
-    # 팔레트
     if theme == "dark":
-        bg = "#0e1117"       # 메인 배경
-        fg = "#e6edf3"       # 본문/헤딩 기본
-        fg_sub = "#b6c2cf"   # 보조 텍스트
-        card_bg = "#11151c"
-        border = "rgba(255,255,255,.08)"
-        btn_bg = "#2563eb"
-        btn_bg_hover = "#1e3fae"
-
-        # pill 컬러 (다크)
+        bg = "#0e1117"; fg = "#e6edf3"; fg_sub = "#b6c2cf"; card_bg = "#11151c"
+        border = "rgba(255,255,255,.08)"; btn_bg = "#2563eb"; btn_bg_hover = "#1e3fae"
         pill_shadow = "0 2px 10px rgba(0,0,0,.35)"
-        pill_green_bg  = "linear-gradient(180deg, #0f5132 0%, #0b3d26 100%)"
-        pill_green_bd  = "rgba(86, 207, 150, .35)"
-        pill_green_fg  = "#d1fae5"
-
-        pill_blue_bg   = "linear-gradient(180deg, #0b3b8a 0%, #092a63 100%)"
-        pill_blue_bd   = "rgba(147, 197, 253, .35)"
-        pill_blue_fg   = "#dbeafe"
-
-        pill_yellow_bg = "linear-gradient(180deg, #7a5c0a 0%, #5b4307 100%)"
-        pill_yellow_bd = "rgba(252, 211, 77, .35)"
-        pill_yellow_fg = "#fef3c7"
-
-        pill_warn_bg   = "linear-gradient(180deg, #5c1a1a 0%, #3d1010 100%)"
-        pill_warn_bd   = "rgba(248, 113, 113, .35)"
-        pill_warn_fg   = "#fee2e2"
-
+        pill_green_bg, pill_green_bd, pill_green_fg = "linear-gradient(180deg, #0f5132 0%, #0b3d26 100%)", "rgba(86,207,150,.35)", "#d1fae5"
+        pill_blue_bg, pill_blue_bd, pill_blue_fg   = "linear-gradient(180deg, #0b3b8a 0%, #092a63 100%)", "rgba(147,197,253,.35)", "#dbeafe"
+        pill_yellow_bg, pill_yellow_bd, pill_yellow_fg = "linear-gradient(180deg, #7a5c0a 0%, #5b4307 100%)", "rgba(252,211,77,.35)", "#fef3c7"
+        pill_warn_bg, pill_warn_bd, pill_warn_fg   = "linear-gradient(180deg, #5c1a1a 0%, #3d1010 100%)", "rgba(248,113,113,.35)", "#fee2e2"
     else:
-        bg = "#ffffff"
-        fg = "#111111"
-        fg_sub = "#4b5563"
-        card_bg = "#ffffff"
-        border = "rgba(0,0,0,.06)"
-        btn_bg = "#2563eb"
-        btn_bg_hover = "#1e3fae"
-
-        # pill 컬러 (라이트)
+        bg = "#ffffff"; fg = "#111111"; fg_sub = "#4b5563"; card_bg = "#ffffff"
+        border = "rgba(0,0,0,.06)"; btn_bg = "#2563eb"; btn_bg_hover = "#1e3fae"
         pill_shadow = "0 2px 10px rgba(0,0,0,.08)"
-        pill_green_bg  = "linear-gradient(180deg, #d1fae5 0%, #a7f3d0 100%)"
-        pill_green_bd  = "rgba(16, 185, 129, .35)"
-        pill_green_fg  = "#065f46"
-
-        pill_blue_bg   = "linear-gradient(180deg, #dbeafe 0%, #bfdbfe 100%)"
-        pill_blue_bd   = "rgba(59, 130, 246, .35)"
-        pill_blue_fg   = "#1e3a8a"
-
-        pill_yellow_bg = "linear-gradient(180deg, #fef3c7 0%, #fde68a 100%)"
-        pill_yellow_bd = "rgba(234, 179, 8, .35)"
-        pill_yellow_fg = "#7c2d12"
-
-        pill_warn_bg   = "linear-gradient(180deg, #fee2e2 0%, #fecaca 100%)"
-        pill_warn_bd   = "rgba(239, 68, 68, .35)"
-        pill_warn_fg   = "#7f1d1d"
+        pill_green_bg, pill_green_bd, pill_green_fg = "linear-gradient(180deg, #d1fae5 0%, #a7f3d0 100%)", "rgba(16,185,129,.35)", "#065f46"
+        pill_blue_bg, pill_blue_bd, pill_blue_fg   = "linear-gradient(180deg, #dbeafe 0%, #bfdbfe 100%)", "rgba(59,130,246,.35)", "#1e3a8a"
+        pill_yellow_bg, pill_yellow_bd, pill_yellow_fg = "linear-gradient(180deg, #fef3c7 0%, #fde68a 100%)", "rgba(234,179,8,.35)", "#7c2d12"
+        pill_warn_bg, pill_warn_bd, pill_warn_fg   = "linear-gradient(180deg, #fee2e2 0%, #fecaca 100%)", "rgba(239,68,68,.35)", "#7f1d1d"
 
     st.markdown(f"""
     <style>
-      /* 메인 컨테이너 */
       [data-testid="stAppViewContainer"] {{
-        background:{bg} !important;
-        color:{fg} !important;
+        background:{bg} !important; color:{fg} !important;
       }}
-
       [data-testid="stAppViewContainer"] h1,
       [data-testid="stAppViewContainer"] h2,
       [data-testid="stAppViewContainer"] h3,
@@ -183,100 +170,49 @@ def _inject_css():
       [data-testid="stAppViewContainer"] span,
       [data-testid="stAppViewContainer"] label,
       [data-testid="stAppViewContainer"] .stMarkdown,
-      [data-testid="stAppViewContainer"] .stMarkdown * {{
-        color:{fg} !important;
-      }}
+      [data-testid="stAppViewContainer"] .stMarkdown * {{ color:{fg} !important; }}
 
       [data-testid="stAppViewContainer"] [data-baseweb="select"] *,
       [data-testid="stAppViewContainer"] [data-baseweb="input"] input,
       [data-testid="stAppViewContainer"] .stNumberInput input,
-      [data-testid="stAppViewContainer"] .stTextInput input {{
-        color:{fg} !important;
-      }}
+      [data-testid="stAppViewContainer"] .stTextInput input {{ color:{fg} !important; }}
+
       [data-testid="stAppViewContainer"] input::placeholder {{
         color:{fg_sub} !important; opacity:.9 !important;
       }}
 
       [data-testid="stAppViewContainer"] .card {{
-        background:{card_bg};
-        border:1px solid {border};
-        border-radius:14px;
+        background:{card_bg}; border:1px solid {border}; border-radius:14px;
         box-shadow:0 1px 6px rgba(0,0,0,.12);
       }}
 
       [data-testid="stAppViewContainer"] .stButton>button {{
-        background:{btn_bg} !important;
-        color:#fff !important;
+        background:{btn_bg} !important; color:#fff !important;
         border:1px solid rgba(255,255,255,.08) !important;
-        border-radius:10px !important;
-        font-weight:700 !important;
+        border-radius:10px !important; font-weight:700 !important;
       }}
       [data-testid="stAppViewContainer"] .stButton>button:hover {{
-        background:{btn_bg_hover} !important;
-        border-color:rgba(255,255,255,.15) !important;
+        background:{btn_bg_hover} !important; border-color:rgba(255,255,255,.15) !important;
       }}
 
-      [data-testid="stAppViewContainer"] .stRadio label,
-      [data-testid="stAppViewContainer"] .stCheckbox label {{
-        color:{fg} !important;
-      }}
-
-      [data-testid="stAppViewContainer"] [data-testid="stDataFrame"] * {{
-        color:{fg} !important;
-      }}
-
-      [data-testid="stAppViewContainer"] h2,h3 {{ margin-top:.3rem !important; }}
-
-      /* 공통 pill */
       .pill {{
-        display:block;
-        width:100%;
-        border-radius:12px;
-        padding:.70rem .95rem;
-        font-weight:800;
-        letter-spacing:.1px;
-        box-shadow:{pill_shadow};
-        border:1px solid transparent;
-        margin:.35rem 0 .5rem 0;
+        display:block; width:100%; border-radius:12px;
+        padding:.70rem .95rem; font-weight:800;
+        letter-spacing:.1px; box-shadow:{pill_shadow};
+        border:1px solid transparent; margin:.35rem 0 .5rem 0;
       }}
       .pill span {{ opacity:.8; font-weight:700; }}
 
-      /* 메인뷰 pill */
-      [data-testid="stAppViewContainer"] .pill-green {{
-        background:{pill_green_bg}; border-color:{pill_green_bd}; color:{pill_green_fg};
-      }}
-      [data-testid="stAppViewContainer"] .pill-blue {{
-        background:{pill_blue_bg}; border-color:{pill_blue_bd}; color:{pill_blue_fg};
-      }}
-      [data-testid="stAppViewContainer"] .pill-yellow {{
-        background:{pill_yellow_bg}; border-color:{pill_yellow_bd}; color:{pill_yellow_fg};
-      }}
-      [data-testid="stAppViewContainer"] .pill-warn {{
-        background:{pill_warn_bg}; border-color:{pill_warn_bd}; color:{pill_warn_fg};
-      }}
+      /* pill 색상 (메인 + 사이드바 동일 적용) */
+      .pill-green {{ background:{pill_green_bg}; border-color:{pill_green_bd}; color:{pill_green_fg}; }}
+      .pill-blue  {{ background:{pill_blue_bg};  border-color:{pill_blue_bd};  color:{pill_blue_fg}; }}
+      .pill-yellow{{ background:{pill_yellow_bg};border-color:{pill_yellow_bd};color:{pill_yellow_fg}; }}
+      .pill-warn  {{ background:{pill_warn_bg};  border-color:{pill_warn_bd};  color:{pill_warn_fg}; }}
 
-      /* 사이드바 pill */
-      [data-testid="stSidebar"] .pill-green {{
-        background:{pill_green_bg}; border-color:{pill_green_bd}; color:{pill_green_fg};
-      }}
-      [data-testid="stSidebar"] .pill-blue {{
-        background:{pill_blue_bg}; border-color:{pill_blue_bd}; color:{pill_blue_fg};
-      }}
-      [data-testid="stSidebar"] .pill-yellow {{
-        background:{pill_yellow_bg}; border-color:{pill_yellow_bd}; color:{pill_yellow_fg};
-      }}
-      [data-testid="stSidebar"] .pill-warn {{
-        background:{pill_warn_bg}; border-color:{pill_warn_bd}; color:{pill_warn_fg};
-      }}
-
-      /* 경고 칩 */
       .envy-chip-warn {{
-        display:inline-block;
-        padding:.35rem .7rem;
-        border-radius:9999px;
-        font-weight:700;
-        background:{pill_warn_bg};
-        border:1px solid {pill_warn_bd};
+        display:inline-block; padding:.35rem .7rem;
+        border-radius:9999px; font-weight:700;
+        background:{pill_warn_bg}; border:1px solid {pill_warn_bd};
         color:{pill_warn_fg};
       }}
     </style>
