@@ -134,7 +134,7 @@ def _toggle_theme():
     st.session_state["theme"] = "dark" if st.session_state.get("theme", "light") == "light" else "light"
 
 def _inject_css():
-    """메인 뷰만 색상 오버라이드(사이드바 제외). 다크/라이트 대비 강화 + 버튼/컬러박스 폰트 흰색 고정."""
+    """메인 뷰만 색상 오버라이드(사이드바 제외). 버튼=흰색, 사이드바 컬러박스=검정 고정."""
     theme = st.session_state.get("theme", "light")
 
     # 팔레트
@@ -159,13 +159,13 @@ def _inject_css():
 
     st.markdown(f"""
     <style>
-      /* 메인 컨테이너(사이드바 제외) */
+      /* ===== 메인 컨테이너(사이드바 제외) ===== */
       [data-testid="stAppViewContainer"] {{
         background:{bg} !important;
         color:{fg} !important;
       }}
 
-      /* 헤딩/본문을 회색 대신 선명한 색으로 고정 */
+      /* 헤딩/본문 색 */
       [data-testid="stAppViewContainer"] h1,
       [data-testid="stAppViewContainer"] h2,
       [data-testid="stAppViewContainer"] h3,
@@ -185,15 +185,10 @@ def _inject_css():
       [data-testid="stAppViewContainer"] [data-baseweb="select"] *,
       [data-testid="stAppViewContainer"] [data-baseweb="input"] input,
       [data-testid="stAppViewContainer"] .stNumberInput input,
-      [data-testid="stAppViewContainer"] .stTextInput input {{
-        color:{fg} !important;
-      }}
-      /* 플레이스홀더도 보이게 */
-      [data-testid="stAppViewContainer"] input::placeholder {{
-        color:{fg_sub} !important; opacity:.9 !important;
-      }}
+      [data-testid="stAppViewContainer"] .stTextInput input {{ color:{fg} !important; }}
+      [data-testid="stAppViewContainer"] input::placeholder {{ color:{fg_sub} !important; opacity:.9 !important; }}
 
-      /* 카드/경계선 */
+      /* 카드 */
       [data-testid="stAppViewContainer"] .card {{
         background:{card_bg};
         border:1px solid {border};
@@ -201,7 +196,7 @@ def _inject_css():
         box-shadow:0 1px 6px rgba(0,0,0,.12);
       }}
 
-      /* 메인뷰의 파란 버튼 → 항상 흰색 폰트로 고정 */
+      /* 메인 영역 버튼: 항상 흰색 폰트 */
       [data-testid="stAppViewContainer"] .stButton>button {{
         background:{btn_bg} !important;
         color:#ffffff !important;
@@ -217,29 +212,27 @@ def _inject_css():
 
       /* 라디오/체크 라벨 */
       [data-testid="stAppViewContainer"] .stRadio label,
-      [data-testid="stAppViewContainer"] .stCheckbox label {{
-        color:{fg} !important;
-      }}
+      [data-testid="stAppViewContainer"] .stCheckbox label {{ color:{fg} !important; }}
 
       /* 데이터프레임 텍스트 */
-      [data-testid="stAppViewContainer"] [data-testid="stDataFrame"] * {{
-        color:{fg} !important;
-      }}
+      [data-testid="stAppViewContainer"] [data-testid="stDataFrame"] * {{ color:{fg} !important; }}
 
-      /* 기존 여백 유지 */
+      /* 여백 */
       [data-testid="stAppViewContainer"] h2,h3 {{ margin-top:.3rem !important; }}
 
-      /* ───────── 사이드바 컬러박스: 라이트/다크 모두 흰색 폰트 고정 ───────── */
+      /* ===== 사이드바: 컬러박스(환산 금액/원가/판매가/순이익 등) 글자 = 검정 고정 ===== */
       [data-testid="stSidebar"] .pill,
       [data-testid="stSidebar"] .pill * {{
         color:#111111 !important;
         -webkit-text-fill-color:#111111 !important;
       }}
-      /* 필요시 컬러박스 기본 스타일(이미 있으면 중복 적용 X) */
-      [data-testid="stSidebar"] .pill {{
-        display:block; padding:.55rem .8rem; border-radius:10px; font-weight:700;
+
+      /* 혹시 이전에 흰색으로 강제된 규칙이 있으면 무효화 (더 높은 우선순위) */
+      [data-testid="stSidebar"] .card .pill,
+      [data-testid="stSidebar"] .card .pill * {{
+        color:#111111 !important;
+        -webkit-text-fill-color:#111111 !important;
       }}
-      /* (참고) 개별 색상은 기존 클래스에서 유지: .pill-green/.pill-blue/.pill-yellow 등 */
     </style>
     """, unsafe_allow_html=True)
 
