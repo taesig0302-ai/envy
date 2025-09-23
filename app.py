@@ -300,31 +300,74 @@ def _proxy_iframe_with_title(proxy_base: str, target_url: str, height: int = 860
 '''
     st.components.v1.html(html, height=h+56, scrolling=False)
 
-# =========================
-# 4) Sidebar (theme + translator toggle + calculators, with value pills)
-# =========================
-
+# ---- helper: colored value pill (for sidebar) ----
 def sb_pill(label: str, main: str, sub: str = "", tone: str = "green"):
     sub_html = f'<div style="font-size:.78rem;opacity:.85">{label}</div>' if label else ""
     tail = f' <span style="opacity:.8;font-weight:700">{sub}</span>' if sub else ""
     html = f'<div class="pill pill-{tone}">{sub_html}<div style="font-size:1.05rem"><b>{main}</b>{tail}</div></div>'
     st.markdown(html, unsafe_allow_html=True)
 
+# =========================
+# 4) Sidebar (theme + translator toggle + calculators, safe-guards)
+# =========================
 def _sidebar():
-    _ensure_session_defaults(); _inject_css(); _inject_alert_center()
+    # 세션 기본값 & CSS
+    if 'theme' not in st.session_state:
+        _ensure_session_defaults()
+    else:
+        _ensure_session_defaults()
+    _inject_css()
+
+    # alert center가 없는 코드베이스도 있어서 try-guard
+    try:
+        _inject_alert_center()
+    except NameError:
+        pass
+
+    # 프로젝트마다 통화 상수명이 다를 수 있어 안전하게 잡음
+    # CURRENCIES / FX_CURRENCIES 둘 다 지원
+    try:
+        currencies = CURRENCIES
+    except NameError:
+        try:
+            currencies = FX_CURRENCIES
+        except NameError:
+            # 최후의 기본값
+            currencies = {
+                "USD":{"kr":"미국 달러","symbol":"$","unit":"USD"},
+                "EUR":{"kr":"유로","symbol":"€","unit":"EUR"},
+                "JPY":{"kr":"일본 엔","symbol":"¥","unit":"JPY"},
+                "CNY":{"kr":"중국 위안","symbol":"元","unit":"CNY"},
+            }
+    try:
+        fx_default = FX_DEFAULT
+    except NameError:
+        fx_default = {"USD":1400.0,"EUR":1500.0,"JPY":10.0,"CNY":200.0}
 
     with st.sidebar:
         # 로고
-        lp = Path(__file__).parent / "logo.png"
-        if lp.exists():
-            b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
-            st.markdown(f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>', unsafe_allow_html=True)
+        try:
+            lp = Path(__file__).parent / "logo.png"
+            if lp.exists():
+                b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
+                st.markdown(
+                    f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>',
+                    unsafe_allow_html=True
+                )
+        except Exception:
+            pass
 
-        # 토글 영역
+        # 토글
         c1, c2 = st.columns(2)
         with c1:
-            st.toggle("🌓 다크", value=(st.session_state.get("theme","light")=="dark"),
-                      on_change=_toggle_theme, key="__theme_toggle")
+            st.toggle(
+                "🌓 다크",
+                value=(st.session_state.get("theme","light")=="dark"),
+                on_change=lambda: st.session_state.__setitem__(
+                    "theme", "dark" if st.session_state.get("theme","light")=="light" else "light"
+                ),
+                key="__theme_toggle",
+            )
         with c2:
             st.toggle("🌐 번역기", value=False, key="__show_translator")
 
@@ -338,8 +381,7 @@ def _sidebar():
                     "zh-TW":"중국어(번체)","vi":"베트남어","th":"태국어","id":"인도네시아어",
                     "de":"독일어","fr":"프랑스어","es":"스페인어","it":"이탈리아어","pt":"포르투갈어"
                 }
-                def _code_sb(x): return {v:k for k,v in LANG_LABELS_SB.items()}.get(x, x)
-
+                code_map = {v:k for k,v in LANG_LABELS_SB.items()}
                 src_label = st.selectbox("원문 언어", list(LANG_LABELS_SB.values()),
                                          index=list(LANG_LABELS_SB.keys()).index("auto"), key="sb_tr_src")
                 tgt_label = st.selectbox("번역 언어", list(LANG_LABELS_SB.values()),
@@ -355,7 +397,8 @@ def _sidebar():
                         st.error("deep-translator 설치 필요 또는 런타임 문제")
                     else:
                         try:
-                            src_code = _code_sb(src_label); tgt_code = _code_sb(tgt_label)
+                            src_code = code_map.get(src_label, src_label)
+                            tgt_code = code_map.get(tgt_label, tgt_label)
                             out_main = _GT(source=src_code, target=tgt_code).translate(text_in or "")
                             st.text_area(f"결과 ({tgt_label})", value=out_main, height=120, key="sb_tr_out_main")
                             if tgt_code != "ko":
@@ -367,27 +410,37 @@ def _sidebar():
         # --- 환율 계산기 ---
         def fx_block(expanded=True):
             with st.expander("💱 환율 계산기", expanded=expanded):
-                fx_base = st.selectbox("기준 통화", list(CURRENCIES.keys()),
-                                       index=list(CURRENCIES.keys()).index(st.session_state.get("fx_base","USD")),
-                                       key="fx_base")
-                sale_foreign = st.number_input("판매금액 (외화)",
-                                               value=float(st.session_state.get("sale_foreign",1.0)),
-                                               step=0.01, format="%.2f", key="sale_foreign")
-                won = FX_DEFAULT[fx_base]*sale_foreign
-                sb_pill("환산 금액", f"{won:,.2f} 원", sub=f"({CURRENCIES[fx_base]['symbol']})", tone="green")
-                st.caption(f"환율 기준: {FX_DEFAULT[fx_base]:,.2f} ₩/{CURRENCIES[fx_base]['unit']}")
+                base_keys = list(currencies.keys())
+                fx_base = st.selectbox(
+                    "기준 통화", base_keys,
+                    index=base_keys.index(st.session_state.get("fx_base","USD")) if st.session_state.get("fx_base","USD") in base_keys else 0,
+                    key="fx_base",
+                )
+                sale_foreign = st.number_input(
+                    "판매금액 (외화)",
+                    value=float(st.session_state.get("sale_foreign",1.0)),
+                    step=0.01, format="%.2f", key="sale_foreign"
+                )
+                won = fx_default.get(fx_base, 1000.0)*sale_foreign
+                sb_pill("환산 금액", f"{won:,.2f} 원", sub=f"({currencies[fx_base]['symbol']})", tone="green")
+                st.caption(f"환율 기준: {fx_default.get(fx_base,0):,.2f} ₩/{currencies[fx_base]['unit']}")
 
         # --- 마진 계산기 ---
         def margin_block(expanded=True):
             with st.expander("📈 마진 계산기", expanded=expanded):
-                m_base = st.selectbox("매입 통화", list(CURRENCIES.keys()),
-                                      index=list(CURRENCIES.keys()).index(st.session_state.get("m_base","USD")),
-                                      key="m_base")
-                purchase_foreign = st.number_input("매입금액 (외화)",
-                                                   value=float(st.session_state.get("purchase_foreign",0.0)),
-                                                   step=0.01, format="%.2f", key="purchase_foreign")
-                base_cost_won = FX_DEFAULT[m_base]*purchase_foreign if purchase_foreign>0 \
-                    else FX_DEFAULT[st.session_state.get("fx_base","USD")]*st.session_state.get("sale_foreign",1.0)
+                base_keys = list(currencies.keys())
+                m_base = st.selectbox(
+                    "매입 통화", base_keys,
+                    index=base_keys.index(st.session_state.get("m_base","USD")) if st.session_state.get("m_base","USD") in base_keys else 0,
+                    key="m_base",
+                )
+                purchase_foreign = st.number_input(
+                    "매입금액 (외화)",
+                    value=float(st.session_state.get("purchase_foreign",0.0)),
+                    step=0.01, format="%.2f", key="purchase_foreign"
+                )
+                base_cost_won = fx_default.get(m_base, 1000.0)*purchase_foreign if purchase_foreign>0 \
+                    else fx_default.get(st.session_state.get("fx_base","USD"),1000.0)*st.session_state.get("sale_foreign",1.0)
                 sb_pill("원가(₩)", f"{base_cost_won:,.2f} 원", tone="green")
 
                 c1, c2 = st.columns(2)
@@ -421,15 +474,20 @@ def _sidebar():
                 sb_pill("판매가", f"{target_price:,.2f} 원", tone="blue")
                 sb_pill("순이익(마진)", f"{margin_value:,.2f} 원", sub=f"— {desc}", tone="yellow")
 
-        # --- 토글 상태에 따라 블록 배치 ---
+        # 토글에 따른 배치
         if show_tr:
             translator_block(expanded=True); fx_block(expanded=False); margin_block(expanded=False)
         else:
             fx_block(expanded=True); margin_block(expanded=True); translator_block(expanded=False)
 
-        if SHOW_ADMIN_BOX:
-            st.divider()
-            st.text_input("PROXY_URL(디버그)", key="PROXY_URL", help="Cloudflare Worker 주소 (옵션)")
+        # 디버그 입력(옵션)
+        try:
+            if SHOW_ADMIN_BOX:
+                st.divider()
+                st.text_input("PROXY_URL(디버그)", key="PROXY_URL", help="Cloudflare Worker 주소 (옵션)")
+        except NameError:
+            pass
+
 
 # =========================
 # 5) Rakuten Ranking
