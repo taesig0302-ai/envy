@@ -68,7 +68,7 @@ CURRENCIES = {
     "JPY":{"kr":"일본 엔","symbol":"¥","unit":"JPY"},
     "CNY":{"kr":"중국 위안","symbol":"元","unit":"CNY"},
 }
-FX_DEFAULT = {"USD":1400.0,"EUR":1500.0,"JPY":10.0,"CNY":200.0}
+FX_DEFAULT = {"USD $":1400.0,"EUR €":1500.0,"JPY ¥":10.0,"CNY 元":200.0}
 
 # =========================
 # Stopwords — 전역/카테고리 + 프리셋
