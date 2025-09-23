@@ -652,12 +652,36 @@ def _datalab_trend(groups: list, start_date: str, end_date: str,
         return pd.DataFrame()
 
 SEED_MAP = {
-    "패션의류":   ["원피스","코트","니트","셔츠","블라우스"],
-    "패션잡화":   ["가방","지갑","모자","스카프","벨트"],
-    "뷰티/미용":  ["쿠션","립스틱","선크림","마스카라","토너"],
-    "생활/건강":  ["칫솔","치약","샴푸","세제","물티슈"],
-    "디지털/가전": ["블루투스이어폰","스피커","모니터","노트북","로봇청소기"],
-    "스포츠/레저": ["러닝화","요가복","캠핑의자","텐트","자전거"],
+    # 패션의류
+    "패션의류": [
+        "울코트","패딩조끼","니트가디건","기모맨투맨","부츠컷청바지",
+        "롱스커트","트레이닝세트","셔츠원피스","플리스자켓","후드집업"
+    ],
+    # 패션잡화
+    "패션잡화": [
+        "미니크로스백","투웨이백","카드지갑","버킷햇","비니",
+        "머플러","가죽벨트","파일럿선글라스","터치장갑","여행파우치"
+    ],
+    # 뷰티/미용
+    "뷰티/미용": [
+        "쿠션파운데이션","톤업크림","립틴트","마스카라","아이브로우",
+        "선크림","두피토닉","헤어에센스","바디스크럽","핸드크림"
+    ],
+    # 생활/건강
+    "생활/건강": [
+        "살균가습기","무선물걸레청소기","휴지통","섬유탈취제","주방세제",
+        "칫솔살균기","전동칫솔","코일매트","방향제","물티슈"
+    ],
+    # 디지털/가전
+    "디지털/가전": [
+        "무선이어폰","게이밍모니터","미니빔프로젝터","블루투스스피커","기계식키보드",
+        "로봇청소기","태블릿거치대","모바일보조배터리","웹캠","SSD 외장"
+    ],
+    # 스포츠/레저
+    "스포츠/레저": [
+        "러닝화","등산배낭","요가매트","케틀벨","캠핑의자",
+        "코펠세트","텐트","자전거헬멧","워킹패드","스키장갑"
+    ],
 }
 
 def section_category_keyword_lab():
@@ -714,15 +738,11 @@ def section_keyword_trend_widget():
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
-# 8) Radar Card (tabs: 국내 -> 해외)
+# 8) Radar Card (국내만)
 # =========================
 def section_radar():
-    st.markdown('<div class="card"><div class="card-title">AI 키워드 레이더</div>', unsafe_allow_html=True)
-    tab_domestic, tab_overseas = st.tabs(["국내", "해외"])
-    with tab_domestic:
-        section_korea_ui()
-    with tab_overseas:
-        section_rakuten_ui()
+    st.markdown('<div class="card"><div class="card-title">AI 키워드 레이더 (국내)</div>', unsafe_allow_html=True)
+    section_korea_ui()
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
@@ -810,11 +830,8 @@ def _stopwords_manager_ui(compact: bool = False):
                 st.error(f"가져오기 실패: {e}")
 
 # =========================
-# 9) 상품명 추천 생성기 — 스마트스토어 최적화(Top-N, 금칙어/브랜드 보호)
-# 기본값: 추천개수 10, PoolTop 20, 최소글자 35, 최대 50(≤50바이트),
-#        가중치: w_len=30, w_cover=55, w_pen=25
+# 9) 상품명 추천 생성기 — 스마트스토어 최적화(Top-N, 금칙어/브랜드 보호/스코어 강화)
 # =========================
-
 import re, json, time
 from pathlib import Path
 import pandas as pd
@@ -956,31 +973,50 @@ def _make_candidates(brand:str, main_kw:str, attrs:list[str], df:pd.DataFrame,
     return out[:N]
 
 def _seo_score(title:str, df:pd.DataFrame, w_len:int, w_cover:int, w_pen:int)->dict:
-    score=0; reasons=[]
-    chars=len(title); by=len(title.encode("utf-8"))
+    """
+    스마트스토어 최적화 스코어:
+    - 길이: 30~50자 & 50바이트 이내 가점(강화)
+    - 메인 키워드 정확매칭 가중치 우선, 연관 커버 가점
+    - 금칙어/광고성/기호·숫자 남발 패널티
+    """
+    score = 0; reasons = []
+    chars = len(title); byte_len = len(title.encode("utf-8"))
 
-    # 길이 점수
-    if 30<=chars<=50 and by<=50:
-        score+=w_len; reasons.append(f"길이 적합(+{w_len})")
+    # 1) 길이 점수(강화)
+    ideal_min, ideal_max = 30, 50
+    if ideal_min <= chars <= ideal_max and byte_len <= 50:
+        score += w_len; reasons.append(f"길이 적합(+{w_len})")
     else:
-        gain=max(0, w_len - min(abs(chars-40), w_len))
-        score+=gain; reasons.append(f"길이 보정(+{gain})")
+        base = 40
+        delta = abs(chars - base)
+        gain = max(0, w_len - min(delta, w_len))
+        if byte_len > 50:
+            gain = max(0, gain - 10); reasons.append("50바이트 초과(-)")
+        score += gain; reasons.append(f"길이 보정(+{gain})")
 
-    # 상위검색어 커버리지
-    cov_gain=0; hit=0
+    # 2) 키워드 커버(메인 60% + 연관 40%)
+    cover_gain = 0; main_hit = 0; rel_hit = 0
     if not df.empty and "키워드" in df.columns:
-        top=df.sort_values("검색합계",ascending=False).head(10)["키워드"].tolist()
-        hit=sum(1 for k in top if re.search(rf"(?i)\b{re.escape(k)}\b", title))
-        cov_gain=int(round(w_cover * hit/max(len(top),1)))
-    score+=cov_gain; reasons.append(f"상위키워드 포함 {cov_gain}/{w_cover}(Top10={hit})")
+        top = df.sort_values("검색합계", ascending=False).head(10)["키워드"].tolist()
+        main_kw = top[0] if top else None
+        if main_kw and re.search(rf"(?<!\S){re.escape(main_kw)}(?!\S)", title, re.IGNORECASE):
+            main_hit = 1
+        rel_hit = sum(1 for k in top[1:] if re.search(rf"(?<!\S){re.escape(k)}(?!\S)", title, re.IGNORECASE))
+        cover_gain = int(round(w_cover * (0.6*main_hit + 0.4*min(rel_hit, 3)/3)))
+        score += cover_gain; reasons.append(f"키워드 커버(+{cover_gain}) (메인:{main_hit}, 연관:{rel_hit})")
 
-    # 금칙어 패널티
+    # 3) 패널티
+    pen = 0
     if PATTERN_RE.search(title) or LITERAL_RE.search(title):
-        score-=w_pen; reasons.append(f"금칙어(-{w_pen})")
+        pen += w_pen; reasons.append(f"금칙어(-{w_pen})")
+    if re.search(r"[🔥💥⭐]|[!]{2,}|[\(\)\[\]\{\}]{3,}", title):
+        pen += 5; reasons.append("기호 남발(-5)")
+    if re.search(r"[0-9]{4,}", title):
+        pen += 5; reasons.append("숫자 남발(-5)")
+    score = max(0, min(100, score - pen))
 
-    return {"score": max(0,min(100,score)), "reasons": reasons, "chars": chars, "bytes": by}
+    return {"score": score, "reasons": reasons, "chars": chars, "bytes": byte_len}
 
-# ── UI ──
 def section_title_generator():
     st.markdown('<div class="card"><div class="card-title">상품명 생성기 (스마트스토어 · Top-N)</div>', unsafe_allow_html=True)
 
@@ -994,7 +1030,7 @@ def section_title_generator():
 
     c1,c2,c3,c4 = st.columns([1,1,1,1])
     with c1:
-        N = st.slider("추천 개수", 5, 20, 10, 1)              # 기본 10
+        N = st.slider("추천 개수", 5, 20, 10, 1)
     with c2:
         pool_top = st.slider("확장 Pool(상위 검색어)", 5, 30, 20, 1)
     with c3:
@@ -1006,10 +1042,10 @@ def section_title_generator():
     with c5:
         use_comp = st.toggle("경쟁도 보정 사용", value=True)
     with c6:
-        w_len = st.slider("가중치·길이", 10, 50, 30, 1)       # 기본 30
+        w_len = st.slider("가중치·길이", 10, 50, 30, 1)
     with c7:
-        w_cover = st.slider("가중치·커버리지", 10, 70, 55, 1)   # 기본 55
-    w_pen = st.slider("가중치·패널티", 10, 40, 25, 1)           # 기본 25
+        w_cover = st.slider("가중치·커버리지", 10, 70, 55, 1)
+    w_pen = st.slider("가중치·패널티", 10, 40, 25, 1)
 
     if st.button("상품명 생성"):
         if not main_kw:
@@ -1038,15 +1074,19 @@ def section_title_generator():
         # 결과 표시: 카드 / 표
         mode = st.radio("결과 표시", ["카드", "표"], horizontal=True, index=0)
 
+        def _warn_tag(r):
+            flags = []
+            if r.문자수 < 30: flags.append("30자 미만")
+            if r.바이트 > 50: flags.append("50바이트 초과")
+            return "" if not flags else " — " + " / ".join([f":red[{w}]" for w in flags])
+
         if mode == "카드":
             for i, r in enumerate(df_out.itertuples(index=False), 1):
-                warn=[]
-                if r.문자수 < 30: warn.append("30자 미만")
-                if r.바이트 > 50: warn.append("50바이트 초과")
-                suf = "" if not warn else " — " + " / ".join([f":red[{w}]" for w in warn])
                 st.markdown(
                     f"**{i}.** {r.title}  "
-                    f"<span style='opacity:.7'>(문자 {r.문자수}/50 · 바이트 {r.바이트}/50 · SEO {r.SEO점수})</span>{suf}",
+                    f"<span class='pill pill-blue' style='margin-left:.4rem;'>SEO {r.SEO점수}</span> "
+                    f"<span style='opacity:.75'>(문자 {r.문자수}/50 · 바이트 {r.바이트}/50)</span>"
+                    f"{_warn_tag(r)}",
                     unsafe_allow_html=True
                 )
         else:
