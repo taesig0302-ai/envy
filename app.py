@@ -93,82 +93,137 @@ STOP_PRESETS = {
     }
 }
 
+# =========================
+# 1) UI defaults & CSS  ← 이 블록 통째로 교체 (사이드바 절대 비건드림)
+# =========================
+def _ensure_session_defaults():
+    ss = st.session_state
+    ss.setdefault("theme", "light")
+    ss.setdefault("fx_base","USD")
+    ss.setdefault("sale_foreign",1.00)
+    ss.setdefault("m_base","USD")
+    ss.setdefault("purchase_foreign",0.00)
+    ss.setdefault("card_fee_pct",4.00)
+    ss.setdefault("market_fee_pct",14.00)
+    ss.setdefault("shipping_won",0.0)
+    ss.setdefault("margin_mode","퍼센트")
+    ss.setdefault("margin_pct",10.00)
+    ss.setdefault("margin_won",10000.0)
+    # Stopwords manager 상태
+    ss.setdefault("STOP_GLOBAL", list(STOPWORDS_GLOBAL))
+    ss.setdefault("STOP_BY_CAT", dict(STOPWORDS_BY_CAT))
+    ss.setdefault("STOP_WHITELIST", [])
+    ss.setdefault("STOP_REPLACE", ["무배=> ", "무료배송=> ", "정품=> "])
+    ss.setdefault("STOP_AGGR", False)
+    # Rakuten genre map
+    ss.setdefault("rk_genre_map", {
+        "전체(샘플)": "100283","뷰티/코스메틱": "100283","의류/패션": "100283","가전/디지털": "100283",
+        "가구/인테리어": "100283","식품": "100283","생활/건강": "100283","스포츠/레저": "100283","문구/취미": "100283",
+    })
+
+def _toggle_theme():
+    st.session_state["theme"] = "dark" if st.session_state.get("theme","light")=="light" else "light"
+
 def _inject_css():
+    # 메인 컨테이너에만 적용. 사이드바(stSidebar)에는 전혀 적용하지 않음.
     theme = st.session_state.get("theme","light")
-
     if theme == "dark":
-        vars_css = {
-            "--bg":"#0E0E0E","--fg":"#FFFFFF",
-            "--card":"#1A1A1A","--card-border":"#333333",
-            "--hover":"#151515","--primary":"#FFD84D",
-            "--accent":"#FF4D4D","--focus":"#FFD84D",
-            "--link":"#FFD84D","--link-hover":"#FFB800"
-        }
-        btn_primary_text = "#0B0B0B"
+        BG = "#0e1117"; FG = "#ffffff"
+        LINK = "#ffd84d"; LINK_HOVER = "#ffb800"
+        CARD = "#111418"; BORDER = "#2a2a2a"
+        PRIMARY_TEXT = "#0b0b0b"; PRIMARY_BG = "#ffd84d"
     else:
-        vars_css = {
-            "--bg":"#FFFFFF","--fg":"#111111",
-            "--card":"#FFFFFF","--card-border":"rgba(0,0,0,.12)",
-            "--hover":"#F5F7FB","--primary":"#1E6FFF",
-            "--accent":"#1AAE5F","--focus":"#1E6FFF",
-            "--link":"#1E6FFF","--link-hover":"#4D8DFF"
-        }
-        btn_primary_text = "#FFFFFF"
+        BG = "#ffffff"; FG = "#111111"
+        LINK = "#1E6FFF"; LINK_HOVER = "#4D8DFF"
+        CARD = "#ffffff"; BORDER = "rgba(0,0,0,.12)"
+        PRIMARY_TEXT = "#ffffff"; PRIMARY_BG = "#1E6FFF"
 
-    vars_blob = "".join([k+":"+v+";" for k,v in vars_css.items()])
-
-    css = f"""
+    css = """
     <style>
-      /* ===== 메인 컨테이너 전용 ===== */
-      [data-testid="stAppViewContainer"] .block-container {{
-        {vars_blob}
-        background:var(--bg)!important;
-        color:var(--fg)!important;
-      }}
+      /* ===== 메인 영역만 타깃 ===== */
+      [data-testid="stAppViewContainer"] .block-container {
+        background: BG !important;
+        color: FG !important;
+      }
       [data-testid="stAppViewContainer"] .block-container h1,
       [data-testid="stAppViewContainer"] .block-container h2,
       [data-testid="stAppViewContainer"] .block-container h3,
       [data-testid="stAppViewContainer"] .block-container h4,
       [data-testid="stAppViewContainer"] .block-container h5,
-      [data-testid="stAppViewContainer"] .block-container h6 {{
-        color:var(--fg)!important;
-      }}
-      [data-testid="stAppViewContainer"] .block-container a {{
-        color:var(--link)!important;
-      }}
-      [data-testid="stAppViewContainer"] .block-container a:hover {{
-        color:var(--link-hover)!important;
-      }}
-      [data-testid="stAppViewContainer"] .block-container .card {{
-        background:var(--card)!important;
-        border:1px solid var(--card-border)!important;
-        border-radius:14px;
-        padding:.85rem;
-      }}
-      [data-testid="stAppViewContainer"] .block-container button[kind="primary"] {{
-        background:var(--primary)!important;
-        border:1px solid var(--primary)!important;
-        color:{btn_primary_text}!important;
-        font-weight:800!important;
-      }}
-      [data-testid="stAppViewContainer"] .block-container button[kind="secondary"] {{
-        background:var(--card)!important;
-        border:1px solid var(--card-border)!important;
-        color:var(--fg)!important;
-      }}
+      [data-testid="stAppViewContainer"] .block-container h6 {
+        color: FG !important;
+      }
+      [data-testid="stAppViewContainer"] .block-container a { color: LINK !important; }
+      [data-testid="stAppViewContainer"] .block-container a:hover { color: LINK_HOVER !important; }
+
+      /* 카드(메인) */
+      [data-testid="stAppViewContainer"] .block-container .card {
+        background: CARD !important;
+        border: 1px solid BORDER !important;
+        border-radius: 14px; padding: .85rem;
+      }
+      [data-testid="stAppViewContainer"] .block-container .card-title {
+        color: FG !important; font-weight: 900; margin: .1rem 0 .55rem 0;
+      }
+
+      /* 입력류(메인) */
       [data-testid="stAppViewContainer"] .block-container [data-baseweb="input"] input,
-      [data-testid="stAppViewContainer"] .block-container .stTextInput input {{
-        background:var(--card)!important;
-        color:var(--fg)!important;
-        border:1px solid var(--card-border)!important;
-      }}
-      [data-testid="stAppViewContainer"] .block-container .stDataFrame * {{
-        color:var(--fg)!important;
-      }}
+      [data-testid="stAppViewContainer"] .block-container .stNumberInput input,
+      [data-testid="stAppViewContainer"] .block-container [data-baseweb="select"] div[role="combobox"],
+      [data-testid="stAppViewContainer"] .block-container .stTextInput>div>div>input,
+      [data-testid="stAppViewContainer"] .block-container textarea {
+        background: CARD !important; color: FG !important;
+        border: 1px solid BORDER !important; border-radius: 12px !important;
+      }
+
+      /* 버튼(메인) */
+      [data-testid="stAppViewContainer"] .block-container button[kind="primary"]{
+        background: PRIMARY_BG !important; border: 1px solid PRIMARY_BG !important;
+        color: PRIMARY_TEXT !important; font-weight: 800 !important;
+      }
+      [data-testid="stAppViewContainer"] .block-container button[kind="secondary"]{
+        background: CARD !important; border: 1px solid BORDER !important; color: FG !important;
+      }
+
+      /* 데이터프레임(메인) */
+      [data-testid="stAppViewContainer"] .block-container [data-testid="stDataFrame"] * { color: FG !important; }
+      [data-testid="stAppViewContainer"] .block-container [data-testid="stDataFrame"] div[role='grid']{
+        background: CARD !important; border: 1px solid BORDER !important;
+      }
     </style>
     """
-
+    css = css.replace("BG", BG).replace("FG", FG)\
+             .replace("LINK_HOVER", LINK_HOVER).replace("LINK", LINK)\
+             .replace("CARD", CARD).replace("BORDER", BORDER)\
+             .replace("PRIMARY_BG", PRIMARY_BG).replace("PRIMARY_TEXT", PRIMARY_TEXT)
     st.markdown(css, unsafe_allow_html=True)
+
+def _inject_alert_center():
+    # 기존 코드 유지
+    st.markdown("""
+    <div id="envy-alert-root" style="position:fixed;top:16px;right:16px;z-index:999999;pointer-events:none;"></div>
+    <style>
+      .envy-toast{min-width:220px;max-width:420px;margin:8px 0;padding:.7rem 1rem;border-radius:12px;color:#fff;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.25);opacity:0;transform:translateY(-6px);transition:opacity .2s ease, transform .2s ease;}
+      .envy-toast.show{opacity:1;transform:translateY(0)}
+      .envy-info{background:#2563eb}.envy-warn{background:#d97706}.envy-error{background:#dc2626}
+    </style>
+    <script>
+      (function(){
+        const root = document.getElementById('envy-alert-root');
+        function toast(level, text){
+          const el = document.createElement('div');
+          el.className='envy-toast envy-'+(level||'info'); el.textContent=text||'알림';
+          el.style.pointerEvents='auto'; root.appendChild(el);
+          requestAnimationFrame(()=>el.classList.add('show'));
+          setTimeout(()=>{el.classList.remove('show'); setTimeout(()=>el.remove(), 300);}, 5000);
+        }
+        window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='alert'){toast(d.level,d.msg);} },false);
+        let heard=false; window.addEventListener('message',(e)=>{ const d=e.data||{}; if(d.__envy && d.kind==='title'){heard=true;}},false);
+        setTimeout(()=>{ if(!heard){ toast('warn','데이터랩 연결이 지연되고 있어요.'); } },8000);
+      })();
+    </script>
+    """, unsafe_allow_html=True)
+
 
 # =========================
 # 2) Responsive
