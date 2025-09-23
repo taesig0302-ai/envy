@@ -131,13 +131,10 @@ def _toggle_theme():
     st.session_state["theme"] = "dark" if st.session_state.get("theme", "light") == "light" else "light"
 
 def _inject_css():
-    # 테마 색 변수(라이트/다크 모두 대비 강화)
-    theme = st.session_state.get("theme", "light")
-    def _inject_css():
     """메인 뷰만 색상 오버라이드(사이드바 제외). 다크/라이트 대비 강화."""
     theme = st.session_state.get("theme", "light")
 
-    # 색 팔레트
+    # 팔레트
     if theme == "dark":
         bg = "#0e1117"       # 메인 배경
         fg = "#e6edf3"       # 본문/헤딩 기본
@@ -159,21 +156,19 @@ def _inject_css():
 
     st.markdown(f"""
     <style>
-      /* 메인 컨테이너만 적용 (사이드바 제외) */
+      /* 메인 컨테이너(사이드바 제외) */
       [data-testid="stAppViewContainer"] {{
         background:{bg} !important;
         color:{fg} !important;
       }}
 
-      /* 헤딩/텍스트 가독성 고정 */
+      /* 헤딩/본문을 회색 대신 선명한 색으로 고정 */
       [data-testid="stAppViewContainer"] h1,
       [data-testid="stAppViewContainer"] h2,
       [data-testid="stAppViewContainer"] h3,
       [data-testid="stAppViewContainer"] h4,
       [data-testid="stAppViewContainer"] h5,
-      [data-testid="stAppViewContainer"] h6 {{
-        color:{fg} !important;
-      }}
+      [data-testid="stAppViewContainer"] h6,
       [data-testid="stAppViewContainer"] p,
       [data-testid="stAppViewContainer"] li,
       [data-testid="stAppViewContainer"] span,
@@ -183,16 +178,16 @@ def _inject_css():
         color:{fg} !important;
       }}
 
-      /* 입력 박스/셀렉트/슬라이더 라벨/값 */
+      /* 입력/셀렉트/숫자필드 텍스트 */
       [data-testid="stAppViewContainer"] [data-baseweb="select"] *,
       [data-testid="stAppViewContainer"] [data-baseweb="input"] input,
       [data-testid="stAppViewContainer"] .stNumberInput input,
       [data-testid="stAppViewContainer"] .stTextInput input {{
         color:{fg} !important;
       }}
-      /* 플레이스홀더도 선명하게 */
+      /* 플레이스홀더도 보이게 */
       [data-testid="stAppViewContainer"] input::placeholder {{
-        color:{fg_sub} !important; opacity: .9 !important;
+        color:{fg_sub} !important; opacity:.9 !important;
       }}
 
       /* 카드/경계선 */
@@ -203,10 +198,10 @@ def _inject_css():
         box-shadow:0 1px 6px rgba(0,0,0,.12);
       }}
 
-      /* 블루 버튼(레이더 업데이트/상품명 생성/직접열기 등) – 메인뷰만 */
+      /* 메인뷰의 파란 버튼(레이더 업데이트/상품명 생성/직접열기 등) */
       [data-testid="stAppViewContainer"] .stButton>button {{
         background:{btn_bg} !important;
-        color:#ffffff !important;
+        color:#fff !important;
         border:1px solid rgba(255,255,255,.08) !important;
         border-radius:10px !important;
         font-weight:700 !important;
@@ -216,7 +211,7 @@ def _inject_css():
         border-color:rgba(255,255,255,.15) !important;
       }}
 
-      /* 라디오/체크/토글 라벨 대비 */
+      /* 라디오/체크 라벨 */
       [data-testid="stAppViewContainer"] .stRadio label,
       [data-testid="stAppViewContainer"] .stCheckbox label {{
         color:{fg} !important;
@@ -227,14 +222,7 @@ def _inject_css():
         color:{fg} !important;
       }}
 
-      /* 작은 칩/뱃지류 */
-      [data-testid="stAppViewContainer"] .pill {{
-        background:{chip_bg};
-        color:{fg} !important;
-        border:1px solid {border};
-      }}
-
-      /* 제목 상단 간격 미세조정(원래 코드 유지) */
+      /* 기존 여백 유지 */
       [data-testid="stAppViewContainer"] h2,h3 {{ margin-top:.3rem !important; }}
     </style>
     """, unsafe_allow_html=True)
