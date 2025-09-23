@@ -103,144 +103,216 @@ STOP_PRESETS = {
 }
 
 # =========================
-# 1) UI defaults & CSS
+# 4) Sidebar (theme + translator toggle + calculators)
 # =========================
-def _ensure_session_defaults():
-    ss = st.session_state
-    ss.setdefault("theme", "light")
-    ss.setdefault("fx_base", "USD")
-    ss.setdefault("sale_foreign", 1.00)
-    ss.setdefault("m_base", "USD")
-    ss.setdefault("purchase_foreign", 0.00)
-    ss.setdefault("card_fee_pct", 4.00)
-    ss.setdefault("market_fee_pct", 14.00)
-    ss.setdefault("shipping_won", 0.0)
-    ss.setdefault("margin_mode", "퍼센트")
-    ss.setdefault("margin_pct", 10.00)
-    ss.setdefault("margin_won", 10000.0)
-    # Stopwords manager 상태
-    ss.setdefault("STOP_GLOBAL", list(STOPWORDS_GLOBAL))
-    ss.setdefault("STOP_BY_CAT", dict(STOPWORDS_BY_CAT))
-    ss.setdefault("STOP_WHITELIST", [])
-    ss.setdefault("STOP_REPLACE", ["무배=> ", "무료배송=> ", "정품=> "])
-    ss.setdefault("STOP_AGGR", False)
-    # Rakuten genre map
-    ss.setdefault("rk_genre_map", {
-        "전체(샘플)": "100283","뷰티/코스메틱": "100283","의류/패션": "100283","가전/디지털": "100283",
-        "가구/인테리어": "100283","식품": "100283","생활/건강": "100283","스포츠/레저": "100283","문구/취미": "100283",
-    })
+def _sidebar():
+    # 기본 세션 + CSS
+    _ensure_session_defaults()
+    _inject_css()
+    try:
+        _inject_alert_center()
+    except Exception:
+        pass
 
-def _toggle_theme():
-    st.session_state["theme"] = "dark" if st.session_state.get("theme", "light") == "light" else "light"
+    with st.sidebar:
+        # 로고
+        st.markdown("""
+        <style>
+          [data-testid="stSidebar"] .logo-circle{
+            width:64px;height:64px;border-radius:9999px;overflow:hidden;
+            margin:.35rem auto .6rem auto;
+            box-shadow:0 2px 8px rgba(0,0,0,.12);
+            border:1px solid rgba(0,0,0,.06);
+          }
+          [data-testid="stSidebar"] .logo-circle img{
+            width:100%;height:100%;object-fit:cover;display:block;
+          }
+        </style>
+        """, unsafe_allow_html=True)
+        lp = Path(__file__).parent / "logo.png"
+        if lp.exists():
+            b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
+            st.markdown(
+                f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>',
+                unsafe_allow_html=True
+            )
 
-def _inject_css():
-    """메인 뷰만 색상 오버라이드. 사이드바는 항상 라이트(흰배경/검정폰트) 고정."""
-    theme = st.session_state.get("theme", "light")
+        # 토글
+        c1, c2 = st.columns(2)
+        with c1:
+            st.toggle("🌓 다크", value=(st.session_state.get("theme","light")=="dark"),
+                      on_change=_toggle_theme, key="__theme_toggle")
+        with c2:
+            st.toggle("🌐 번역기", value=False, key="__show_translator")
 
-    # 메인 영역 팔레트
-    if theme == "dark":
-        bg = "#0e1117"       # 메인 배경
-        fg = "#e6edf3"       # 본문/헤딩 기본
-        fg_sub = "#b6c2cf"   # 보조 텍스트
-        card_bg = "#11151c"
-        border = "rgba(255,255,255,.08)"
-        btn_bg = "#2563eb"
-        btn_bg_hover = "#1e3fae"
-    else:
-        bg = "#ffffff"
-        fg = "#111111"
-        fg_sub = "#4b5563"
-        card_bg = "#ffffff"
-        border = "rgba(0,0,0,.06)"
-        btn_bg = "#2563eb"
-        btn_bg_hover = "#1e3fae"
+        show_tr = st.session_state.get("__show_translator", False)
 
-    st.markdown(f"""
-    <style>
-      /* ───────── 메인 컨테이너(사이드바 제외) ───────── */
-      [data-testid="stAppViewContainer"] {{
-        background:{bg} !important;
-        color:{fg} !important;
-      }}
+        # ---- 위젯들 ----
+        def translator_block(expanded=True):
+            with st.expander("🌐 구글 번역기", expanded=expanded):
+                LANG_LABELS_SB = {
+                    "auto":"자동 감지","ko":"한국어","en":"영어","ja":"일본어","zh-CN":"중국어(간체)",
+                    "zh-TW":"중국어(번체)","vi":"베트남어","th":"태국어","id":"인도네시아어",
+                    "de":"독일어","fr":"프랑스어","es":"스페인어","it":"이탈리아어","pt":"포르투갈어"
+                }
+                def _code_sb(x): return {v:k for k,v in LANG_LABELS_SB.items()}.get(x, x)
 
-      /* 메인 텍스트/헤딩 강제 색상 */
-      [data-testid="stAppViewContainer"] h1,
-      [data-testid="stAppViewContainer"] h2,
-      [data-testid="stAppViewContainer"] h3,
-      [data-testid="stAppViewContainer"] h4,
-      [data-testid="stAppViewContainer"] h5,
-      [data-testid="stAppViewContainer"] h6,
-      [data-testid="stAppViewContainer"] p,
-      [data-testid="stAppViewContainer"] li,
-      [data-testid="stAppViewContainer"] span,
-      [data-testid="stAppViewContainer"] label,
-      [data-testid="stAppViewContainer"] .stMarkdown,
-      [data-testid="stAppViewContainer"] .stMarkdown * {{
-        color:{fg} !important;
-      }}
+                src_label = st.selectbox("원문 언어", list(LANG_LABELS_SB.values()),
+                                         index=list(LANG_LABELS_SB.keys()).index("auto"), key="sb_tr_src")
+                tgt_label = st.selectbox("번역 언어", list(LANG_LABELS_SB.values()),
+                                         index=list(LANG_LABELS_SB.keys()).index("ko"), key="sb_tr_tgt")
+                text_in = st.text_area("텍스트", height=120, key="sb_tr_in")
+                if st.button("번역 실행", key="sb_tr_btn"):
+                    try:
+                        from deep_translator import GoogleTranslator as _GT
+                        src_code = _code_sb(src_label); tgt_code = _code_sb(tgt_label)
+                        out_main = _GT(source=src_code, target=tgt_code).translate(text_in or "")
+                        st.text_area(f"결과 ({tgt_label})", value=out_main, height=120, key="sb_tr_out_main")
+                        if tgt_code != "ko":
+                            out_ko = _GT(source=tgt_code, target="ko").translate(out_main or "")
+                            st.text_area("결과 (한국어)", value=out_ko, height=120, key="sb_tr_out_ko")
+                    except Exception as e:
+                        st.error(f"번역 중 오류: {e}")
 
-      /* 메인: 입력/셀렉트/숫자필드 텍스트 */
-      [data-testid="stAppViewContainer"] [data-baseweb="select"] *,
-      [data-testid="stAppViewContainer"] [data-baseweb="input"] input,
-      [data-testid="stAppViewContainer"] .stNumberInput input,
-      [data-testid="stAppViewContainer"] .stTextInput input {{
-        color:{fg} !important;
-      }}
+        def fx_block(expanded=True):
+            with st.expander("💱 환율 계산기", expanded=expanded):
+                fx_base = st.selectbox("기준 통화", list(CURRENCIES.keys()),
+                                       index=list(CURRENCIES.keys()).index(st.session_state.get("fx_base","USD")), key="fx_base")
+                sale_foreign = st.number_input("판매금액 (외화)",
+                                               value=float(st.session_state.get("sale_foreign",1.0)),
+                                               step=0.01, format="%.2f", key="sale_foreign")
+                won = FX_DEFAULT[fx_base]*sale_foreign
+                st.markdown(
+                    f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b>'
+                    f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[fx_base]["symbol"]})</span></div>',
+                    unsafe_allow_html=True
+                )
+                st.caption(f"환율 기준: {FX_DEFAULT[fx_base]:,.2f} ₩/{CURRENCIES[fx_base]['unit']}")
 
-      /* 메인: 플레이스홀더 */
-      [data-testid="stAppViewContainer"] input::placeholder,
-      [data-testid="stAppViewContainer"] textarea::placeholder {{
-        color:{fg_sub} !important;
-        opacity:.9 !important;
-      }}
+        def margin_block(expanded=True):
+            with st.expander("📈 마진 계산기", expanded=expanded):
+                m_base = st.selectbox("매입 통화", list(CURRENCIES.keys()),
+                                      index=list(CURRENCIES.keys()).index(st.session_state.get("m_base","USD")), key="m_base")
+                purchase_foreign = st.number_input("매입금액 (외화)",
+                                                   value=float(st.session_state.get("purchase_foreign",0.0)),
+                                                   step=0.01, format="%.2f", key="purchase_foreign")
+                base_cost_won = FX_DEFAULT[m_base]*purchase_foreign if purchase_foreign>0 \
+                                else FX_DEFAULT[st.session_state.get("fx_base","USD")]*st.session_state.get("sale_foreign",1.0)
+                st.markdown(f'<div class="pill pill-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>',
+                            unsafe_allow_html=True)
 
-      /* 메인: 카드 */
-      [data-testid="stAppViewContainer"] .card {{
-        background:{card_bg};
-        border:1px solid {border};
-        border-radius:14px;
-        box-shadow:0 1px 6px rgba(0,0,0,.12);
-      }}
+                c1, c2 = st.columns(2)
+                with c1:
+                    card_fee = st.number_input("카드수수료(%)",
+                                               value=float(st.session_state.get("card_fee_pct",4.0)),
+                                               step=0.01, format="%.2f", key="card_fee_pct")
+                with c2:
+                    market_fee = st.number_input("마켓수수료(%)",
+                                                 value=float(st.session_state.get("market_fee_pct",14.0)),
+                                                 step=0.01, format="%.2f", key="market_fee_pct")
 
-      /* 메인: 파란 버튼 */
-      [data-testid="stAppViewContainer"] .stButton>button {{
-        background:{btn_bg} !important;
-        color:#fff !important;
-        border:1px solid rgba(255,255,255,.08) !important;
-        border-radius:10px !important;
-        font-weight:700 !important;
-      }}
-      [data-testid="stAppViewContainer"] .stButton>button:hover {{
-        background:{btn_bg_hover} !important;
-        border-color:rgba(255,255,255,.15) !important;
-      }}
+                shipping_won = st.number_input("배송비(₩)", value=float(st.session_state.get("shipping_won",0.0)),
+                                               step=100.0, format="%.0f", key="shipping_won")
+                mode = st.radio("마진 방식", ["퍼센트","플러스"], horizontal=True, key="margin_mode")
 
-      /* 메인: 라디오/체크 라벨 */
-      [data-testid="stAppViewContainer"] .stRadio label,
-      [data-testid="stAppViewContainer"] .stCheckbox label {{
-        color:{fg} !important;
-      }}
+                if mode=="퍼센트":
+                    margin_pct = st.number_input("마진율 (%)",
+                                                 value=float(st.session_state.get("margin_pct",10.0)),
+                                                 step=0.01, format="%.2f", key="margin_pct")
+                    target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)*(1+margin_pct/100)+shipping_won
+                    margin_value = target_price - base_cost_won; desc=f"{margin_pct:.2f}%"
+                else:
+                    margin_won = st.number_input("마진액 (₩)",
+                                                 value=float(st.session_state.get("margin_won",10000.0)),
+                                                 step=100.0, format="%.0f", key="margin_won")
+                    target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)+margin_won+shipping_won
+                    margin_value = margin_won; desc=f"+{margin_won:,.0f}"
 
-      /* 메인: 데이터프레임 */
-      [data-testid="stAppViewContainer"] [data-testid="stDataFrame"] * {{
-        color:{fg} !important;
-      }}
+                st.markdown(f'<div class="pill pill-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="pill pill-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>',
+                            unsafe_allow_html=True)
 
-      /* 메인: 여백 유지 */
-      [data-testid="stAppViewContainer"] h2,h3 {{
-        margin-top:.3rem !important;
-      }}
+        # 토글 상태에 따라 펼침
+        if show_tr:
+            translator_block(expanded=True); fx_block(expanded=False); margin_block(expanded=False)
+        else:
+            fx_block(expanded=True); margin_block(expanded=True); translator_block(expanded=False)
 
-      /* ───────── 사이드바는 항상 라이트 모드 고정 ───────── */
-      [data-testid="stSidebar"] {{
-        background:#ffffff !important;
-        color:#111111 !important;
-      }}
-      [data-testid="stSidebar"] * {{
-        color:#111111 !important;
-      }}
-    </style>
-    """, unsafe_allow_html=True)
+        # 관리자 박스(옵션)
+        if SHOW_ADMIN_BOX:
+            st.divider()
+            st.text_input("PROXY_URL(디버그)", key="PROXY_URL", help="Cloudflare Worker 주소 (옵션)")
+
+        # ==== CSS: compact + scroll lock + pill styles + 사이드바 always light ====
+        st.markdown("""
+        <style>
+          /* 사이드바 스크롤락 */
+          [data-testid="stSidebar"]{
+            height:100vh !important;
+            overflow-y:hidden !important;
+            -ms-overflow-style:none !important;
+            scrollbar-width:none !important;
+          }
+          [data-testid="stSidebar"] > div:first-child{
+            height:100vh !important;
+            overflow-y:hidden !important;
+          }
+          [data-testid="stSidebar"]::-webkit-scrollbar,
+          [data-testid="stSidebar"] > div:first-child::-webkit-scrollbar{
+            display:none !important;
+          }
+
+          /* block-container 패딩 제거 */
+          [data-testid="stSidebar"] .block-container{
+            padding-top:.4rem !important;
+            padding-bottom:0 !important;
+          }
+          [data-testid="stSidebar"] .block-container > div:last-child{
+            margin-bottom:0 !important;
+          }
+
+          /* compact 모드 */
+          [data-testid="stSidebar"] .stExpander{
+            margin-bottom:.2rem !important;
+            padding:.25rem .4rem !important;
+          }
+          [data-testid="stSidebar"] .stNumberInput input,
+          [data-testid="stSidebar"] .stTextInput input,
+          [data-testid="stSidebar"] textarea{
+            min-height:26px !important;
+            line-height:1.2 !important;
+            font-size:0.85rem !important;
+          }
+          [data-testid="stSidebar"] .pill{
+            margin:.15rem 0 .25rem 0 !important;
+            padding:.5rem .7rem !important;
+            font-size:0.85rem !important;
+            border-radius:8px !important;
+            font-weight:600 !important;
+          }
+          .pill-green{ background:#dcfce7 !important; border:1px solid #22c55e !important; color:#111 !important; }
+          .pill-blue{  background:#dbeafe !important; border:1px solid #3b82f6 !important; color:#111 !important; }
+          .pill-yellow{background:#fef3c7 !important; border:1px solid #eab308 !important; color:#111 !important; }
+
+          /* 사이드바 항상 라이트 모드 고정 */
+          :root [data-testid="stSidebar"]{
+            background:#ffffff !important;
+            color:#111111 !important;
+          }
+          :root [data-testid="stSidebar"] *{
+            color:#111111 !important;
+            -webkit-text-fill-color:#111111 !important;
+            opacity:1 !important;
+            mix-blend-mode:normal !important;
+            text-shadow:none !important;
+            filter:none !important;
+          }
+          :root [data-testid="stSidebar"] .stExpanderHeader,
+          :root [data-testid="stSidebar"] .stExpanderHeader *{
+            color:#111111 !important;
+          }
+        </style>
+        """, unsafe_allow_html=True)
 
 # =========================
 # 2) Responsive
