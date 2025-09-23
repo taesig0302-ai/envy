@@ -900,6 +900,41 @@ def section_category_keyword_lab():
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
+# 7-B) Keyword Trend Widget (Direct Input)
+# =========================
+def section_keyword_trend_widget():
+    """키워드 트렌드 (직접 입력) — DataLab Open API 사용"""
+    st.markdown('<div class="card"><div class="card-title">키워드 트렌드 (직접 입력)</div>',
+                unsafe_allow_html=True)
+
+    kwtxt  = st.text_input("키워드(콤마)", "가방, 원피스", key="kw_txt_direct")
+    unit   = st.selectbox("단위", ["week", "month"], index=0, key="kw_unit_direct")
+    months = st.slider("조회기간(개월)", 1, 12, 3, key="kw_months_direct")
+
+    if st.button("트렌드 조회", key="kw_run_direct"):
+        start = (dt.date.today() - dt.timedelta(days=30 * months)).strftime("%Y-%m-%d")
+        end   = (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
+
+        kws = [k.strip() for k in (kwtxt or "").split(",") if k.strip()]
+        groups = [{"groupName": k, "keywords": [k]} for k in kws][:5]
+
+        df = _datalab_trend(groups, start, end, time_unit=unit)
+        if df.empty:
+            st.error("DataLab 트렌드 응답이 비어 있어요. (Client ID/Secret, Referer/환경, 권한/쿼터/날짜/단위 확인)")
+        else:
+            st.dataframe(df, use_container_width=True, height=260)
+            st.line_chart(df.set_index("날짜"))
+            st.download_button(
+                "CSV 다운로드",
+                data=df.to_csv(index=False).encode("utf-8-sig"),
+                file_name="keyword_trend_direct.csv",
+                mime="text/csv",
+                key="dl_kw_trend_direct",
+            )
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# =========================
 # 8) Radar Card (tabs: 국내 -> 해외)
 # =========================
 def section_radar():
