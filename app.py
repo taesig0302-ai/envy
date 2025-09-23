@@ -389,7 +389,6 @@ def _sidebar():
                 sale_foreign = st.number_input("판매금액 (외화)", value=float(st.session_state.get("sale_foreign",1.0)),
                                                step=0.01, format="%.2f", key="sale_foreign")
                 won = FX_DEFAULT[fx_base]*sale_foreign
-                # 버튼·텍스트 색은 _inject_css()에서 고정
                 st.markdown(
                     f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b>'
                     f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[fx_base]["symbol"]})</span></div>',
@@ -400,7 +399,7 @@ def _sidebar():
         def margin_block(expanded=True):
             with st.expander("📈 마진 계산기", expanded=expanded):
                 m_base = st.selectbox("매입 통화", list(CURRENCIES.keys()),
-                                      index=list(CURRENCRIES.keys()).index(st.session_state.get("m_base","USD")),
+                                      index=list(CURRENCIES.keys()).index(st.session_state.get("m_base","USD")),
                                       key="m_base")
                 purchase_foreign = st.number_input("매입금액 (외화)",
                                                    value=float(st.session_state.get("purchase_foreign",0.0)),
