@@ -41,17 +41,20 @@ SELLERLIFE_PROXY = "https://worker-sellerlifejs.taesig0302.workers.dev"
 # ---- Default credentials (secrets 가 있으면 secrets 우선) ----
 DEFAULT_KEYS = {
     # Rakuten
-    "RAKUTEN_APP_ID":       "1043271015809337425",
+    "RAKUTEN_APP_ID": "1043271015809337425",
     "RAKUTEN_AFFILIATE_ID": "4c723498.cbfeca46.4c723499.1deb6f77",
 
     # NAVER Searchad(검색광고 API / 키워드도구)
-    "NAVER_API_KEY":        "0100000000785cf1d8f039b13a5d3c3d1262b84e9ad4a04637e8887bbd003051b0d2a5cdf",
-    "NAVER_SECRET_KEY":     "AQAAAAB4XPHY8DmxOl08PRJiuE6ao1LN3lh0kF9rOJ4m5b8O5g==",
-    "NAVER_CUSTOMER_ID":    "2274338",
+    "NAVER_API_KEY": "0100000000785cf1d8f039b13a5d3c3d1262b84e9ad4a046637e8887bbd003051b0d2a5cdf",
+    "NAVER_SECRET_KEY": "AQAAAAB4XPHY8DmxOl08PRJiuE6ao1LN3lh0kF9rOJ4m5b8O5g==",
+    "NAVER_CUSTOMER_ID": "2274338",
 
-    # NAVER Developers (DataLab Open API) — ★ 네가 준 값으로 반영
-    "NAVER_CLIENT_ID":      "T27iw3tyujrM1nG_shFT",
-    "NAVER_CLIENT_SECRET":  "s59xKPYLz1",
+    # NAVER Developers (DataLab Open API)  ← 여기 최신값으로 교체
+    "NAVER_CLIENT_ID": "T27iw3tyujrM1nG_shFT",
+    "NAVER_CLIENT_SECRET": "s59xKPYLz1",
+
+    # 선택: DataLab Referer(허용 도메인 등록 시) — 필요 없으면 비워두기
+    "NAVER_WEB_REFERER": ""
 
     # (옵션) DataLab Referer가 필요한 환경이면 secrets.toml 에 NAVER_WEB_REFERER 를 넣어도 됨
 }
@@ -649,58 +652,72 @@ def section_korea_ui():
 # 7) DataLab Trend (Open API) + Category → Top20 UI (+ Direct Trend)
 # =========================
 @st.cache_data(ttl=1800, show_spinner=False)
-def _datalab_trend(groups: list, start_date: str, end_date: str,
-                   time_unit: str = "week", device: str = "", gender: str = "", ages: list | None = None) -> pd.DataFrame:
+def _datalab_trend(
+    groups: list,
+    start_date: str,
+    end_date: str,
+    time_unit: str = "week",
+    device: str = "",
+    gender: str = "",
+    ages: list | None = None
+) -> pd.DataFrame:
     if not requests:
         return pd.DataFrame()
 
-    cid  = _get_key("NAVER_CLIENT_ID").strip()
-    csec = _get_key("NAVER_CLIENT_SECRET").strip()
-
-    # ★ 403 방지: referer 고정(Secrets에 NAVER_WEB_REFERER 없으면 앱 URL 기본값 사용)
-    ref  = _get_key("NAVER_WEB_REFERER").strip() or "https://envy.streamlit.app/"
-
+    cid  = _get_key("NAVER_CLIENT_ID")
+    csec = _get_key("NAVER_CLIENT_SECRET")
     if not (cid and csec):
         return pd.DataFrame()
 
-    groups = (groups or [])[:5]
     url = "https://openapi.naver.com/v1/datalab/search"
     headers = {
         "X-Naver-Client-Id": cid,
         "X-Naver-Client-Secret": csec,
         "Content-Type": "application/json; charset=utf-8",
-        "Referer": ref,
     }
+    # 등록된 Referer 가 있을 때만 추가 (없으면 넣지 않음)
+    ref = (_get_key("NAVER_WEB_REFERER") or "").strip()
+    if ref:
+        headers["Referer"] = ref
+
     payload = {
-        "startDate": start_date, "endDate": end_date,
-        "timeUnit": time_unit, "keywordGroups": groups
+        "startDate": start_date,
+        "endDate": end_date,
+        "timeUnit": time_unit,
+        "keywordGroups": (groups or [])[:5]
     }
-    # 옵션 필드(비워두면 API가 기본 처리)
-    if device: payload["device"] = device
-    if gender: payload["gender"] = gender
-    if ages:   payload["ages"]   = ages
 
     try:
         r = requests.post(url, headers=headers, data=json.dumps(payload), timeout=12)
         r.raise_for_status()
         js = r.json()
-        out=[]
+
+        out = []
         for gr in js.get("results", []):
             name = gr.get("title") or (gr.get("keywords") or [""])[0]
             tmp = pd.DataFrame(gr.get("data", []))
-            if tmp.empty: continue
-            tmp["keyword"] = name; out.append(tmp)
-        if not out: return pd.DataFrame()
+            if tmp.empty:
+                continue
+            tmp["keyword"] = name
+            out.append(tmp)
+
+        if not out:
+            return pd.DataFrame()
+
         big = pd.concat(out, ignore_index=True)
         big.rename(columns={"period": "날짜", "ratio": "검색지수"}, inplace=True)
         pivot = big.pivot_table(index="날짜", columns="keyword", values="검색지수", aggfunc="mean")
-        pivot = pivot.reset_index().sort_values("날짜")
-        return pivot
+        return pivot.reset_index().sort_values("날짜")
+
     except requests.HTTPError as e:
-        # 403/401 등일 때 빈 DF 반환(상단 카드에서 메시지로 안내)
-        st.session_state["__datalab_error"] = f"DataLab 오류: {getattr(e.response,'status_code',None)} — referer/Client ID/Secret 확인"
+        try:
+            msg = r.text
+        except Exception:
+            msg = str(e)
+        st.error(f"DataLab HTTP {r.status_code}: {msg}")
         return pd.DataFrame()
-    except Exception:
+    except Exception as e:
+        st.error(f"DataLab 호출 오류: {e}")
         return pd.DataFrame()
 
 SEED_MAP = {
