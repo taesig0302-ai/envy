@@ -389,18 +389,71 @@ def section_title_generator():
                            data=pd.DataFrame({"title":titles}).to_csv(index=False).encode("utf-8-sig"),
                            file_name=f"titles_{main_kw}.csv", mime="text/csv", key="dl_tg")
 
+# ─────────────────────────────────────────────────────────
+# 10) 11번가 — 첫 렌더 1회 자동 로딩, 이후엔 버튼으로만 갱신
+#     - 외부 스크롤 제거(940px)
+#     - 프록시가 있으면 프록시 경유, 없으면 원본 URL 사용
+# ─────────────────────────────────────────────────────────
 def section_11st():
+    import time
+    try:
+        from urllib.parse import quote as _q
+    except Exception:
+        def _q(s, safe=None): return s
+
     st.markdown('### 11번가 (모바일) — 아마존 베스트')
-    st.caption("임베드가 차단될 수 있어 데모 프레임으로 표시합니다.")
-    src = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
+
+    ss = st.session_state
+    # 최초 진입 시 1회 자동 로딩용 토큰
+    ss.setdefault("__11st_token", str(int(time.time())))
+
+    # 버튼 누를 때만 토큰 갱신 → 그때만 실제 리로드
+    if st.button("🔄 새로고침 (11번가)", key="btn_refresh_11st"):
+        ss["__11st_token"] = str(int(time.time()))
+
+    # 프록시(선택). secrets에 ELEVENST_PROXY 설정 시 사용.
+    base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or "").rstrip("/")
+    raw_url = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
+    src_base = raw_url if not base_proxy else f"{base_proxy}/?url={_q(raw_url, safe=':/?&=%')}"
+
+    token = ss["__11st_token"]
     html = f"""
     <style>
-      .embed-11st-wrap {{ height: 680px; overflow: hidden; border-radius: 10px; }}
-      .embed-11st-wrap iframe {{ width:100%; height:100%; border:0; border-radius:10px; overflow:hidden; }}
+      .embed-11st-wrap {{
+        height: 940px;
+        overflow: hidden;  /* 바깥(겉) 스크롤 제거 */
+        border-radius: 10px;
+      }}
+      .embed-11st-wrap iframe {{
+        width: 100%;
+        height: 100%;
+        border: 0;
+        border-radius: 10px;
+        overflow: hidden;
+        background: transparent;
+      }}
     </style>
-    <div class="embed-11st-wrap"><iframe src="{src}" loading="lazy" scrolling="no"></iframe></div>
+    <div class="embed-11st-wrap">
+      <!-- src 비워두고 JS에서 최초 1회만 세팅 / 토큰 변경시에만 갱신 -->
+      <iframe id="envy_11st_iframe" title="11st"></iframe>
+    </div>
+    <script>
+      (function(){{
+        var base = {json.dumps(src_base)};
+        var token = {json.dumps(token)};
+        var want = base + (base.indexOf('?')>=0 ? '&' : '?') + 'r=' + token;
+
+        var prev = window.__ENVY_11ST_SRC || "";
+        var ifr  = document.getElementById("envy_11st_iframe");
+        if(!ifr) return;
+
+        if (prev === want && ifr.getAttribute('src') === want) return; // 불필요한 재로딩 방지
+        ifr.setAttribute('src', want);
+        window.__ENVY_11ST_SRC = want;
+      }})();
+    </script>
     """
-    st.components.v1.html(html, height=700, scrolling=False)
+    st.components.v1.html(html, height=960, scrolling=False)
 
 def section_itemscout_placeholder():
     st.markdown('### 아이템스카우트')
