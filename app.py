@@ -243,6 +243,7 @@ def _inject_css():
     </style>
     """, unsafe_allow_html=True)
 
+
 # =========================
 # 2) Responsive
 # =========================
