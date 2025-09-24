@@ -1070,17 +1070,77 @@ def _stopwords_manager_ui(compact: bool = False):
                 st.error(f"가져오기 실패: {e}")
 
 # =========================
-# 9) 상품명 추천 생성기 — 스마트스토어 최적화(Top-N)
-#    • 상위키워드 추천: 검색광고 키워드도구 × DataLab 평균지수
-#    • 느슨한 모드(필터 완화/백업 재시도) + 엉뚱어 컷
-#    • 추천 키워드 2~3개 조합 + 30자/50바이트 근접 패딩
-#    • 라이트 모드: 컬러박스(성공 박스) 파란 배경 + 흰 글자 강제
+# _inject_css() 마지막에 넣을 최종 CSS 패치
+# =========================
+def _inject_css():
+    # ... (기존 CSS들)
+
+    theme = st.session_state.get("theme","light")
+
+    # 1) DARK: inputs/selects/textarea = white bg + black text
+    if theme == "dark":
+        st.markdown("""
+        <style>
+          [data-testid="stAppViewContainer"] div[data-testid="stTextInput"] input,
+          [data-testid="stAppViewContainer"] div[data-testid="stNumberInput"] input{
+            background:#ffffff !important;
+            color:#111 !important; -webkit-text-fill-color:#111 !important;
+            border:1px solid rgba(0,0,0,.18) !important;
+          }
+          [data-testid="stAppViewContainer"] div[data-testid="stTextArea"] textarea,
+          [data-testid="stAppViewContainer"] [data-baseweb="textarea"] textarea{
+            background:#ffffff !important;
+            color:#111 !important; -webkit-text-fill-color:#111 !important;
+            border:1px solid rgba(0,0,0,.18) !important;
+          }
+          [data-testid="stAppViewContainer"] [data-baseweb="select"] > div{
+            background:#ffffff !important;
+            border:1px solid rgba(0,0,0,.18) !important;
+          }
+          [data-testid="stAppViewContainer"] [data-baseweb="select"] *,
+          [data-testid="stAppViewContainer"] [data-baseweb="select"] input{
+            color:#111 !important; -webkit-text-fill-color:#111 !important;
+          }
+          [data-baseweb="popover"] [role="listbox"],
+          [data-baseweb="popover"] [role="listbox"] *{
+            background:#ffffff !important;
+            color:#111 !important; -webkit-text-fill-color:#111 !important;
+          }
+          [data-testid="stAppViewContainer"] input::placeholder,
+          [data-testid="stAppViewContainer"] textarea::placeholder{
+            color:#6b7280 !important; opacity:1 !important;
+          }
+        </style>
+        """, unsafe_allow_html=True)
+
+    # 2) LIGHT: 컬러박스 파란 배경 + 흰 글자
+    if theme == "light":
+        st.markdown("""
+        <style>
+          [data-testid="stAppViewContainer"] .stAlert { 
+            background:#2563eb !important; 
+            border:1px solid #1e40af !important;
+          }
+          [data-testid="stAppViewContainer"] .stAlert,
+          [data-testid="stAppViewContainer"] .stAlert *{
+            color:#ffffff !important; 
+            fill:#ffffff !important;
+          }
+          [data-testid="stAppViewContainer"] .stAlert [data-testid="stMarkdownContainer"] *,
+          [data-testid="stAppViewContainer"] .stAlert a,
+          [data-testid="stAppViewContainer"] .stAlert svg{
+            color:#ffffff !important; fill:#ffffff !important;
+          }
+        </style>
+        """, unsafe_allow_html=True)
+
+# =========================
+# 9) 상품명 생성기 (스마트스토어 최적화 Top-N)
 # =========================
 import re, datetime as dt
 import pandas as pd
 import streamlit as st
 
-# ── 공통 유틸 ─────────────────────────────────────────────────────────
 def _dedupe_tokens(s:str)->str:
     seen=set(); out=[]
     for t in s.split():
@@ -1104,10 +1164,8 @@ def _apply_filters_soft(text:str)->str:
         out = LITERAL_RE.sub(" ", out)
     except Exception:
         out = text
-    out = re.sub(r"\s+"," ", out).strip()
-    return out
+    return re.sub(r"\s+"," ", out).strip()
 
-# ── 도메인 룰/필터 ─────────────────────────────────────────────────────
 _ALLOWED_BY_DOMAIN = {
     "무릎보호대": ["무릎","보호대","무릎보호대","관절","압박","테이핑","밴드","서포트",
                  "스포츠","운동","헬스","러닝","재활","부상","쿠션","지지대","슬리브","슬개골"],
@@ -1118,262 +1176,140 @@ def _seed_tokens(seed:str)->list[str]:
     toks = [t for t in re.split(r"[,\s/|]+", seed or "") if len(t)>=2]
     extras=[]
     for t in toks:
-        if "무릎보호대" in t:
-            extras += ["무릎","보호대"]
+        if "무릎보호대" in t: extras += ["무릎","보호대"]
     return list(dict.fromkeys(toks+extras))
 
 def _is_related_kw(kw:str, seed:str)->bool:
     if not kw: return False
-    k = str(kw)
-    if k in _BLOCK_LIST: return False
-    toks = _seed_tokens(seed)
-    dom  = []
-    for s in toks:
-        if s in _ALLOWED_BY_DOMAIN:
-            dom += _ALLOWED_BY_DOMAIN[s]
-    allow = set(toks + dom)
-    return any(a in k for a in allow)
+    if kw in _BLOCK_LIST: return False
+    allow = set(_seed_tokens(seed))
+    dom = []
+    for s in allow:
+        if s in _ALLOWED_BY_DOMAIN: dom += _ALLOWED_BY_DOMAIN[s]
+    allow |= set(dom)
+    return any(a in kw for a in allow)
 
-# ── 키워드도구 캐시 ────────────────────────────────────────────────────
 @st.cache_data(ttl=3600, show_spinner=False)
 def _cached_kstats(seed: str) -> pd.DataFrame:
     if not seed: return pd.DataFrame()
     try:
         df = _naver_keywordstool([seed])
-    except Exception:
-        return pd.DataFrame()
+    except Exception: return pd.DataFrame()
     if df.empty: return pd.DataFrame()
-
-    # 누락 컬럼 안전 보정
-    for col, default in [
-        ("키워드",""), ("PC월간검색수", 0), ("Mobile월간검색수", 0),
-        ("PC월평균클릭수", 0), ("Mobile월평균클릭수", 0),
-        ("PC월평균클릭률", 0), ("Mobile월평균클릭률", 0),
-        ("월평균노출광고수", 0), ("광고경쟁정도", 0),
-    ]:
-        if col not in df.columns: df[col] = default
-
+    for col, default in [("키워드",""),("PC월간검색수",0),("Mobile월간검색수",0),
+                         ("PC월평균클릭수",0),("Mobile월평균클릭수",0),
+                         ("PC월평균클릭률",0),("Mobile월평균클릭률",0),
+                         ("월평균노출광고수",0),("광고경쟁정도",0)]:
+        if col not in df.columns: df[col]=default
     for c in ["PC월간검색수","Mobile월간검색수","광고경쟁정도"]:
-        df[c] = pd.to_numeric(df.get(c, 0), errors="coerce").fillna(0)
+        df[c] = pd.to_numeric(df.get(c,0), errors="coerce").fillna(0)
     df["검색합계"] = df["PC월간검색수"] + df["Mobile월간검색수"]
     return df
 
-# ── 상위 키워드 추천(검색량 × 트렌드) — 느슨한 모드 포함 ───────────────
 @st.cache_data(ttl=1200, show_spinner=False)
 def _suggest_keywords_by_searchad_and_datalab(seed_kw:str, months:int=3, top_rel:int=15, strict:bool=True) -> pd.DataFrame:
     base = _cached_kstats(seed_kw)
-    if base.empty or "키워드" not in base.columns:
-        return pd.DataFrame()
-
+    if base.empty or "키워드" not in base.columns: return pd.DataFrame()
     df = base.copy()
-    df = df[df["키워드"].astype(str).str.strip().str.len() > 0]
-    df = df[df["키워드"].astype(str) != str(seed_kw)]
+    df = df[df["키워드"].astype(str).str.strip().str.len()>0]
+    df = df[df["키워드"].astype(str)!=str(seed_kw)]
     df = df.sort_values("검색합계", ascending=False)
-
-    # 엄격 모드면 연관성 필터
-    if strict:
-        df = df[df["키워드"].apply(lambda k: _is_related_kw(str(k), seed_kw))]
-
-    # 결과 0이면 필터 해제하여 재시도
+    if strict: df = df[df["키워드"].apply(lambda k: _is_related_kw(str(k), seed_kw))]
     if df.empty and strict:
         df = base.copy()
-        df = df[df["키워드"].astype(str).str.strip().str.len() > 0]
-        df = df[df["키워드"].astype(str) != str(seed_kw)]
+        df = df[df["키워드"].astype(str).str.strip().str.len()>0]
+        df = df[df["키워드"].astype(str)!=str(seed_kw)]
         df = df.sort_values("검색합계", ascending=False)
-
-    if df.empty:
-        return pd.DataFrame()
-
-    df = df.head(max(5, min(50, top_rel))).reset_index(drop=True)
-
-    start = (dt.date.today() - dt.timedelta(days=30*months)).strftime("%Y-%m-%d")
-    end   = (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
-
-    # DataLab 평균지수
-    dl_means = {}
-    kws_all = df["키워드"].tolist()
-    for i in range(0, len(kws_all), 5):
-        chunk = kws_all[i:i+5]
-        groups = [{"groupName": k, "keywords": [k]} for k in chunk]
-        ts = _datalab_trend(groups, start, end, time_unit="week")
-        if ts.empty:
-            for k in chunk: dl_means[k] = 0.0
+    if df.empty: return pd.DataFrame()
+    df = df.head(max(5,min(50,top_rel))).reset_index(drop=True)
+    start=(dt.date.today()-dt.timedelta(days=30*months)).strftime("%Y-%m-%d")
+    end=(dt.date.today()-dt.timedelta(days=1)).strftime("%Y-%m-%d")
+    dl_means={}
+    for i in range(0,len(df),5):
+        chunk=df["키워드"].tolist()[i:i+5]
+        groups=[{"groupName":k,"keywords":[k]} for k in chunk]
+        ts=_datalab_trend(groups,start,end,time_unit="week")
+        if ts.empty: [dl_means.setdefault(k,0.0) for k in chunk]
         else:
             for k in chunk:
-                try:
-                    dl_means[k] = float(pd.to_numeric(ts.get(k), errors="coerce").mean())
-                except Exception:
-                    dl_means[k] = 0.0
+                try: dl_means[k]=float(pd.to_numeric(ts.get(k),errors="coerce").mean())
+                except: dl_means[k]=0.0
+    df["dl_mean"]=df["키워드"].map(dl_means).fillna(0.0)
+    df["score"]=pd.to_numeric(df["검색합계"],errors="coerce").fillna(0)*(df["dl_mean"].clip(lower=0)/100.0)
+    return df.sort_values(["score","검색합계"],ascending=[False,False]).reset_index(drop=True)
 
-    df["dl_mean"] = df["키워드"].map(dl_means).fillna(0.0)
-    df["score"]   = pd.to_numeric(df["검색합계"], errors="coerce").fillna(0) * (df["dl_mean"].clip(lower=0)/100.0)
-    return df.sort_values(["score","검색합계"], ascending=[False, False]).reset_index(drop=True)
+_FALLBACK_PAD={"무릎보호대":["스포츠","헬스","러닝","관절보호","압박밴드","테이핑","남녀공용","프리사이즈","충격흡수"]}
 
-# ── 도메인 기본 패딩(추천어 없을 때) ────────────────────────────────────
-_FALLBACK_PAD = {
-    "무릎보호대": ["스포츠","헬스","러닝","관절보호","압박밴드","테이핑","남녀공용","프리사이즈","충격흡수"]
-}
-
-# ── 제목 합성(조합+패딩) ───────────────────────────────────────────────
 def _compose_titles(main_kw:str, attrs:list[str], sugg:list[str], min_chars:int=30, max_bytes:int=50, topn:int=10):
-    base_tokens = [t for t in [main_kw] + attrs if t]
-    # 추천어 없으면 도메인 기본 패딩 사용 → 그래도 없으면 seed 토큰
-    if not sugg:
-        sugg = _FALLBACK_PAD.get(main_kw, []) or _ALLOWED_BY_DOMAIN.get(main_kw, [])
-    if not sugg:
-        sugg = _seed_tokens(main_kw)
-
-    candidates=[]; used=set()
-    L = min(len(sugg), 5)
-
-    # 추천어 1~3개 조합
+    base=[t for t in [main_kw]+attrs if t]
+    if not sugg: sugg=_FALLBACK_PAD.get(main_kw,[]) or _ALLOWED_BY_DOMAIN.get(main_kw,[]) or _seed_tokens(main_kw)
+    candidates=[]
+    L=min(len(sugg),5)
     for i in range(L):
-        candidates.append(base_tokens + [sugg[i]])
-        for j in range(i+1, L):
-            candidates.append(base_tokens + [sugg[i], sugg[j]])
-            for k in range(j+1, L):
-                candidates.append(base_tokens + [sugg[i], sugg[j], sugg[k]])
-
-    if not candidates:
-        candidates = [base_tokens]
-
-    out=[]
+        candidates.append(base+[sugg[i]])
+        for j in range(i+1,L):
+            candidates.append(base+[sugg[i],sugg[j]])
+            for k in range(j+1,L):
+                candidates.append(base+[sugg[i],sugg[j],sugg[k]])
+    if not candidates: candidates=[base]
+    out=[]; used=set()
     for toks in candidates:
-        title = _apply_filters_soft(_dedupe_tokens(" ".join(toks)))
+        title=_apply_filters_soft(_dedupe_tokens(" ".join(toks)))
         if not title: continue
-
-        # 길이 부족 시 추천어/속성으로 패딩(문자 기준), 바이트도 확인
-        if len(title) < min_chars:
-            pad_pool = [x for x in (sugg + attrs) if x and x not in toks]
-            for p in pad_pool:
-                trial = _apply_filters_soft(_dedupe_tokens(title + " " + p))
-                if len(trial.encode("utf-8")) > max_bytes: 
-                    break
-                title = trial
-                if len(title) >= min_chars:
-                    break
-
-        if len(title.encode("utf-8")) > max_bytes:
-            title = _truncate_bytes(title, max_bytes)
-
-        key = title.lower().strip()
+        if len(title)<min_chars:
+            pad=[x for x in (sugg+attrs) if x and x not in toks]
+            for p in pad:
+                trial=_apply_filters_soft(_dedupe_tokens(title+" "+p))
+                if len(trial.encode("utf-8"))>max_bytes: break
+                title=trial
+                if len(title)>=min_chars: break
+        if len(title.encode("utf-8"))>max_bytes: title=_truncate_bytes(title,max_bytes)
+        key=title.lower().strip()
         if key and key not in used:
             out.append(title); used.add(key)
-        if len(out) >= topn:
-            break
-
+        if len(out)>=topn: break
     return out[:topn]
 
-# ── 메인 UI ────────────────────────────────────────────────────────────
 def section_title_generator():
     st.markdown('<div class="card main"><div class="card-title">상품명 생성기 (스마트스토어 · Top-N)</div>', unsafe_allow_html=True)
-
-    # 라이트 모드: 컬러박스(성공 박스) 파란 배경 + 흰 글자 강제
-    is_dark = (st.session_state.get("theme","light") == "dark")
-    if not is_dark:
-        st.markdown("""
-        <style>
-          /* 컬러박스(성공/정보/경고/에러 공통 stAlert)를 파란 배경 + 흰 글자 */
-          [data-testid="stAppViewContainer"] div.stAlert { 
-            background:#2563eb !important; 
-            border:1px solid #1e40af !important; 
-          }
-          [data-testid="stAppViewContainer"] div.stAlert,
-          [data-testid="stAppViewContainer"] div.stAlert * ,
-          [data-testid="stAppViewContainer"] div.stAlert a,
-          [data-testid="stAppViewContainer"] div.stAlert p,
-          [data-testid="stAppViewContainer"] div.stAlert span,
-          [data-testid="stAppViewContainer"] div.stAlert strong,
-          [data-testid="stAppViewContainer"] div.stAlert svg,
-          [data-testid="stAppViewContainer"] div.stAlert [data-testid="stMarkdownContainer"] * {
-            color:#ffffff !important; fill:#ffffff !important;
-          }
-        </style>
-        """, unsafe_allow_html=True)
-
-    cA,cB = st.columns([1,2])
-    with cA:
-        brand = st.text_input("브랜드", placeholder="예: 무지 / Apple")
-        attrs = st.text_input("속성(콤마, 선택)", placeholder="예: 스포츠, 헬스, 러닝, 남녀공용, 압박밴드")
-    with cB:
-        kws_raw = st.text_input("키워드(콤마, 첫 번째가 메인)", placeholder="예: 무릎보호대, 관절보호, 충격흡수")
-        main_kw = next((k.strip() for k in (kws_raw or "").split(",") if k.strip()), "")
-
-    c1,c2,c3,c4 = st.columns([1,1,1,1])
-    with c1:
-        N = st.slider("추천 개수", 5, 20, 10, 1)
-    with c2:
-        min_chars = st.slider("최소 글자(권장 30~50)", 30, 50, 35, 1)
-    with c3:
-        max_chars = st.slider("최대 글자", 30, 50, 50, 1)
-    with c4:
-        months = st.slider("검색 트렌드 기간(개월)", 1, 6, 3, help="DataLab Open API 평균지수 계산 기간")
-
-    # 느슨한 모드 스위치 (기본 ON)
-    relaxed = st.checkbox("느슨한 모드(연관성 필터 완화/백업 재시도)", value=True)
-
-    st.caption("※ 상위 키워드 추천은 ‘네이버 검색광고 키워드도구(검색량)’ + ‘네이버 DataLab Open API(검색지수)’ 기반. 엉뚱어 자동 필터링. 30자/50바이트에 가깝게 자동 패딩.")
-
-    sugg_df = pd.DataFrame()
-    if st.button("상위 키워드 추천 불러오기 (데이터랩+키워드도구)", use_container_width=False):
-        if not main_kw:
-            st.error("메인 키워드를 먼저 입력하세요.")
+    cA,cB=st.columns([1,2])
+    with cA: brand=st.text_input("브랜드", placeholder="예: 무지 / Apple"); attrs=st.text_input("속성(콤마, 선택)", placeholder="예: 스포츠, 헬스, 러닝, 남녀공용, 압박밴드")
+    with cB: kws_raw=st.text_input("키워드(콤마, 첫 번째가 메인)", placeholder="예: 무릎보호대, 관절보호, 충격흡수"); main_kw=next((k.strip() for k in (kws_raw or "").split(",") if k.strip()),"")
+    c1,c2,c3,c4=st.columns([1,1,1,1])
+    with c1: N=st.slider("추천 개수",5,20,10,1)
+    with c2: min_chars=st.slider("최소 글자(권장 30~50)",30,50,35,1)
+    with c3: max_chars=st.slider("최대 글자",30,50,50,1)
+    with c4: months=st.slider("검색 트렌드 기간(개월)",1,6,3)
+    relaxed=st.checkbox("느슨한 모드(연관성 필터 완화/백업 재시도)", value=True)
+    st.caption("※ 상위 키워드 추천은 ‘네이버 검색광고 키워드도구’ + ‘네이버 DataLab Open API’. 30자/50바이트 자동 패딩.")
+    sugg_df=pd.DataFrame()
+    if st.button("상위 키워드 추천 불러오기 (데이터랩+키워드도구)"):
+        if not main_kw: st.error("메인 키워드를 먼저 입력하세요.")
         else:
             with st.spinner("연관 키워드·트렌드 수집 중…"):
-                sugg_df = _suggest_keywords_by_searchad_and_datalab(main_kw, months=months, top_rel=15, strict=not relaxed)
-            if sugg_df.empty:
-                st.warning("추천에 사용할 데이터가 없습니다. (API/권한/쿼터 또는 키워드 확인)")
+                sugg_df=_suggest_keywords_by_searchad_and_datalab(main_kw,months=months,top_rel=15,strict=not relaxed)
+            if sugg_df.empty: st.warning("추천 데이터 없음")
             else:
-                show_cols = ["키워드","PC월간검색수","Mobile월간검색수","검색합계","dl_mean","score"]
-                st.dataframe(sugg_df[show_cols], use_container_width=True, height=320)
-                st.download_button("추천 키워드 CSV 다운로드",
-                                   data=sugg_df[show_cols].to_csv(index=False).encode("utf-8-sig"),
-                                   file_name=f"suggest_keywords_{main_kw}.csv", mime="text/csv")
-
+                show=["키워드","PC월간검색수","Mobile월간검색수","검색합계","dl_mean","score"]
+                st.dataframe(sugg_df[show], use_container_width=True, height=320)
+                st.download_button("추천 키워드 CSV 다운로드", data=sugg_df[show].to_csv(index=False).encode("utf-8-sig"), file_name=f"suggest_keywords_{main_kw}.csv", mime="text/csv")
     if st.button("상품명 생성"):
-        if not main_kw:
-            st.error("키워드를 하나 이상 입력하세요."); 
-            st.markdown("</div>", unsafe_allow_html=True); 
-            return
-
-        # 추천어 미로딩 시 자동 조회
-        if sugg_df.empty:
-            sugg_df = _suggest_keywords_by_searchad_and_datalab(main_kw, months=months, top_rel=15, strict=not relaxed)
-
-        at_list = [a.strip() for a in (attrs or "").split(",") if a.strip()]
-        sugg = (sugg_df["키워드"].tolist() if not sugg_df.empty else [])
-
-        titles = _compose_titles(main_kw, at_list, sugg, min_chars=min_chars, max_bytes=max_chars, topn=N)
-
-        # 1순위 자동 선정: 50바이트 근접 + 추천어 커버 수 보조
-        def _fit_score(t):
-            by=len(t.encode("utf-8"))
-            fit = (max_chars-by) if by<=max_chars else 999
-            cov = sum(int(k in t) for k in (sugg[:10] if sugg else []))
-            return (fit, -cov)
-        titles_sorted = sorted(titles, key=_fit_score)
-        primary = titles_sorted[0] if titles_sorted else ""
-
-        if primary:
-            by=len(primary.encode("utf-8")); ch=len(primary)
-            st.success(f"1순위(등록용) — {primary}  (문자 {ch}/{max_chars} · 바이트 {by}/{max_chars})")
+        if not main_kw: st.error("키워드를 입력하세요."); st.markdown("</div>", unsafe_allow_html=True); return
+        if sugg_df.empty: sugg_df=_suggest_keywords_by_searchad_and_datalab(main_kw,months=months,top_rel=15,strict=not relaxed)
+        at_list=[a.strip() for a in (attrs or "").split(",") if a.strip()]
+        sugg=(sugg_df["키워드"].tolist() if not sugg_df.empty else [])
+        titles=_compose_titles(main_kw,at_list,sugg,min_chars=min_chars,max_bytes=max_chars,topn=N)
+        def _fit_score(t): by=len(t.encode("utf-8")); fit=(max_chars-by) if by<=max_chars else 999; cov=sum(int(k in t) for k in (sugg[:10] if sugg else [])); return (fit,-cov)
+        sorted_titles=sorted(titles,key=_fit_score); primary=sorted_titles[0] if sorted_titles else ""
+        if primary: by=len(primary.encode("utf-8")); ch=len(primary); st.success(f"1순위(등록용) — {primary} (문자 {ch}/{max_chars} · 바이트 {by}/{max_chars})")
         st.divider()
-
-        for i, t in enumerate(titles_sorted, 1):
-            ch=len(t); by=len(t.encode("utf-8"))
-            warn=[]
-            if ch < min_chars: warn.append(f"{min_chars}자 미만")
-            if by > max_chars: warn.append(f"{max_chars}바이트 초과")
-            suf = "" if not warn else " — " + " / ".join([f":red[{w}]" for w in warn])
+        for i,t in enumerate(sorted_titles,1):
+            ch=len(t); by=len(t.encode("utf-8")); warn=[]
+            if ch<min_chars: warn.append(f"{min_chars}자 미만")
+            if by>max_chars: warn.append(f"{max_chars}바이트 초과")
+            suf="" if not warn else " — "+" / ".join([f":red[{w}]" for w in warn])
             st.markdown(f"**{i}.** {t}  <span style='opacity:.7'>(문자 {ch}/{max_chars} · 바이트 {by}/{max_chars})</span>{suf}", unsafe_allow_html=True)
-
-        st.download_button(
-            "제목 CSV 다운로드",
-            data=pd.DataFrame({"title": titles_sorted}).to_csv(index=False).encode("utf-8-sig"),
-            file_name=f"titles_{main_kw}.csv",
-            mime="text/csv",
-        )
-
+        st.download_button("제목 CSV 다운로드", data=pd.DataFrame({"title":sorted_titles}).to_csv(index=False).encode("utf-8-sig"), file_name=f"titles_{main_kw}.csv", mime="text/csv")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────
