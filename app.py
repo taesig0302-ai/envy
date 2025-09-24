@@ -224,6 +224,28 @@ def _inject_css():
         color:#111 !important; -webkit-text-fill-color:#111 !important; text-shadow:none !important;
         filter:none !important; opacity:1 !important;
     }""" if theme == "dark" else "")}
+    /* PATCH: 라이트모드에서 파란 버튼/링크버튼/다운로드버튼 글자 흰색 강제 */
+[data-testid="stAppViewContainer"] .stButton > button,
+[data-testid="stAppViewContainer"] [data-testid="stDownloadButton"] > button,
+[data-testid="stAppViewContainer"] a[role="button"],
+[data-testid="stAppViewContainer"] a[data-testid="stLinkButton"],
+[data-testid="stAppViewContainer"] .stLinkButton a,
+[data-testid="stAppViewContainer"] .stButton > button *,
+[data-testid="stAppViewContainer"] [data-testid="stDownloadButton"] > button *,
+[data-testid="stAppViewContainer"] a[role="button"] *,
+[data-testid="stAppViewContainer"] a[data-testid="stLinkButton"] *,
+[data-testid="stAppViewContainer"] .stLinkButton a *{
+  color:#fff !important;
+  -webkit-text-fill-color:#fff !important;
+}
+
+/* (옵션) 블루 pill 박스 글자도 흰색으로 – 라이트모드에서만 쓰고 싶으면
+   이 블록은 theme == "light" 조건 문자열로 감싸줘도 됨 */
+[data-testid="stAppViewContainer"] .pill.pill-blue,
+[data-testid="stAppViewContainer"] .pill.pill-blue *{
+  color:#fff !important;
+  -webkit-text-fill-color:#fff !important;
+}
     </style>
     """, unsafe_allow_html=True)
 
