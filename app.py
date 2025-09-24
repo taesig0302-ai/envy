@@ -139,38 +139,18 @@ def _toggle_theme():
     st.session_state["theme"] = "dark" if st.session_state.get("theme", "light") == "light" else "light"
 
 def _inject_css():
-    """메인 뷰만 색상 오버라이드(사이드바 제외). 다크/라이트 대비 강화 + 다크모드 흰박스 글자 검정 고정"""
+    """메인 뷰만 색상 오버라이드(사이드바 제외). 다크/라이트 대비 강화."""
     theme = st.session_state.get("theme", "light")
     # 팔레트
     if theme == "dark":
-        bg = "#0e1117"   # 메인 배경
-        fg = "#e6edf3"   # 본문 텍스트
-        fg_sub = "#b6c2cf"
+        bg = "#0e1117"  # 메인 배경
+        fg = "#e6edf3"  # 본문/헤딩 기본
+        fg_sub = "#b6c2cf"  # 보조
         card_bg = "#11151c"
         border = "rgba(255,255,255,.08)"
         btn_bg = "#2563eb"
         btn_bg_hover = "#1e3fae"
         chip_bg = "#1f2937"
-        # 다크모드에서 '흰 박스' 계열 컴포넌트의 텍스트는 검정으로 강제
-        dark_fix_white_boxes = """
-        /* ===== Dark mode: white boxes → black text ===== */
-        [data-testid="stAppViewContainer"] .stTextInput input,
-        [data-testid="stAppViewContainer"] .stNumberInput input,
-        [data-testid="stAppViewContainer"] .stDateInput input,
-        [data-testid="stAppViewContainer"] textarea,
-        [data-testid="stAppViewContainer"] [data-baseweb="select"] *,
-        [data-testid="stAppViewContainer"] .stMultiSelect [data-baseweb="select"] * {
-            background:#ffffff !important;
-            color:#111111 !important;
-            -webkit-text-fill-color:#111111 !important;
-        }
-        /* placeholder도 어둡게 */
-        [data-testid="stAppViewContainer"] input::placeholder,
-        [data-testid="stAppViewContainer"] textarea::placeholder {
-            color:#6b7280 !important; /* gray-600 */
-            opacity:1 !important;
-        }
-        """
     else:
         bg = "#ffffff"
         fg = "#111111"
@@ -180,7 +160,6 @@ def _inject_css():
         btn_bg = "#2563eb"
         btn_bg_hover = "#1e3fae"
         chip_bg = "#f3f4f6"
-        dark_fix_white_boxes = ""  # 라이트모드에선 필요 없음
 
     st.markdown(f"""
     <style>
@@ -194,18 +173,19 @@ def _inject_css():
     [data-testid="stAppViewContainer"] label, [data-testid="stAppViewContainer"] .stMarkdown,
     [data-testid="stAppViewContainer"] .stMarkdown * {{ color:{fg} !important; }}
 
-    /* 기본 입력계열 텍스트 색 */
+    /* 입력/셀렉트/숫자필드 텍스트 */
+    [data-testid="stAppViewContainer"] [data-baseweb="select"] *,
     [data-testid="stAppViewContainer"] [data-baseweb="input"] input,
     [data-testid="stAppViewContainer"] .stNumberInput input,
     [data-testid="stAppViewContainer"] .stTextInput input {{ color:{fg} !important; }}
 
-    /* placeholder(일반) */
+    /* 플레이스홀더 */
     [data-testid="stAppViewContainer"] input::placeholder {{ color:{fg_sub} !important; opacity:.9 !important; }}
 
     /* 카드/경계선 */
     [data-testid="stAppViewContainer"] .card {{ background:{card_bg}; border:1px solid {border}; border-radius:14px; box-shadow:0 1px 6px rgba(0,0,0,.12); }}
 
-    /* 버튼: 파란배경+흰색 고정 */
+    /* ===== 버튼 — 라이트/다크 공통 파란배경+흰색 텍스트 고정 ===== */
     [data-testid="stAppViewContainer"] .stButton > button,
     [data-testid="stAppViewContainer"] [data-testid="baseButton-secondary"],
     [data-testid="stAppViewContainer"] [data-testid="baseButton-primary"],
@@ -220,7 +200,7 @@ def _inject_css():
         background:{btn_bg_hover} !important; border-color:rgba(255,255,255,.18) !important;
     }}
 
-    /* 링크 버튼 */
+    /* 링크 버튼(st.link_button) 강제 */
     [data-testid="stAppViewContainer"] a[role="button"],
     [data-testid="stAppViewContainer"] a[data-testid="stLinkButton"],
     [data-testid="stAppViewContainer"] .stLinkButton a {{
@@ -229,7 +209,6 @@ def _inject_css():
     }}
     [data-testid="stAppViewContainer"] a[role="button"]:hover,
     [data-testid="stAppViewContainer"] a[data-testid="stLinkButton"]:hover,
-
     [data-testid="stAppViewContainer"] .stLinkButton a:hover {{
         background:{btn_bg_hover} !important; text-decoration:none !important;
     }}
@@ -241,21 +220,20 @@ def _inject_css():
     /* 데이터프레임 텍스트 */
     [data-testid="stAppViewContainer"] [data-testid="stDataFrame"] * {{ color:{fg} !important; }}
 
-    /* 메인 pill — 흰색 폰트 */
+    /* 메인 컬러박스(pill) — 흰색 폰트 */
     [data-testid="stAppViewContainer"] .pill, [data-testid="stAppViewContainer"] .pill * {{ color:#fff !important; }}
-    /* 사이드바 pill — 검정 폰트 */
+    /* 사이드바 컬러박스 — 검정 폰트 */
     [data-testid="stSidebar"] .pill, [data-testid="stSidebar"] .pill * {{ color:#111 !important; }}
 
-    /* 여백 */
+    /* ===== 라이트 모드일 때 블루 pill만 흰색 폰트 ===== */
+    {("""
+    [data-testid="stAppViewContainer"] .pill.pill-blue,
+    [data-testid="stAppViewContainer"] .pill.pill-blue *{
+        color:#fff !important; -webkit-text-fill-color:#fff !important;
+    }""" if theme == "light" else "")}
+
+    /* 기존 여백 유지 */
     [data-testid="stAppViewContainer"] h2, [data-testid="stAppViewContainer"] h3 {{ margin-top:.3rem !important; }}
-
-    /* 특정 블록만 검정 폰트 강제(다크 모드에서 선택적으로 감싸서 사용) */
-    {("""[data-testid='stAppViewContainer'] .force-black, [data-testid='stAppViewContainer'] .force-black *{
-        color:#111 !important; -webkit-text-fill-color:#111 !important; text-shadow:none !important;
-        filter:none !important; opacity:1 !important; }""" if theme == "dark" else "")}
-
-    /* 다크모드 흰박스 글자 검정 패치 */
-    {dark_fix_white_boxes}
     </style>
     """, unsafe_allow_html=True)
 
