@@ -1072,7 +1072,7 @@ def _stopwords_manager_ui(compact: bool = False):
 # =========================
 # 9) 상품명 추천 생성기 — 스마트스토어 최적화(Top-N)
 #    • 상위키워드 추천: 검색광고 키워드도구 × DataLab 평균지수
-#    • 엉뚱 키워드 필터(양산/지갑/돗자리 등 제거)
+#    • 엉뚱 키워드 필터(양산/지갑/돗자리 등 제거) + 느슨한 모드(필터 완화/백업 재시도)
 #    • None/빈 DF 안전 보정
 #    • 추천 키워드 2~3개 자동 조합 + 30자/50바이트 근접 패딩
 #    • 라이트 모드: 본문 성공 박스(st.success) 파란 배경 + 흰 글자
@@ -1160,9 +1160,9 @@ def _cached_kstats(seed: str) -> pd.DataFrame:
     df["검색합계"] = df["PC월간검색수"] + df["Mobile월간검색수"]
     return df
 
-# -------- 상위 키워드 추천(검색량 × 트렌드) --------
+# -------- 상위 키워드 추천(검색량 × 트렌드) — 느슨한 모드 추가 --------
 @st.cache_data(ttl=1200, show_spinner=False)
-def _suggest_keywords_by_searchad_and_datalab(seed_kw:str, months:int=3, top_rel:int=15) -> pd.DataFrame:
+def _suggest_keywords_by_searchad_and_datalab(seed_kw:str, months:int=3, top_rel:int=15, strict:bool=True) -> pd.DataFrame:
     base = _cached_kstats(seed_kw)
     if base.empty or "키워드" not in base.columns:
         return pd.DataFrame()
@@ -1171,8 +1171,19 @@ def _suggest_keywords_by_searchad_and_datalab(seed_kw:str, months:int=3, top_rel
     df = df[df["키워드"].astype(str).str.strip().str.len() > 0]
     df = df[df["키워드"].astype(str) != str(seed_kw)]
     df = df.sort_values("검색합계", ascending=False)
-    df = df[df["키워드"].apply(lambda k: _is_related_kw(str(k), seed_kw))]
-    if df.empty: 
+
+    # 엄격 모드면 연관성 필터 적용
+    if strict:
+        df = df[df["키워드"].apply(lambda k: _is_related_kw(str(k), seed_kw))]
+
+    # 결과 0이면 필터 해제하여 재시도
+    if df.empty and strict:
+        df = base.copy()
+        df = df[df["키워드"].astype(str).str.strip().str.len() > 0]
+        df = df[df["키워드"].astype(str) != str(seed_kw)]
+        df = df.sort_values("검색합계", ascending=False)
+
+    if df.empty:
         return pd.DataFrame()
 
     df = df.head(max(5, min(50, top_rel))).reset_index(drop=True)
@@ -1208,10 +1219,9 @@ _FALLBACK_PAD = {
 def _compose_titles(main_kw:str, attrs:list[str], sugg:list[str], min_chars:int=30, max_bytes:int=50, topn:int=10):
     base_tokens = [t for t in [main_kw] + attrs if t]
 
-    # 추천어 없으면 도메인 기본 패딩 사용
+    # 추천어 없으면 도메인 기본 패딩 사용 → 그래도 없으면 seed 토큰으로 확보
     if not sugg:
         sugg = _FALLBACK_PAD.get(main_kw, []) or _ALLOWED_BY_DOMAIN.get(main_kw, [])
-    # 그래도 없으면 seed 분해 토큰으로 최소 확보
     if not sugg:
         sugg = _seed_tokens(main_kw)
 
@@ -1234,7 +1244,7 @@ def _compose_titles(main_kw:str, attrs:list[str], sugg:list[str], min_chars:int=
         title = _apply_filters_soft(_dedupe_tokens(" ".join(toks)))
         if not title: continue
 
-        # 2) 30자(사용자 설정 min_chars) 미만이면 패딩: 남은 추천어 → 남은 속성 순
+        # 2) 길이가 부족하면(문자 기준) 추천어/속성으로 패딩
         if len(title) < min_chars:
             pad_pool = [x for x in (sugg + attrs) if x and x not in toks]
             for p in pad_pool:
@@ -1266,13 +1276,20 @@ def section_title_generator():
     if not is_dark:
         st.markdown("""
         <style>
-          /* 본문(success) 알럿을 파란 배경 + 흰 글자로 */
-          [data-testid="stAppViewContainer"] .stAlert {
-            background:#2563eb !important;
-            border:1px solid #1e40af !important;
+          /* 본문 success/info/warn/error 공통 박스에 파란 배경+흰 글자 */
+          [data-testid="stAppViewContainer"] div.stAlert { 
+            background:#2563eb !important; 
+            border:1px solid #1e40af !important; 
           }
-          [data-testid="stAppViewContainer"] .stAlert * {
-            color:#fff !important;
+          [data-testid="stAppViewContainer"] div.stAlert,
+          [data-testid="stAppViewContainer"] div.stAlert * ,
+          [data-testid="stAppViewContainer"] div.stAlert a,
+          [data-testid="stAppViewContainer"] div.stAlert p,
+          [data-testid="stAppViewContainer"] div.stAlert span,
+          [data-testid="stAppViewContainer"] div.stAlert strong,
+          [data-testid="stAppViewContainer"] div.stAlert svg,
+          [data-testid="stAppViewContainer"] div.stAlert [data-testid="stMarkdownContainer"] * {
+            color:#fff !important; fill:#fff !important;
           }
         </style>
         """, unsafe_allow_html=True)
@@ -1295,6 +1312,9 @@ def section_title_generator():
     with c4:
         months = st.slider("검색 트렌드 기간(개월)", 1, 6, 3, help="DataLab Open API 평균지수 계산 기간")
 
+    # 느슨한 모드 스위치 (기본 ON)
+    relaxed = st.checkbox("느슨한 모드(연관성 필터 완화/백업 재시도)", value=True)
+
     st.caption("※ 상위 키워드 추천은 ‘네이버 검색광고 키워드도구(검색량)’ + ‘네이버 DataLab Open API(검색지수)’ 기반. 엉뚱어 자동 필터링. 30자/50바이트에 가깝게 자동 패딩.")
 
     sugg_df = pd.DataFrame()
@@ -1303,7 +1323,7 @@ def section_title_generator():
             st.error("메인 키워드를 먼저 입력하세요.")
         else:
             with st.spinner("연관 키워드·트렌드 수집 중…"):
-                sugg_df = _suggest_keywords_by_searchad_and_datalab(main_kw, months=months, top_rel=15)
+                sugg_df = _suggest_keywords_by_searchad_and_datalab(main_kw, months=months, top_rel=15, strict=not relaxed)
             if sugg_df.empty:
                 st.warning("추천에 사용할 데이터가 없습니다. (API/권한/쿼터 또는 키워드 확인)")
             else:
@@ -1319,15 +1339,16 @@ def section_title_generator():
             st.markdown("</div>", unsafe_allow_html=True); 
             return
 
-        # 추천어가 비어 있으면 자동 조회해서 가져오기(유저가 버튼 안 눌렀을 때 대비)
+        # 추천어 미로딩 시 자동 조회
         if sugg_df.empty:
-            sugg_df = _suggest_keywords_by_searchad_and_datalab(main_kw, months=months, top_rel=15)
+            sugg_df = _suggest_keywords_by_searchad_and_datalab(main_kw, months=months, top_rel=15, strict=not relaxed)
+
         at_list = [a.strip() for a in (attrs or "").split(",") if a.strip()]
         sugg = (sugg_df["키워드"].tolist() if not sugg_df.empty else [])
 
         titles = _compose_titles(main_kw, at_list, sugg, min_chars=min_chars, max_bytes=max_chars, topn=N)
 
-        # 1순위 자동 선정: 50바이트 근접 + 추천어 커버수 보조
+        # 1순위 자동 선정: 50바이트 근접 + 추천어 커버 수 보조
         def _fit_score(t):
             by=len(t.encode("utf-8"))
             fit = (max_chars-by) if by<=max_chars else 999
