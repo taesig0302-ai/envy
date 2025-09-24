@@ -106,183 +106,161 @@ STOP_PRESETS = {
 }
 
 # =========================
-# 1) UI defaults & CSS
+# Section 1 — Sidebar (다크/라이트 토글 싱크 고정 + 보조 위젯)
 # =========================
-def _ensure_session_defaults():
-    ss = st.session_state
-    ss.setdefault("theme", "light")
-    ss.setdefault("fx_base", "USD")
-    ss.setdefault("sale_foreign", 1.00)
-    ss.setdefault("m_base", "USD")
-    ss.setdefault("purchase_foreign", 0.00)
-    ss.setdefault("card_fee_pct", 4.00)
-    ss.setdefault("market_fee_pct", 14.00)
-    ss.setdefault("shipping_won", 0.0)
-    ss.setdefault("margin_mode", "퍼센트")
-    ss.setdefault("margin_pct", 10.00)
-    ss.setdefault("margin_won", 10000.0)
-    # Stopwords manager 상태
-    ss.setdefault("STOP_GLOBAL", list(STOPWORDS_GLOBAL))
-    ss.setdefault("STOP_BY_CAT", dict(STOPWORDS_BY_CAT))
-    ss.setdefault("STOP_WHITELIST", [])
-    ss.setdefault("STOP_REPLACE", ["무배=> ", "무료배송=> ", "정품=> "])
-    ss.setdefault("STOP_AGGR", False)
-    # Rakuten genre map
-    ss.setdefault("rk_genre_map", {
-        "전체(샘플)": "100283","뷰티/코스메틱": "100283","의류/패션": "100283","가전/디지털": "100283",
-        "가구/인테리어": "100283","식품": "100283","생활/건강": "100283","스포츠/레저": "100283","문구/취미": "100283",
-    })
+def _sidebar():
+    _ensure_session_defaults()
+    _inject_css()  # 현재 theme 값 기준으로 CSS 주입
 
-def _toggle_theme():
-    st.session_state["theme"] = "dark" if st.session_state.get("theme", "light") == "light" else "light"
+    with st.sidebar:
+        # 로고(있을 때만)
+        st.markdown("""
+        <style>
+          [data-testid="stSidebar"] .logo-circle{
+            width:64px;height:64px;border-radius:9999px;overflow:hidden;
+            margin:.35rem auto .6rem auto;
+            box-shadow:0 2px 8px rgba(0,0,0,.12);
+            border:1px solid rgba(0,0,0,.06);
+          }
+          [data-testid="stSidebar"] .logo-circle img{
+            width:100%;height:100%;object-fit:cover;display:block;
+          }
+        </style>
+        """, unsafe_allow_html=True)
+        lp = Path(__file__).parent / "logo.png"
+        if lp.exists():
+            b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
+            st.markdown(f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>', unsafe_allow_html=True)
 
-def _inject_css():
-    """메인 뷰만 색상 오버라이드(사이드바 제외). 다크/라이트 대비 강화."""
-    theme = st.session_state.get("theme", "light")
+        # ── 토글(콜백 제거: 단일 진실원본 = ss["theme"])
+        ss = st.session_state
+        ss.setdefault("theme", "light")
+        c1, c2 = st.columns(2)
+        with c1:
+            is_dark_ui = st.toggle("🌓 다크", value=(ss["theme"] == "dark"), key="__theme_toggle")
+            ss["theme"] = "dark" if is_dark_ui else "light"
+        with c2:
+            st.toggle("🌐 번역기", value=ss.get("__show_translator", False), key="__show_translator")
 
-    # 팔레트
-    if theme == "dark":
-        bg = "#0e1117"       # 메인 배경
-        fg = "#e6edf3"       # 본문/헤딩 기본
-        fg_sub = "#b6c2cf"   # 보조 텍스트
-        card_bg = "#11151c"
-        border = "rgba(255,255,255,.08)"
-        btn_bg = "#2563eb"
-        btn_bg_hover = "#1e3fae"
-        chip_bg = "#1f2937"
-    else:
-        bg = "#ffffff"
-        fg = "#111111"
-        fg_sub = "#4b5563"
-        card_bg = "#ffffff"
-        border = "rgba(0,0,0,.06)"
-        btn_bg = "#2563eb"
-        btn_bg_hover = "#1e3fae"
-        chip_bg = "#f3f4f6"
+        show_tr = ss.get("__show_translator", False)
 
-    st.markdown(f"""
-    <style>
-      /* 메인 컨테이너(사이드바 제외) */
-      [data-testid="stAppViewContainer"] {{
-        background:{bg} !important;
-        color:{fg} !important;
-      }}
+        # ── 보조 위젯들
+        def translator_block(expanded=True):
+            with st.expander("🌐 구글 번역기", expanded=expanded):
+                LANG_LABELS_SB = {
+                    "auto":"자동 감지","ko":"한국어","en":"영어","ja":"일본어","zh-CN":"중국어(간체)",
+                    "zh-TW":"중국어(번체)","vi":"베트남어","th":"태국어","id":"인도네시아어",
+                    "de":"독일어","fr":"프랑스어","es":"스페인어","it":"이탈리아어","pt":"포르투갈어"
+                }
+                inv = {v:k for k,v in LANG_LABELS_SB.items()}
+                src_label = st.selectbox("원문 언어", list(LANG_LABELS_SB.values()),
+                                         index=list(LANG_LABELS_SB.keys()).index("auto"), key="sb_tr_src")
+                tgt_label = st.selectbox("번역 언어", list(LANG_LABELS_SB.values()),
+                                         index=list(LANG_LABELS_SB.keys()).index("ko"), key="sb_tr_tgt")
+                text_in = st.text_area("텍스트", height=120, key="sb_tr_in")
+                if st.button("번역 실행", key="sb_tr_btn"):
+                    try:
+                        from deep_translator import GoogleTranslator as _GT
+                        out_main = _GT(source=inv[src_label], target=inv[tgt_label]).translate(text_in or "")
+                        st.text_area(f"결과 ({tgt_label})", value=out_main, height=120, key="sb_tr_out_main")
+                        if inv[tgt_label] != "ko":
+                            out_ko = _GT(source=inv[tgt_label], target="ko").translate(out_main or "")
+                            st.text_area("결과 (한국어)", value=out_ko, height=120, key="sb_tr_out_ko")
+                    except Exception as e:
+                        st.error(f"번역 중 오류: {e}")
 
-      /* 헤딩/본문을 선명한 색으로 고정 */
-      [data-testid="stAppViewContainer"] h1,
-      [data-testid="stAppViewContainer"] h2,
-      [data-testid="stAppViewContainer"] h3,
-      [data-testid="stAppViewContainer"] h4,
-      [data-testid="stAppViewContainer"] h5,
-      [data-testid="stAppViewContainer"] h6,
-      [data-testid="stAppViewContainer"] p,
-      [data-testid="stAppViewContainer"] li,
-      [data-testid="stAppViewContainer"] span,
-      [data-testid="stAppViewContainer"] label,
-      [data-testid="stAppViewContainer"] .stMarkdown,
-      [data-testid="stAppViewContainer"] .stMarkdown * {{
-        color:{fg} !important;
-      }}
+        def fx_block(expanded=True):
+            with st.expander("💱 환율 계산기", expanded=expanded):
+                fx_base = st.selectbox("기준 통화", list(CURRENCIES.keys()),
+                                       index=list(CURRENCIES.keys()).index(ss.get("fx_base","USD")), key="fx_base")
+                sale_foreign = st.number_input("판매금액 (외화)",
+                                               value=float(ss.get("sale_foreign",1.0)),
+                                               step=0.01, format="%.2f", key="sale_foreign")
+                won = FX_DEFAULT[fx_base]*sale_foreign
+                st.markdown(
+                    f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b>'
+                    f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[fx_base]["symbol"]})</span></div>',
+                    unsafe_allow_html=True
+                )
+                st.caption(f"환율 기준: {FX_DEFAULT[fx_base]:,.2f} ₩/{CURRENCIES[fx_base]['unit']}")
 
-      /* 입력/셀렉트/숫자필드 텍스트 */
-      [data-testid="stAppViewContainer"] [data-baseweb="select"] *,
-      [data-testid="stAppViewContainer"] [data-baseweb="input"] input,
-      [data-testid="stAppViewContainer"] .stNumberInput input,
-      [data-testid="stAppViewContainer"] .stTextInput input {{
-        color:{fg} !important;
-      }}
-      /* 플레이스홀더도 보이게 */
-      [data-testid="stAppViewContainer"] input::placeholder {{
-        color:{fg_sub} !important; opacity:.9 !important;
-      }}
+        def margin_block(expanded=True):
+            with st.expander("📈 마진 계산기", expanded=expanded):
+                m_base = st.selectbox("매입 통화", list(CURRENCIES.keys()),
+                                      index=list(CURRENCRIES.keys()).index(ss.get("m_base","USD")) if 'CURRENCRIES' in globals() else list(CURRENCIES.keys()).index(ss.get("m_base","USD")),
+                                      key="m_base")
+                purchase_foreign = st.number_input("매입금액 (외화)",
+                                                   value=float(ss.get("purchase_foreign",0.0)),
+                                                   step=0.01, format="%.2f", key="purchase_foreign")
+                base_cost_won = FX_DEFAULT[m_base]*purchase_foreign if purchase_foreign>0 \
+                                else FX_DEFAULT[ss.get("fx_base","USD")]*ss.get("sale_foreign",1.0)
+                st.markdown(f'<div class="pill pill-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
 
-      /* 카드/경계선 */
-      [data-testid="stAppViewContainer"] .card {{
-        background:{card_bg};
-        border:1px solid {border};
-        border-radius:14px;
-        box-shadow:0 1px 6px rgba(0,0,0,.12);
-      }}
+                c1, c2 = st.columns(2)
+                with c1:
+                    card_fee = st.number_input("카드수수료(%)", value=float(ss.get("card_fee_pct",4.0)),
+                                               step=0.01, format="%.2f", key="card_fee_pct")
+                with c2:
+                    market_fee = st.number_input("마켓수수료(%)", value=float(ss.get("market_fee_pct",14.0)),
+                                                 step=0.01, format="%.2f", key="market_fee_pct")
+                shipping_won = st.number_input("배송비(₩)", value=float(ss.get("shipping_won",0.0)),
+                                               step=100.0, format="%.0f", key="shipping_won")
+                mode = st.radio("마진 방식", ["퍼센트","플러스"], horizontal=True, key="margin_mode")
 
-      /* ===== 버튼 — 라이트/다크 공통 파란배경+흰색 텍스트 고정 ===== */
-      /* 일반 버튼 (st.button / st.download_button 기본 커버) */
-      [data-testid="stAppViewContainer"] .stButton > button,
-      [data-testid="stAppViewContainer"] [data-testid="baseButton-secondary"],
-      [data-testid="stAppViewContainer"] [data-testid="baseButton-primary"],
-      [data-testid="stAppViewContainer"] [data-testid="stDownloadButton"] > button {{
-        background:{btn_bg} !important;
-        color:#fff !important;
-        border:1px solid rgba(255,255,255,.12) !important;
-        border-radius:10px !important;
-        font-weight:700 !important;
-      }}
-      [data-testid="stAppViewContainer"] .stButton > button:hover,
-      [data-testid="stAppViewContainer"] [data-testid="stDownloadButton"] > button:hover,
-      [data-testid="stAppViewContainer"] [data-testid="baseButton-secondary"]:hover,
-      [data-testid="stAppViewContainer"] [data-testid="baseButton-primary"]:hover {{
-        background:{btn_bg_hover} !important;
-        border-color:rgba(255,255,255,.18) !important;
-      }}
+                if mode=="퍼센트":
+                    margin_pct = st.number_input("마진율 (%)", value=float(ss.get("margin_pct",10.0)),
+                                                 step=0.01, format="%.2f", key="margin_pct")
+                    target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)*(1+margin_pct/100)+shipping_won
+                    margin_value = target_price - base_cost_won; desc=f"{margin_pct:.2f}%"
+                else:
+                    margin_won = st.number_input("마진액 (₩)", value=float(ss.get("margin_won",10000.0)),
+                                                 step=100.0, format="%.0f", key="margin_won")
+                    target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)+margin_won+shipping_won
+                    margin_value = margin_won; desc=f"+{margin_won:,.0f}"
 
-      /* 링크 버튼(st.link_button)까지 강제 — 일부 버전 호환용 다중 셀렉터 */
-      [data-testid="stAppViewContainer"] a[role="button"],
-      [data-testid="stAppViewContainer"] a[data-testid="stLinkButton"],
-      [data-testid="stAppViewContainer"] .stLinkButton a {{
-        background:{btn_bg} !important;
-        color:#fff !important;
-        border:1px solid rgba(255,255,255,.12) !important;
-        border-radius:10px !important;
-        font-weight:700 !important;
-        padding:.45rem .9rem !important;
-        display:inline-block;
-      }}
-      [data-testid="stAppViewContainer"] a[role="button"]:hover,
-      [data-testid="stAppViewContainer"] a[data-testid="stLinkButton"]:hover,
-      [data-testid="stAppViewContainer"] .stLinkButton a:hover {{
-        background:{btn_bg_hover} !important;
-        text-decoration:none !important;
-      }}
+                st.markdown(f'<div class="pill pill-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="pill pill-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>',
+                            unsafe_allow_html=True)
 
-      /* 라디오/체크 라벨 */
-      [data-testid="stAppViewContainer"] .stRadio label,
-      [data-testid="stAppViewContainer"] .stCheckbox label {{
-        color:{fg} !important;
-      }}
+        # 표시 순서
+        if show_tr:
+            translator_block(expanded=True); fx_block(expanded=False); margin_block(expanded=False)
+        else:
+            fx_block(expanded=True); margin_block(expanded=True); translator_block(expanded=False)
 
-      /* 데이터프레임 텍스트 */
-      [data-testid="stAppViewContainer"] [data-testid="stDataFrame"] * {{
-        color:{fg} !important;
-      }}
+        # 사이드바 스타일(항상 라이트 톤)
+        st.markdown("""
+        <style>
+          [data-testid="stSidebar"]{
+            height:100vh !important; overflow-y:hidden !important;
+            -ms-overflow-style:none !important; scrollbar-width:none !important;
+          }
+          [data-testid="stSidebar"] > div:first-child{
+            height:100vh !important; overflow-y:hidden !important;
+          }
+          [data-testid="stSidebar"]::-webkit-scrollbar,
+          [data-testid="stSidebar"] > div:first-child::-webkit-scrollbar{ display:none !important; }
+          [data-testid="stSidebar"] .block-container{ padding-top:.4rem !important; padding-bottom:0 !important; }
+          [data-testid="stSidebar"] .stExpander{ margin-bottom:.2rem !important; padding:.25rem .4rem !important; }
+          [data-testid="stSidebar"] .stNumberInput input,
+          [data-testid="stSidebar"] .stTextInput input,
+          [data-testid="stSidebar"] textarea{
+            min-height:26px !important; line-height:1.2 !important; font-size:0.85rem !important;
+          }
+          [data-testid="stSidebar"] .pill{
+            margin:.15rem 0 .25rem 0 !important; padding:.5rem .7rem !important;
+            font-size:0.85rem !important; border-radius:8px !important; font-weight:600 !important;
+          }
+          .pill-green{ background:#dcfce7 !important; border:1px solid #22c55e !important; color:#111 !important; }
+          .pill-blue{  background:#dbeafe !important; border:1px solid #3b82f6 !important; color:#111 !important; }
+          .pill-yellow{background:#fef3c7 !important; border:1px solid #eab308 !important; color:#111 !important; }
 
-      /* 메인 컬러박스(pill) — 흰색 폰트 고정 */
-      [data-testid="stAppViewContainer"] .pill,
-      [data-testid="stAppViewContainer"] .pill * {{
-        color:#fff !important;
-      }}
-
-      /* 사이드바 컬러박스 — 검정 폰트 고정 */
-      [data-testid="stSidebar"] .pill,
-      [data-testid="stSidebar"] .pill * {{
-        color:#111 !important;
-      }}
-
-      /* 기존 여백 유지 */
-      [data-testid="stAppViewContainer"] h2, [data-testid="stAppViewContainer"] h3 {{
-        margin-top:.3rem !important;
-      }}
-
-      /* ===== 다크 모드에서 특정 블록만 검정 폰트 강제 ===== */
-      {("""
-      [data-testid='stAppViewContainer'] .force-black,
-      [data-testid='stAppViewContainer'] .force-black *{
-        color:#111 !important;
-        -webkit-text-fill-color:#111 !important;
-        text-shadow:none !important;
-        filter:none !important;
-        opacity:1 !important;
-      }""" if theme == "dark" else "")}
-    </style>
-    """, unsafe_allow_html=True)
+          :root [data-testid="stSidebar"]{ background:#ffffff !important; color:#111111 !important; }
+          :root [data-testid="stSidebar"] *{
+            color:#111111 !important; -webkit-text-fill-color:#111111 !important; opacity:1 !important;
+          }
+        </style>
+        """, unsafe_allow_html=True)
 
 # =========================
 # 2) Responsive
@@ -1135,12 +1113,17 @@ def _inject_css():
         """, unsafe_allow_html=True)
 
 # =========================
-# 9) 상품명 생성기 (스마트스토어 최적화 Top-N)
+# Section 9 — 상품명 생성기 (스마트스토어 Top-N)
+#  • 상위 키워드 추천: 검색광고×DataLab 점수
+#  • 엉뚱어 컷 + 느슨한 모드(필터 완화/백업 재시도)
+#  • 30자/50바이트 근접 자동 패딩/조합
+#  • 라이트 모드: 컬러박스 흰 글자
 # =========================
 import re, datetime as dt
 import pandas as pd
 import streamlit as st
 
+# ── 유틸
 def _dedupe_tokens(s:str)->str:
     seen=set(); out=[]
     for t in s.split():
@@ -1166,6 +1149,7 @@ def _apply_filters_soft(text:str)->str:
         out = text
     return re.sub(r"\s+"," ", out).strip()
 
+# ── 도메인 룰
 _ALLOWED_BY_DOMAIN = {
     "무릎보호대": ["무릎","보호대","무릎보호대","관절","압박","테이핑","밴드","서포트",
                  "스포츠","운동","헬스","러닝","재활","부상","쿠션","지지대","슬리브","슬개골"],
@@ -1183,18 +1167,20 @@ def _is_related_kw(kw:str, seed:str)->bool:
     if not kw: return False
     if kw in _BLOCK_LIST: return False
     allow = set(_seed_tokens(seed))
-    dom = []
+    dom=[]
     for s in allow:
         if s in _ALLOWED_BY_DOMAIN: dom += _ALLOWED_BY_DOMAIN[s]
     allow |= set(dom)
     return any(a in kw for a in allow)
 
+# ── 데이터 캐시
 @st.cache_data(ttl=3600, show_spinner=False)
 def _cached_kstats(seed: str) -> pd.DataFrame:
     if not seed: return pd.DataFrame()
     try:
         df = _naver_keywordstool([seed])
-    except Exception: return pd.DataFrame()
+    except Exception:
+        return pd.DataFrame()
     if df.empty: return pd.DataFrame()
     for col, default in [("키워드",""),("PC월간검색수",0),("Mobile월간검색수",0),
                          ("PC월평균클릭수",0),("Mobile월평균클릭수",0),
@@ -1210,41 +1196,53 @@ def _cached_kstats(seed: str) -> pd.DataFrame:
 def _suggest_keywords_by_searchad_and_datalab(seed_kw:str, months:int=3, top_rel:int=15, strict:bool=True) -> pd.DataFrame:
     base = _cached_kstats(seed_kw)
     if base.empty or "키워드" not in base.columns: return pd.DataFrame()
+
     df = base.copy()
     df = df[df["키워드"].astype(str).str.strip().str.len()>0]
     df = df[df["키워드"].astype(str)!=str(seed_kw)]
     df = df.sort_values("검색합계", ascending=False)
-    if strict: df = df[df["키워드"].apply(lambda k: _is_related_kw(str(k), seed_kw))]
+    if strict:
+        df = df[df["키워드"].apply(lambda k: _is_related_kw(str(k), seed_kw))]
     if df.empty and strict:
         df = base.copy()
         df = df[df["키워드"].astype(str).str.strip().str.len()>0]
         df = df[df["키워드"].astype(str)!=str(seed_kw)]
         df = df.sort_values("검색합계", ascending=False)
     if df.empty: return pd.DataFrame()
+
     df = df.head(max(5,min(50,top_rel))).reset_index(drop=True)
-    start=(dt.date.today()-dt.timedelta(days=30*months)).strftime("%Y-%m-%d")
-    end=(dt.date.today()-dt.timedelta(days=1)).strftime("%Y-%m-%d")
-    dl_means={}
-    for i in range(0,len(df),5):
-        chunk=df["키워드"].tolist()[i:i+5]
-        groups=[{"groupName":k,"keywords":[k]} for k in chunk]
-        ts=_datalab_trend(groups,start,end,time_unit="week")
-        if ts.empty: [dl_means.setdefault(k,0.0) for k in chunk]
+
+    start = (dt.date.today() - dt.timedelta(days=30*months)).strftime("%Y-%m-%d")
+    end   = (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
+
+    dl_means = {}
+    kws_all = df["키워드"].tolist()
+    for i in range(0,len(kws_all),5):
+        chunk = kws_all[i:i+5]
+        groups = [{"groupName":k,"keywords":[k]} for k in chunk]
+        ts = _datalab_trend(groups, start, end, time_unit="week")
+        if ts.empty:
+            for k in chunk: dl_means[k]=0.0
         else:
             for k in chunk:
-                try: dl_means[k]=float(pd.to_numeric(ts.get(k),errors="coerce").mean())
+                try: dl_means[k]=float(pd.to_numeric(ts.get(k), errors="coerce").mean())
                 except: dl_means[k]=0.0
-    df["dl_mean"]=df["키워드"].map(dl_means).fillna(0.0)
-    df["score"]=pd.to_numeric(df["검색합계"],errors="coerce").fillna(0)*(df["dl_mean"].clip(lower=0)/100.0)
-    return df.sort_values(["score","검색합계"],ascending=[False,False]).reset_index(drop=True)
 
-_FALLBACK_PAD={"무릎보호대":["스포츠","헬스","러닝","관절보호","압박밴드","테이핑","남녀공용","프리사이즈","충격흡수"]}
+    df["dl_mean"] = df["키워드"].map(dl_means).fillna(0.0)
+    df["score"]   = pd.to_numeric(df["검색합계"], errors="coerce").fillna(0) * (df["dl_mean"].clip(lower=0)/100.0)
+    return df.sort_values(["score","검색합계"], ascending=[False,False]).reset_index(drop=True)
 
-def _compose_titles(main_kw:str, attrs:list[str], sugg:list[str], min_chars:int=30, max_bytes:int=50, topn:int=10):
-    base=[t for t in [main_kw]+attrs if t]
-    if not sugg: sugg=_FALLBACK_PAD.get(main_kw,[]) or _ALLOWED_BY_DOMAIN.get(main_kw,[]) or _seed_tokens(main_kw)
-    candidates=[]
-    L=min(len(sugg),5)
+_FALLBACK_PAD = {
+    "무릎보호대": ["스포츠","헬스","러닝","관절보호","압박밴드","테이핑","남녀공용","프리사이즈","충격흡수"]
+}
+
+def _compose_titles(main_kw:str, attrs:list[str], sugg:list[str],
+                    min_chars:int=30, max_bytes:int=50, topn:int=10):
+    base = [t for t in [main_kw]+attrs if t]
+    if not sugg:
+        sugg = _FALLBACK_PAD.get(main_kw,[]) or _ALLOWED_BY_DOMAIN.get(main_kw,[]) or _seed_tokens(main_kw)
+
+    candidates=[]; L=min(len(sugg),5)
     for i in range(L):
         candidates.append(base+[sugg[i]])
         for j in range(i+1,L):
@@ -1252,64 +1250,127 @@ def _compose_titles(main_kw:str, attrs:list[str], sugg:list[str], min_chars:int=
             for k in range(j+1,L):
                 candidates.append(base+[sugg[i],sugg[j],sugg[k]])
     if not candidates: candidates=[base]
+
     out=[]; used=set()
     for toks in candidates:
-        title=_apply_filters_soft(_dedupe_tokens(" ".join(toks)))
+        title = _apply_filters_soft(_dedupe_tokens(" ".join(toks)))
         if not title: continue
-        if len(title)<min_chars:
-            pad=[x for x in (sugg+attrs) if x and x not in toks]
-            for p in pad:
-                trial=_apply_filters_soft(_dedupe_tokens(title+" "+p))
-                if len(trial.encode("utf-8"))>max_bytes: break
-                title=trial
-                if len(title)>=min_chars: break
-        if len(title.encode("utf-8"))>max_bytes: title=_truncate_bytes(title,max_bytes)
-        key=title.lower().strip()
+
+        if len(title) < min_chars:
+            pad_pool = [x for x in (sugg+attrs) if x and x not in toks]
+            for p in pad_pool:
+                trial = _apply_filters_soft(_dedupe_tokens(title+" "+p))
+                if len(trial.encode("utf-8")) > max_bytes: break
+                title = trial
+                if len(title) >= min_chars: break
+
+        if len(title.encode("utf-8")) > max_bytes:
+            title = _truncate_bytes(title, max_bytes)
+
+        key = title.lower().strip()
         if key and key not in used:
             out.append(title); used.add(key)
-        if len(out)>=topn: break
+        if len(out) >= topn: break
     return out[:topn]
 
 def section_title_generator():
     st.markdown('<div class="card main"><div class="card-title">상품명 생성기 (스마트스토어 · Top-N)</div>', unsafe_allow_html=True)
-    cA,cB=st.columns([1,2])
-    with cA: brand=st.text_input("브랜드", placeholder="예: 무지 / Apple"); attrs=st.text_input("속성(콤마, 선택)", placeholder="예: 스포츠, 헬스, 러닝, 남녀공용, 압박밴드")
-    with cB: kws_raw=st.text_input("키워드(콤마, 첫 번째가 메인)", placeholder="예: 무릎보호대, 관절보호, 충격흡수"); main_kw=next((k.strip() for k in (kws_raw or "").split(",") if k.strip()),"")
-    c1,c2,c3,c4=st.columns([1,1,1,1])
-    with c1: N=st.slider("추천 개수",5,20,10,1)
-    with c2: min_chars=st.slider("최소 글자(권장 30~50)",30,50,35,1)
-    with c3: max_chars=st.slider("최대 글자",30,50,50,1)
-    with c4: months=st.slider("검색 트렌드 기간(개월)",1,6,3)
-    relaxed=st.checkbox("느슨한 모드(연관성 필터 완화/백업 재시도)", value=True)
-    st.caption("※ 상위 키워드 추천은 ‘네이버 검색광고 키워드도구’ + ‘네이버 DataLab Open API’. 30자/50바이트 자동 패딩.")
-    sugg_df=pd.DataFrame()
+
+    # 라이트 모드 컬러박스 흰 글자(다크/라이트 통일)
+    if st.session_state.get("theme","light") == "light":
+        st.markdown("""
+        <style>
+          [data-testid="stAppViewContainer"] .stAlert{
+            background:#2563eb !important; border:1px solid #1e40af !important;
+          }
+          [data-testid="stAppViewContainer"] .stAlert,
+          [data-testid="stAppViewContainer"] .stAlert *{
+            color:#ffffff !important; fill:#ffffff !important;
+          }
+          [data-testid="stAppViewContainer"] .stAlert [data-testid="stMarkdownContainer"] *,
+          [data-testid="stAppViewContainer"] .stAlert a,
+          [data-testid="stAppViewContainer"] .stAlert svg{
+            color:#ffffff !important; fill:#ffffff !important;
+          }
+        </style>
+        """, unsafe_allow_html=True)
+
+    cA,cB = st.columns([1,2])
+    with cA:
+        brand = st.text_input("브랜드", placeholder="예: 무지 / Apple")
+        attrs = st.text_input("속성(콤마, 선택)", placeholder="예: 스포츠, 헬스, 러닝, 남녀공용, 압박밴드")
+    with cB:
+        kws_raw = st.text_input("키워드(콤마, 첫 번째가 메인)", placeholder="예: 무릎보호대, 관절보호, 충격흡수")
+        main_kw = next((k.strip() for k in (kws_raw or "").split(",") if k.strip()), "")
+
+    c1,c2,c3,c4 = st.columns([1,1,1,1])
+    with c1: N = st.slider("추천 개수", 5, 20, 10, 1)
+    with c2: min_chars = st.slider("최소 글자(권장 30~50)", 30, 50, 35, 1)
+    with c3: max_chars = st.slider("최대 글자", 30, 50, 50, 1)
+    with c4: months = st.slider("검색 트렌드 기간(개월)", 1, 6, 3, help="DataLab 평균지수 계산 구간")
+
+    relaxed = st.checkbox("느슨한 모드(연관성 필터 완화/백업 재시도)", value=True)
+    st.caption("※ 추천은 ‘네이버 키워드도구(검색량)’ + ‘DataLab(검색지수)’ 기반. 엉뚱어 자동필터. 30자/50바이트 근접 자동 패딩.")
+
+    sugg_df = pd.DataFrame()
     if st.button("상위 키워드 추천 불러오기 (데이터랩+키워드도구)"):
-        if not main_kw: st.error("메인 키워드를 먼저 입력하세요.")
+        if not main_kw:
+            st.error("메인 키워드를 먼저 입력하세요.")
         else:
             with st.spinner("연관 키워드·트렌드 수집 중…"):
-                sugg_df=_suggest_keywords_by_searchad_and_datalab(main_kw,months=months,top_rel=15,strict=not relaxed)
-            if sugg_df.empty: st.warning("추천 데이터 없음")
+                sugg_df = _suggest_keywords_by_searchad_and_datalab(main_kw, months=months, top_rel=15, strict=not relaxed)
+            if sugg_df.empty:
+                st.warning("추천에 사용할 데이터가 없습니다. (API/권한/쿼터 또는 키워드 확인)")
             else:
-                show=["키워드","PC월간검색수","Mobile월간검색수","검색합계","dl_mean","score"]
-                st.dataframe(sugg_df[show], use_container_width=True, height=320)
-                st.download_button("추천 키워드 CSV 다운로드", data=sugg_df[show].to_csv(index=False).encode("utf-8-sig"), file_name=f"suggest_keywords_{main_kw}.csv", mime="text/csv")
+                cols = ["키워드","PC월간검색수","Mobile월간검색수","검색합계","dl_mean","score"]
+                st.dataframe(sugg_df[cols], use_container_width=True, height=320)
+                st.download_button("추천 키워드 CSV 다운로드",
+                                   data=sugg_df[cols].to_csv(index=False).encode("utf-8-sig"),
+                                   file_name=f"suggest_keywords_{main_kw}.csv", mime="text/csv")
+
     if st.button("상품명 생성"):
-        if not main_kw: st.error("키워드를 입력하세요."); st.markdown("</div>", unsafe_allow_html=True); return
-        if sugg_df.empty: sugg_df=_suggest_keywords_by_searchad_and_datalab(main_kw,months=months,top_rel=15,strict=not relaxed)
-        at_list=[a.strip() for a in (attrs or "").split(",") if a.strip()]
-        sugg=(sugg_df["키워드"].tolist() if not sugg_df.empty else [])
-        titles=_compose_titles(main_kw,at_list,sugg,min_chars=min_chars,max_bytes=max_chars,topn=N)
-        def _fit_score(t): by=len(t.encode("utf-8")); fit=(max_chars-by) if by<=max_chars else 999; cov=sum(int(k in t) for k in (sugg[:10] if sugg else [])); return (fit,-cov)
-        sorted_titles=sorted(titles,key=_fit_score); primary=sorted_titles[0] if sorted_titles else ""
-        if primary: by=len(primary.encode("utf-8")); ch=len(primary); st.success(f"1순위(등록용) — {primary} (문자 {ch}/{max_chars} · 바이트 {by}/{max_chars})")
+        if not main_kw:
+            st.error("키워드를 하나 이상 입력하세요.")
+            st.markdown("</div>", unsafe_allow_html=True); return
+
+        if sugg_df.empty:
+            sugg_df = _suggest_keywords_by_searchad_and_datalab(main_kw, months=months, top_rel=15, strict=not relaxed)
+
+        at_list = [a.strip() for a in (attrs or "").split(",") if a.strip()]
+        sugg = (sugg_df["키워드"].tolist() if not sugg_df.empty else [])
+
+        titles = _compose_titles(main_kw, at_list, sugg, min_chars=min_chars, max_bytes=max_chars, topn=N)
+
+        # 1순위 자동 선택: 50바이트 근접 + 상위키워드 커버
+        def _fit_score(t):
+            by = len(t.encode("utf-8"))
+            fit = (max_chars - by) if by <= max_chars else 999
+            cov = sum(int(k in t) for k in (sugg[:10] if sugg else []))
+            return (fit, -cov)
+
+        titles_sorted = sorted(titles, key=_fit_score)
+        primary = titles_sorted[0] if titles_sorted else ""
+
+        if primary:
+            by=len(primary.encode("utf-8")); ch=len(primary)
+            st.success(f"1순위(등록용) — {primary}  (문자 {ch}/{max_chars} · 바이트 {by}/{max_chars})")
         st.divider()
-        for i,t in enumerate(sorted_titles,1):
-            ch=len(t); by=len(t.encode("utf-8")); warn=[]
-            if ch<min_chars: warn.append(f"{min_chars}자 미만")
-            if by>max_chars: warn.append(f"{max_chars}바이트 초과")
-            suf="" if not warn else " — "+" / ".join([f":red[{w}]" for w in warn])
-            st.markdown(f"**{i}.** {t}  <span style='opacity:.7'>(문자 {ch}/{max_chars} · 바이트 {by}/{max_chars})</span>{suf}", unsafe_allow_html=True)
-        st.download_button("제목 CSV 다운로드", data=pd.DataFrame({"title":sorted_titles}).to_csv(index=False).encode("utf-8-sig"), file_name=f"titles_{main_kw}.csv", mime="text/csv")
+
+        for i, t in enumerate(titles_sorted, 1):
+            ch=len(t); by=len(t.encode("utf-8"))
+            warn=[]
+            if ch < min_chars: warn.append(f"{min_chars}자 미만")
+            if by > max_chars: warn.append(f"{max_chars}바이트 초과")
+            suf = "" if not warn else " — " + " / ".join([f":red[{w}]" for w in warn])
+            st.markdown(f"**{i}.** {t}  <span style='opacity:.7'>(문자 {ch}/{max_chars} · 바이트 {by}/{max_chars})</span>{suf}",
+                        unsafe_allow_html=True)
+
+        st.download_button(
+            "제목 CSV 다운로드",
+            data=pd.DataFrame({"title": titles_sorted}).to_csv(index=False).encode("utf-8-sig"),
+            file_name=f"titles_{main_kw}.csv", mime="text/csv",
+        )
+
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────
