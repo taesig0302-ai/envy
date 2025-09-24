@@ -1072,15 +1072,16 @@ def _stopwords_manager_ui(compact: bool = False):
 # =========================
 # 9) 상품명 추천 생성기 — 스마트스토어 최적화(Top-N)
 #    • 상위키워드 추천: 검색광고 키워드도구 × DataLab 평균지수
-#    • 엉뚱 키워드 필터링(양산/지갑/돗자리 등 제거)
+#    • 엉뚱 키워드 필터(양산/지갑/돗자리 등 제거)
 #    • None/빈 DF 안전 보정
 #    • 추천 키워드 2~3개 자동 조합 + 30자/50바이트 근접 패딩
+#    • 라이트 모드: 본문 성공 박스(st.success) 파란 배경 + 흰 글자
 # =========================
 import re, math, json, datetime as dt
 import pandas as pd
 import streamlit as st
 
-# ── 기존 전역: _naver_keywordstool, _datalab_trend, PATTERN_RE, LITERAL_RE 가 존재함을 전제
+# ── 전역 제공 가정: _naver_keywordstool, _datalab_trend, PATTERN_RE, LITERAL_RE
 
 # -------- 공통 유틸 --------
 def _dedupe_tokens(s:str)->str:
@@ -1109,10 +1110,10 @@ def _apply_filters_soft(text:str)->str:
     out = re.sub(r"\s+"," ", out).strip()
     return out
 
-# -------- 키워드 필터링(엉뚱어 제거) --------
+# -------- 키워드 필터링 --------
 _ALLOWED_BY_DOMAIN = {
     "무릎보호대": ["무릎","보호대","무릎보호대","관절","압박","테이핑","밴드","서포트",
-                 "스포츠","운동","헬스","러닝","재활","부상","쿠션","지지대","슬리브"],
+                 "스포츠","운동","헬스","러닝","재활","부상","쿠션","지지대","슬리브","슬개골"],
 }
 _BLOCK_LIST = {"양산","돗자리","지갑","모자","우산","머그","키링","슬리퍼","가랜드"}
 
@@ -1147,7 +1148,7 @@ def _cached_kstats(seed: str) -> pd.DataFrame:
     if df.empty: return pd.DataFrame()
 
     for col, default in [
-        ("PC월간검색수", 0), ("Mobile월간검색수", 0),
+        ("키워드",""), ("PC월간검색수", 0), ("Mobile월간검색수", 0),
         ("PC월평균클릭수", 0), ("Mobile월평균클릭수", 0),
         ("PC월평균클릭률", 0), ("Mobile월평균클릭률", 0),
         ("월평균노출광고수", 0), ("광고경쟁정도", 0),
@@ -1198,44 +1199,50 @@ def _suggest_keywords_by_searchad_and_datalab(seed_kw:str, months:int=3, top_rel
     df["score"]   = pd.to_numeric(df["검색합계"], errors="coerce").fillna(0) * (df["dl_mean"].clip(lower=0)/100.0)
     return df.sort_values(["score","검색합계"], ascending=[False, False]).reset_index(drop=True)
 
+# -------- 도메인 기본 패딩(추천어가 없을 때) --------
+_FALLBACK_PAD = {
+    "무릎보호대": ["스포츠","헬스","러닝","관절보호","압박밴드","테이핑","남녀공용","프리사이즈","충격흡수"]
+}
+
 # -------- 제목 합성 (여러 추천어 조합 + 30자/50바이트 패딩) --------
 def _compose_titles(main_kw:str, attrs:list[str], sugg:list[str], min_chars:int=30, max_bytes:int=50, topn:int=10):
     base_tokens = [t for t in [main_kw] + attrs if t]
-    candidates=[]; used=set()
 
-    # 1) 추천어 1~3개 조합 (상위 5개 안에서)
+    # 추천어 없으면 도메인 기본 패딩 사용
+    if not sugg:
+        sugg = _FALLBACK_PAD.get(main_kw, []) or _ALLOWED_BY_DOMAIN.get(main_kw, [])
+    # 그래도 없으면 seed 분해 토큰으로 최소 확보
+    if not sugg:
+        sugg = _seed_tokens(main_kw)
+
+    candidates=[]; used=set()
     L = min(len(sugg), 5)
+
+    # 1) 추천어 1~3개 조합
     for i in range(L):
-        # 1개
-        combo = base_tokens + [sugg[i]]
-        candidates.append(combo)
+        candidates.append(base_tokens + [sugg[i]])
         for j in range(i+1, L):
-            # 2개
-            combo2 = base_tokens + [sugg[i], sugg[j]]
-            candidates.append(combo2)
+            candidates.append(base_tokens + [sugg[i], sugg[j]])
             for k in range(j+1, L):
-                # 3개
-                combo3 = base_tokens + [sugg[i], sugg[j], sugg[k]]
-                candidates.append(combo3)
+                candidates.append(base_tokens + [sugg[i], sugg[j], sugg[k]])
 
     if not candidates:
-        candidates = [base_tokens]  # 추천어 없을 때 최소 1건
+        candidates = [base_tokens]
 
     out=[]
     for toks in candidates:
         title = _apply_filters_soft(_dedupe_tokens(" ".join(toks)))
         if not title: continue
 
-        # 2) 길이(문자) < min_chars 인 경우, 남은 추천어/속성으로 패딩 시도
+        # 2) 30자(사용자 설정 min_chars) 미만이면 패딩: 남은 추천어 → 남은 속성 순
         if len(title) < min_chars:
             pad_pool = [x for x in (sugg + attrs) if x and x not in toks]
             for p in pad_pool:
                 trial = _apply_filters_soft(_dedupe_tokens(title + " " + p))
-                # 바이트 한계 넘기면 그만
                 if len(trial.encode("utf-8")) > max_bytes: 
                     break
                 title = trial
-                if len(title) >= min_chars: 
+                if len(title) >= min_chars:
                     break
 
         # 3) 최종 바이트 컷
@@ -1253,6 +1260,22 @@ def _compose_titles(main_kw:str, attrs:list[str], sugg:list[str], min_chars:int=
 # -------- 메인 UI --------
 def section_title_generator():
     st.markdown('<div class="card main"><div class="card-title">상품명 생성기 (스마트스토어 · Top-N)</div>', unsafe_allow_html=True)
+
+    # 라이트 모드: 본문 성공 박스(st.success) 스타일 오버라이드
+    is_dark = (st.session_state.get("theme","light") == "dark")
+    if not is_dark:
+        st.markdown("""
+        <style>
+          /* 본문(success) 알럿을 파란 배경 + 흰 글자로 */
+          [data-testid="stAppViewContainer"] .stAlert {
+            background:#2563eb !important;
+            border:1px solid #1e40af !important;
+          }
+          [data-testid="stAppViewContainer"] .stAlert * {
+            color:#fff !important;
+          }
+        </style>
+        """, unsafe_allow_html=True)
 
     cA,cB = st.columns([1,2])
     with cA:
@@ -1272,7 +1295,7 @@ def section_title_generator():
     with c4:
         months = st.slider("검색 트렌드 기간(개월)", 1, 6, 3, help="DataLab Open API 평균지수 계산 기간")
 
-    st.caption("※ 상위 키워드 추천은 ‘네이버 검색광고 키워드도구(검색량)’ + ‘네이버 DataLab Open API(검색지수)’ 기반. 엉뚱어(양산/지갑/돗자리) 자동 필터링. 30자/50바이트에 가깝게 자동 패딩.")
+    st.caption("※ 상위 키워드 추천은 ‘네이버 검색광고 키워드도구(검색량)’ + ‘네이버 DataLab Open API(검색지수)’ 기반. 엉뚱어 자동 필터링. 30자/50바이트에 가깝게 자동 패딩.")
 
     sugg_df = pd.DataFrame()
     if st.button("상위 키워드 추천 불러오기 (데이터랩+키워드도구)", use_container_width=False):
@@ -1296,8 +1319,12 @@ def section_title_generator():
             st.markdown("</div>", unsafe_allow_html=True); 
             return
 
+        # 추천어가 비어 있으면 자동 조회해서 가져오기(유저가 버튼 안 눌렀을 때 대비)
+        if sugg_df.empty:
+            sugg_df = _suggest_keywords_by_searchad_and_datalab(main_kw, months=months, top_rel=15)
         at_list = [a.strip() for a in (attrs or "").split(",") if a.strip()]
         sugg = (sugg_df["키워드"].tolist() if not sugg_df.empty else [])
+
         titles = _compose_titles(main_kw, at_list, sugg, min_chars=min_chars, max_bytes=max_chars, topn=N)
 
         # 1순위 자동 선정: 50바이트 근접 + 추천어 커버수 보조
