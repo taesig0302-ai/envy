@@ -1073,14 +1073,14 @@ def _stopwords_manager_ui(compact: bool = False):
 # 9) 상품명 추천 생성기 — 스마트스토어 최적화(Top-N)
 #    • 상위키워드 추천: 검색광고 키워드도구 × DataLab 평균지수
 #    • 엉뚱 키워드 필터링(양산/지갑/돗자리 등 제거)
-#    • None/빈 DF 안전 보정 + 30자/50바이트 최적화
+#    • None/빈 DF 안전 보정
+#    • 추천 키워드 2~3개 자동 조합 + 30자/50바이트 근접 패딩
 # =========================
 import re, math, json, datetime as dt
 import pandas as pd
 import streamlit as st
 
 # ── 기존 전역: _naver_keywordstool, _datalab_trend, PATTERN_RE, LITERAL_RE 가 존재함을 전제
-#     (네가 올린 코드 기준으로 동일 이름 함수가 이미 정의되어 있음)
 
 # -------- 공통 유틸 --------
 def _dedupe_tokens(s:str)->str:
@@ -1101,7 +1101,6 @@ def _truncate_bytes(text:str, max_bytes:int=50)->str:
     return s.rstrip()+"…"
 
 def _apply_filters_soft(text:str)->str:
-    """금칙어/비속어 패턴이 있으면 제거하고 공백 정리(브랜드 보호 제외: 단순화 버전)."""
     try:
         out = PATTERN_RE.sub(" ", text)
         out = LITERAL_RE.sub(" ", out)
@@ -1111,9 +1110,7 @@ def _apply_filters_soft(text:str)->str:
     return out
 
 # -------- 키워드 필터링(엉뚱어 제거) --------
-#   seed(예: 무릎보호대)와 도메인 허용어를 기준으로 연관성 판단
 _ALLOWED_BY_DOMAIN = {
-    # 무릎보호대 도메인(스포츠/헬스 보호대 계열)
     "무릎보호대": ["무릎","보호대","무릎보호대","관절","압박","테이핑","밴드","서포트",
                  "스포츠","운동","헬스","러닝","재활","부상","쿠션","지지대","슬리브"],
 }
@@ -1121,7 +1118,6 @@ _BLOCK_LIST = {"양산","돗자리","지갑","모자","우산","머그","키링"
 
 def _seed_tokens(seed:str)->list[str]:
     toks = [t for t in re.split(r"[,\s/|]+", seed or "") if len(t)>=2]
-    # 한글 복합어 분할도 보완: 무릎보호대 → 무릎, 보호대
     extras=[]
     for t in toks:
         if "무릎보호대" in t:
@@ -1137,7 +1133,6 @@ def _is_related_kw(kw:str, seed:str)->bool:
     for s in toks:
         if s in _ALLOWED_BY_DOMAIN:
             dom += _ALLOWED_BY_DOMAIN[s]
-    # 기본 허용어: seed 토큰 + 도메인 허용어
     allow = set(toks + dom)
     return any(a in k for a in allow)
 
@@ -1151,7 +1146,6 @@ def _cached_kstats(seed: str) -> pd.DataFrame:
         return pd.DataFrame()
     if df.empty: return pd.DataFrame()
 
-    # 안전 컬럼 생성
     for col, default in [
         ("PC월간검색수", 0), ("Mobile월간검색수", 0),
         ("PC월평균클릭수", 0), ("Mobile월평균클릭수", 0),
@@ -1160,7 +1154,6 @@ def _cached_kstats(seed: str) -> pd.DataFrame:
     ]:
         if col not in df.columns: df[col] = default
 
-    # 숫자화 + 합계/보정
     for c in ["PC월간검색수","Mobile월간검색수","광고경쟁정도"]:
         df[c] = pd.to_numeric(df.get(c, 0), errors="coerce").fillna(0)
     df["검색합계"] = df["PC월간검색수"] + df["Mobile월간검색수"]
@@ -1173,20 +1166,16 @@ def _suggest_keywords_by_searchad_and_datalab(seed_kw:str, months:int=3, top_rel
     if base.empty or "키워드" not in base.columns:
         return pd.DataFrame()
 
-    # 1) 연관어 랭킹(검색합계 기준) → 씨드/공백/엉뚱어 제거
     df = base.copy()
     df = df[df["키워드"].astype(str).str.strip().str.len() > 0]
     df = df[df["키워드"].astype(str) != str(seed_kw)]
     df = df.sort_values("검색합계", ascending=False)
-
-    # 엉뚱어 필터: seed 관련성 검사 + 블록리스트 제거
     df = df[df["키워드"].apply(lambda k: _is_related_kw(str(k), seed_kw))]
     if df.empty: 
         return pd.DataFrame()
 
     df = df.head(max(5, min(50, top_rel))).reset_index(drop=True)
 
-    # 2) DataLab 평균지수(최근 N개월, 주 단위) — 5개씩 나눠 호출
     start = (dt.date.today() - dt.timedelta(days=30*months)).strftime("%Y-%m-%d")
     end   = (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
 
@@ -1206,48 +1195,58 @@ def _suggest_keywords_by_searchad_and_datalab(seed_kw:str, months:int=3, top_rel
                     dl_means[k] = 0.0
 
     df["dl_mean"] = df["키워드"].map(dl_means).fillna(0.0)
-    # 3) 점수 = 검색합계 × (dl_mean/100)
-    df["score"] = pd.to_numeric(df["검색합계"], errors="coerce").fillna(0) * (df["dl_mean"].clip(lower=0)/100.0)
-
-    # 최종: 점수 순, 동일 점수는 검색합계로 보조 정렬
+    df["score"]   = pd.to_numeric(df["검색합계"], errors="coerce").fillna(0) * (df["dl_mean"].clip(lower=0)/100.0)
     return df.sort_values(["score","검색합계"], ascending=[False, False]).reset_index(drop=True)
 
-# -------- 제목 합성 --------
-def _compose_titles(main_kw:str, attrs:list[str], sugg:list[str], topn:int=10):
+# -------- 제목 합성 (여러 추천어 조합 + 30자/50바이트 패딩) --------
+def _compose_titles(main_kw:str, attrs:list[str], sugg:list[str], min_chars:int=30, max_bytes:int=50, topn:int=10):
     base_tokens = [t for t in [main_kw] + attrs if t]
-    out=[]; used=set()
+    candidates=[]; used=set()
 
-    # 우선 패턴(1순위 후보들)
-    head = sugg[:5]
-    patterns = [
-        base_tokens + ([head[0]] if len(head)>0 else []),
-        base_tokens + ([head[1]] if len(head)>1 else []),
-        base_tokens + ([head[2]] if len(head)>2 else []),
-    ]
+    # 1) 추천어 1~3개 조합 (상위 5개 안에서)
+    L = min(len(sugg), 5)
+    for i in range(L):
+        # 1개
+        combo = base_tokens + [sugg[i]]
+        candidates.append(combo)
+        for j in range(i+1, L):
+            # 2개
+            combo2 = base_tokens + [sugg[i], sugg[j]]
+            candidates.append(combo2)
+            for k in range(j+1, L):
+                # 3개
+                combo3 = base_tokens + [sugg[i], sugg[j], sugg[k]]
+                candidates.append(combo3)
 
-    for pat in patterns:
-        title = _apply_filters_soft(_dedupe_tokens(" ".join(pat)))
+    if not candidates:
+        candidates = [base_tokens]  # 추천어 없을 때 최소 1건
+
+    out=[]
+    for toks in candidates:
+        title = _apply_filters_soft(_dedupe_tokens(" ".join(toks)))
         if not title: continue
-        if len(title.encode("utf-8"))>50: title = _truncate_bytes(title, 50)
-        k = title.lower().strip()
-        if k and k not in used:
-            out.append(title); used.add(k)
 
-    i = 0
-    while len(out)<topn and i<len(sugg):
-        title = _apply_filters_soft(_dedupe_tokens(" ".join(base_tokens + [sugg[i]])))
-        i += 1
-        if not title: continue
-        if len(title.encode("utf-8"))>50: title = _truncate_bytes(title, 50)
-        k = title.lower().strip()
-        if k and k not in used:
-            out.append(title); used.add(k)
+        # 2) 길이(문자) < min_chars 인 경우, 남은 추천어/속성으로 패딩 시도
+        if len(title) < min_chars:
+            pad_pool = [x for x in (sugg + attrs) if x and x not in toks]
+            for p in pad_pool:
+                trial = _apply_filters_soft(_dedupe_tokens(title + " " + p))
+                # 바이트 한계 넘기면 그만
+                if len(trial.encode("utf-8")) > max_bytes: 
+                    break
+                title = trial
+                if len(title) >= min_chars: 
+                    break
 
-    # 추천어가 하나도 없을 때라도 최소 1개는 만들어 주기
-    if not out:
-        t = _apply_filters_soft(_dedupe_tokens(" ".join(base_tokens)))
-        if t:
-            out = [ _truncate_bytes(t, 50) ]
+        # 3) 최종 바이트 컷
+        if len(title.encode("utf-8")) > max_bytes:
+            title = _truncate_bytes(title, max_bytes)
+
+        key = title.lower().strip()
+        if key and key not in used:
+            out.append(title); used.add(key)
+        if len(out) >= topn:
+            break
 
     return out[:topn]
 
@@ -1273,9 +1272,8 @@ def section_title_generator():
     with c4:
         months = st.slider("검색 트렌드 기간(개월)", 1, 6, 3, help="DataLab Open API 평균지수 계산 기간")
 
-    st.caption("※ 상위 키워드 추천은 ‘네이버 검색광고 키워드도구(검색량)’ + ‘네이버 DataLab Open API(검색지수)’ 기반으로 점수를 매깁니다. 엉뚱어(양산/지갑/돗자리)는 자동 필터링.")
+    st.caption("※ 상위 키워드 추천은 ‘네이버 검색광고 키워드도구(검색량)’ + ‘네이버 DataLab Open API(검색지수)’ 기반. 엉뚱어(양산/지갑/돗자리) 자동 필터링. 30자/50바이트에 가깝게 자동 패딩.")
 
-    # ── 상위 키워드 추천
     sugg_df = pd.DataFrame()
     if st.button("상위 키워드 추천 불러오기 (데이터랩+키워드도구)", use_container_width=False):
         if not main_kw:
@@ -1292,7 +1290,6 @@ def section_title_generator():
                                    data=sugg_df[show_cols].to_csv(index=False).encode("utf-8-sig"),
                                    file_name=f"suggest_keywords_{main_kw}.csv", mime="text/csv")
 
-    # ── 제목 생성
     if st.button("상품명 생성"):
         if not main_kw:
             st.error("키워드를 하나 이상 입력하세요."); 
@@ -1301,12 +1298,12 @@ def section_title_generator():
 
         at_list = [a.strip() for a in (attrs or "").split(",") if a.strip()]
         sugg = (sugg_df["키워드"].tolist() if not sugg_df.empty else [])
-        titles = _compose_titles(main_kw, at_list, sugg, topn=N)
+        titles = _compose_titles(main_kw, at_list, sugg, min_chars=min_chars, max_bytes=max_chars, topn=N)
 
-        # 1순위 자동 선정: 50바이트 근접 + 커버수 보조
+        # 1순위 자동 선정: 50바이트 근접 + 추천어 커버수 보조
         def _fit_score(t):
             by=len(t.encode("utf-8"))
-            fit = (50-by) if by<=50 else 999
+            fit = (max_chars-by) if by<=max_chars else 999
             cov = sum(int(k in t) for k in (sugg[:10] if sugg else []))
             return (fit, -cov)
         titles_sorted = sorted(titles, key=_fit_score)
@@ -1314,7 +1311,7 @@ def section_title_generator():
 
         if primary:
             by=len(primary.encode("utf-8")); ch=len(primary)
-            st.success(f"1순위(등록용) — {primary}  (문자 {ch}/50 · 바이트 {by}/50)")
+            st.success(f"1순위(등록용) — {primary}  (문자 {ch}/{max_chars} · 바이트 {by}/{max_chars})")
         st.divider()
 
         for i, t in enumerate(titles_sorted, 1):
