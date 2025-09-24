@@ -106,18 +106,30 @@ STOP_PRESETS = {
 }
 
 # =========================
-# Section 1 — Sidebar (독립형, 의존성 안전)
+# Section 1 — Sidebar (with safe _ensure_session_defaults)
 # =========================
 def _sidebar():
     import base64
     from pathlib import Path
     import streamlit as st
 
-    # (있으면 사용, 없으면 무시) — 기존 초기화 헬퍼 호출 안전화
-    try:
-        _ensure_session_defaults()
-    except NameError:
-        pass
+    # --- 안전용: 기본 세션 상태 강제 세팅 ---
+    def _ensure_session_defaults():
+        ss = st.session_state
+        ss.setdefault("theme", "light")
+        ss.setdefault("__show_translator", False)
+        ss.setdefault("fx_base", "USD")
+        ss.setdefault("sale_foreign", 1.00)
+        ss.setdefault("m_base", "USD")
+        ss.setdefault("purchase_foreign", 0.00)
+        ss.setdefault("card_fee_pct", 4.00)
+        ss.setdefault("market_fee_pct", 14.00)
+        ss.setdefault("shipping_won", 0.0)
+        ss.setdefault("margin_mode", "퍼센트")
+        ss.setdefault("margin_pct", 10.00)
+        ss.setdefault("margin_won", 10000.0)
+
+    _ensure_session_defaults()
 
     # ---- 안전한 글로벌 기본값(fallback) ----
     global CURRENCIES, FX_DEFAULT
@@ -132,19 +144,6 @@ def _sidebar():
         FX_DEFAULT = {"USD":1400.0,"EUR":1500.0,"JPY":10.0,"CNY":200.0}
 
     ss = st.session_state
-    # ---- 최소 세션 기본값을 여기서 직접 세팅 ----
-    ss.setdefault("theme", "light")
-    ss.setdefault("__show_translator", False)
-    ss.setdefault("fx_base", "USD")
-    ss.setdefault("sale_foreign", 1.00)
-    ss.setdefault("m_base", "USD")
-    ss.setdefault("purchase_foreign", 0.00)
-    ss.setdefault("card_fee_pct", 4.00)
-    ss.setdefault("market_fee_pct", 14.00)
-    ss.setdefault("shipping_won", 0.0)
-    ss.setdefault("margin_mode", "퍼센트")
-    ss.setdefault("margin_pct", 10.00)
-    ss.setdefault("margin_won", 10000.0)
 
     # ---- 현재 theme 기준 CSS 주입 (있으면 호출) ----
     try:
@@ -153,7 +152,7 @@ def _sidebar():
         pass
 
     with st.sidebar:
-        # 로고(있을 때만)
+        # 로고(있으면 로드)
         st.markdown("""
         <style>
           [data-testid="stSidebar"] .logo-circle{
@@ -175,7 +174,7 @@ def _sidebar():
         except Exception:
             pass
 
-        # 토글(콜백 제거: 단일 진실원본 = ss["theme"])
+        # 토글 (테마 / 번역기)
         c1, c2 = st.columns(2)
         with c1:
             is_dark_ui = st.toggle("🌓 다크", value=(ss["theme"] == "dark"), key="__theme_toggle")
@@ -185,7 +184,7 @@ def _sidebar():
 
         show_tr = ss.get("__show_translator", False)
 
-        # ---- 보조 위젯들 ----
+        # ---- 보조 위젯 (번역기/환율/마진) ----
         def translator_block(expanded=True):
             with st.expander("🌐 구글 번역기", expanded=expanded):
                 LANG_LABELS_SB = {
@@ -267,43 +266,25 @@ def _sidebar():
                 st.markdown(f'<div class="pill pill-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>',
                             unsafe_allow_html=True)
 
-        # 표시 순서
+        # 출력 순서
         if show_tr:
             translator_block(expanded=True); fx_block(expanded=False); margin_block(expanded=False)
         else:
             fx_block(expanded=True); margin_block(expanded=True); translator_block(expanded=False)
 
-        # 사이드바 스타일(항상 라이트 톤)
+        # 사이드바 스타일
         st.markdown("""
         <style>
           [data-testid="stSidebar"]{
             height:100vh !important; overflow-y:hidden !important;
-            -ms-overflow-style:none !important; scrollbar-width:none !important;
-          }
-          [data-testid="stSidebar"] > div:first-child{
-            height:100vh !important; overflow-y:hidden !important;
-          }
-          [data-testid="stSidebar"]::-webkit-scrollbar,
-          [data-testid="stSidebar"] > div:first-child::-webkit-scrollbar{ display:none !important; }
-          [data-testid="stSidebar"] .block-container{ padding-top:.4rem !important; padding-bottom:0 !important; }
-          [data-testid="stSidebar"] .stExpander{ margin-bottom:.2rem !important; padding:.25rem .4rem !important; }
-          [data-testid="stSidebar"] .stNumberInput input,
-          [data-testid="stSidebar"] .stTextInput input,
-          [data-testid="stSidebar"] textarea{
-            min-height:26px !important; line-height:1.2 !important; font-size:0.85rem !important;
           }
           [data-testid="stSidebar"] .pill{
-            margin:.15rem 0 .25rem 0 !important; padding:.5rem .7rem !important;
-            font-size:0.85rem !important; border-radius:8px !important; font-weight:600 !important;
+            font-size:0.85rem !important; border-radius:8px !important;
+            font-weight:600 !important; margin:.15rem 0; padding:.5rem .7rem;
           }
           .pill-green{ background:#dcfce7 !important; border:1px solid #22c55e !important; color:#111 !important; }
           .pill-blue{  background:#dbeafe !important; border:1px solid #3b82f6 !important; color:#111 !important; }
           .pill-yellow{background:#fef3c7 !important; border:1px solid #eab308 !important; color:#111 !important; }
-
-          :root [data-testid="stSidebar"]{ background:#ffffff !important; color:#111111 !important; }
-          :root [data-testid="stSidebar"] *{
-            color:#111111 !important; -webkit-text-fill-color:#111111 !important; opacity:1 !important;
-          }
         </style>
         """, unsafe_allow_html=True)
 
