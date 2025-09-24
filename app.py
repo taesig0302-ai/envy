@@ -106,53 +106,104 @@ STOP_PRESETS = {
 }
 
 # =========================
-# Section 1 — Sidebar (with safe _ensure_session_defaults)
+# [SECTION 1] Sidebar (single source of truth)
 # =========================
-def _sidebar():
-    import base64
-    from pathlib import Path
-    import streamlit as st
+import streamlit as st
+import base64
+from pathlib import Path
 
-    # --- 안전용: 기본 세션 상태 강제 세팅 ---
-    def _ensure_session_defaults():
-        ss = st.session_state
-        ss.setdefault("theme", "light")
-        ss.setdefault("__show_translator", False)
-        ss.setdefault("fx_base", "USD")
-        ss.setdefault("sale_foreign", 1.00)
-        ss.setdefault("m_base", "USD")
-        ss.setdefault("purchase_foreign", 0.00)
-        ss.setdefault("card_fee_pct", 4.00)
-        ss.setdefault("market_fee_pct", 14.00)
-        ss.setdefault("shipping_won", 0.0)
-        ss.setdefault("margin_mode", "퍼센트")
-        ss.setdefault("margin_pct", 10.00)
-        ss.setdefault("margin_won", 10000.0)
-
-    _ensure_session_defaults()
-
-    # ---- 안전한 글로벌 기본값(fallback) ----
-    global CURRENCIES, FX_DEFAULT
-    if "CURRENCIES" not in globals():
-        CURRENCIES = {
-            "USD":{"kr":"미국 달러","symbol":"$","unit":"USD"},
-            "EUR":{"kr":"유로","symbol":"€","unit":"EUR"},
-            "JPY":{"kr":"일본 엔","symbol":"¥","unit":"JPY"},
-            "CNY":{"kr":"중국 위안","symbol":"元","unit":"CNY"},
-        }
-    if "FX_DEFAULT" not in globals():
-        FX_DEFAULT = {"USD":1400.0,"EUR":1500.0,"JPY":10.0,"CNY":200.0}
-
+def _ensure_session_defaults():
     ss = st.session_state
+    ss.setdefault("theme", "light")
+    ss.setdefault("__show_translator", False)
+    ss.setdefault("fx_base", "USD")
+    ss.setdefault("sale_foreign", 1.00)
+    ss.setdefault("m_base", "USD")
+    ss.setdefault("purchase_foreign", 0.00)
+    ss.setdefault("card_fee_pct", 4.00)
+    ss.setdefault("market_fee_pct", 14.00)
+    ss.setdefault("shipping_won", 0.0)
+    ss.setdefault("margin_mode", "퍼센트")
+    ss.setdefault("margin_pct", 10.00)
+    ss.setdefault("margin_won", 10000.0)
 
-    # ---- 현재 theme 기준 CSS 주입 (있으면 호출) ----
-    try:
-        _inject_css()
-    except Exception:
-        pass
+def _toggle_theme():
+    # 토글 콜백에서 사용 가능
+    st.session_state["theme"] = "dark" if st.session_state.get("__theme_toggle", False) else "light"
+
+def _inject_css():
+    theme = st.session_state.get("theme", "light")
+
+    # 사이드바는 항상 라이트 톤(가독성)
+    st.markdown("""
+    <style>
+      [data-testid="stSidebar"] { background:#ffffff !important; color:#111 !important; }
+      [data-testid="stSidebar"] *{
+        color:#111 !important; -webkit-text-fill-color:#111 !important; opacity:1 !important;
+        text-shadow:none !important; filter:none !important;
+      }
+      [data-testid="stSidebar"] .pill{
+        margin:.15rem 0 .25rem 0 !important; padding:.5rem .7rem !important;
+        font-size:0.85rem !important; border-radius:8px !important; font-weight:600 !important;
+      }
+      .pill-green{ background:#dcfce7 !important; border:1px solid #22c55e !important; color:#111 !important; }
+      .pill-blue{  background:#dbeafe !important; border:1px solid #3b82f6 !important; color:#111 !important; }
+      .pill-yellow{background:#fef3c7 !important; border:1px solid #eab308 !important; color:#111 !important; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # 본문 컬러박스(알럿/배지)는 라이트에서 파란배경+흰글자
+    if theme == "light":
+        st.markdown("""
+        <style>
+          [data-testid="stAppViewContainer"] .stAlert{
+            background:#2563eb !important; border:1px solid #1e40af !important;
+          }
+          [data-testid="stAppViewContainer"] .stAlert,
+          [data-testid="stAppViewContainer"] .stAlert *{
+            color:#ffffff !important; fill:#ffffff !important;
+          }
+        </style>
+        """, unsafe_allow_html=True)
+
+    # 다크모드: 입력/선택/텍스트영역은 흰 배경 + 검정 글자(시안성)
+    if theme == "dark":
+        st.markdown("""
+        <style>
+          [data-testid="stAppViewContainer"] div[data-testid="stTextInput"] input,
+          [data-testid="stAppViewContainer"] div[data-testid="stNumberInput"] input,
+          [data-testid="stAppViewContainer"] div[data-testid="stTextArea"] textarea,
+          [data-testid="stAppViewContainer"] [data-baseweb="textarea"] textarea{
+            background:#ffffff !important;
+            color:#111 !important; -webkit-text-fill-color:#111 !important;
+            border:1px solid rgba(0,0,0,.18) !important;
+          }
+          [data-testid="stAppViewContainer"] [data-baseweb="select"] > div{
+            background:#ffffff !important;
+            border:1px solid rgba(0,0,0,.18) !important;
+          }
+          [data-testid="stAppViewContainer"] [data-baseweb="select"] *,
+          [data-testid="stAppViewContainer"] [data-baseweb="select"] input{
+            color:#111 !important; -webkit-text-fill-color:#111 !important;
+          }
+          [data-baseweb="popover"] [role="listbox"],
+          [data-baseweb="popover"] [role="listbox"] *{
+            background:#ffffff !important;
+            color:#111 !important; -webkit-text-fill-color:#111 !important;
+          }
+          [data-testid="stAppViewContainer"] input::placeholder,
+          [data-testid="stAppViewContainer"] textarea::placeholder{
+            color:#6b7280 !important; opacity:1 !important;
+          }
+        </style>
+        """, unsafe_allow_html=True)
+
+def _sidebar():
+    _ensure_session_defaults()
+    _inject_css()
 
     with st.sidebar:
-        # 로고(있으면 로드)
+        # 로고
         st.markdown("""
         <style>
           [data-testid="stSidebar"] .logo-circle{
@@ -174,119 +225,101 @@ def _sidebar():
         except Exception:
             pass
 
-        # 토글 (테마 / 번역기)
+        # 토글
         c1, c2 = st.columns(2)
         with c1:
-            is_dark_ui = st.toggle("🌓 다크", value=(ss["theme"] == "dark"), key="__theme_toggle")
-            ss["theme"] = "dark" if is_dark_ui else "light"
+            st.toggle("🌓 다크", value=(st.session_state.get("theme","light")=="dark"),
+                      on_change=_toggle_theme, key="__theme_toggle")
         with c2:
-            ss["__show_translator"] = st.toggle("🌐 번역기", value=ss.get("__show_translator", False), key="__show_translator_toggle")
+            st.toggle("🌐 번역기", value=st.session_state.get("__show_translator", False), key="__show_translator")
 
-        show_tr = ss.get("__show_translator", False)
-
-        # ---- 보조 위젯 (번역기/환율/마진) ----
+        # 구역: 번역기 / 환율 / 마진
         def translator_block(expanded=True):
             with st.expander("🌐 구글 번역기", expanded=expanded):
-                LANG_LABELS_SB = {
+                labels = {
                     "auto":"자동 감지","ko":"한국어","en":"영어","ja":"일본어","zh-CN":"중국어(간체)",
                     "zh-TW":"중국어(번체)","vi":"베트남어","th":"태국어","id":"인도네시아어",
                     "de":"독일어","fr":"프랑스어","es":"스페인어","it":"이탈리아어","pt":"포르투갈어"
                 }
-                inv = {v:k for k,v in LANG_LABELS_SB.items()}
-                src_label = st.selectbox("원문 언어", list(LANG_LABELS_SB.values()),
-                                         index=list(LANG_LABELS_SB.keys()).index("auto"), key="sb_tr_src")
-                tgt_label = st.selectbox("번역 언어", list(LANG_LABELS_SB.values()),
-                                         index=list(LANG_LABELS_SB.keys()).index("ko"), key="sb_tr_tgt")
+                inv = {v:k for k,v in labels.items()}
+                src = st.selectbox("원문 언어", list(labels.values()),
+                                   index=list(labels.keys()).index("auto"), key="sb_tr_src")
+                tgt = st.selectbox("번역 언어", list(labels.values()),
+                                   index=list(labels.keys()).index("ko"), key="sb_tr_tgt")
                 text_in = st.text_area("텍스트", height=120, key="sb_tr_in")
                 if st.button("번역 실행", key="sb_tr_btn"):
                     try:
-                        from deep_translator import GoogleTranslator as _GT
-                        out_main = _GT(source=inv[src_label], target=inv[tgt_label]).translate(text_in or "")
-                        st.text_area(f"결과 ({tgt_label})", value=out_main, height=120, key="sb_tr_out_main")
-                        if inv[tgt_label] != "ko":
-                            out_ko = _GT(source=inv[tgt_label], target="ko").translate(out_main or "")
+                        from deep_translator import GoogleTranslator as GT
+                        out = GT(source=inv[src], target=inv[tgt]).translate(text_in or "")
+                        st.text_area(f"결과 ({tgt})", value=out, height=120, key="sb_tr_out_main")
+                        if inv[tgt] != "ko":
+                            out_ko = GT(source=inv[tgt], target="ko").translate(out or "")
                             st.text_area("결과 (한국어)", value=out_ko, height=120, key="sb_tr_out_ko")
                     except Exception as e:
                         st.error(f"번역 중 오류: {e}")
 
         def fx_block(expanded=True):
+            from math import isfinite
+            FX_DEFAULT = {"USD":1400.0,"EUR":1500.0,"JPY":10.0,"CNY":200.0}
+            CURRENCIES = {
+                "USD":{"symbol":"$","unit":"USD"},
+                "EUR":{"symbol":"€","unit":"EUR"},
+                "JPY":{"symbol":"¥","unit":"JPY"},
+                "CNY":{"symbol":"元","unit":"CNY"},
+            }
             with st.expander("💱 환율 계산기", expanded=expanded):
                 fx_base = st.selectbox("기준 통화", list(CURRENCIES.keys()),
-                                       index=list(CURRENCIES.keys()).index(ss.get("fx_base","USD")), key="fx_base")
-                sale_foreign = st.number_input("판매금액 (외화)",
-                                               value=float(ss.get("sale_foreign",1.0)),
+                                       index=list(CURRENCIES.keys()).index(st.session_state.get("fx_base","USD")), key="fx_base")
+                sale_foreign = st.number_input("판매금액 (외화)", value=float(st.session_state.get("sale_foreign",1.0)),
                                                step=0.01, format="%.2f", key="sale_foreign")
                 won = FX_DEFAULT[fx_base]*sale_foreign
-                st.markdown(
-                    f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b>'
-                    f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[fx_base]["symbol"]})</span></div>',
-                    unsafe_allow_html=True
-                )
+                st.markdown(f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b>'
+                            f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[fx_base]["symbol"]})</span></div>', unsafe_allow_html=True)
                 st.caption(f"환율 기준: {FX_DEFAULT[fx_base]:,.2f} ₩/{CURRENCIES[fx_base]['unit']}")
 
         def margin_block(expanded=True):
+            FX_DEFAULT = {"USD":1400.0,"EUR":1500.0,"JPY":10.0,"CNY":200.0}
+            CURRENCIES = {"USD":{}, "EUR":{}, "JPY":{}, "CNY":{}}
             with st.expander("📈 마진 계산기", expanded=expanded):
                 m_base = st.selectbox("매입 통화", list(CURRENCIES.keys()),
-                                      index=list(CURRENCIES.keys()).index(ss.get("m_base","USD")), key="m_base")
+                                      index=list(CURRENCIES.keys()).index(st.session_state.get("m_base","USD")), key="m_base")
                 purchase_foreign = st.number_input("매입금액 (외화)",
-                                                   value=float(ss.get("purchase_foreign",0.0)),
+                                                   value=float(st.session_state.get("purchase_foreign",0.0)),
                                                    step=0.01, format="%.2f", key="purchase_foreign")
                 base_cost_won = FX_DEFAULT[m_base]*purchase_foreign if purchase_foreign>0 \
-                                else FX_DEFAULT[ss.get("fx_base","USD")]*ss.get("sale_foreign",1.0)
+                                else FX_DEFAULT[st.session_state.get("fx_base","USD")]*st.session_state.get("sale_foreign",1.0)
                 st.markdown(f'<div class="pill pill-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
 
                 c1, c2 = st.columns(2)
                 with c1:
-                    card_fee = st.number_input("카드수수료(%)",
-                                               value=float(ss.get("card_fee_pct",4.0)),
+                    card_fee = st.number_input("카드수수료(%)", value=float(st.session_state.get("card_fee_pct",4.0)),
                                                step=0.01, format="%.2f", key="card_fee_pct")
                 with c2:
-                    market_fee = st.number_input("마켓수수료(%)",
-                                                 value=float(ss.get("market_fee_pct",14.0)),
+                    market_fee = st.number_input("마켓수수료(%)", value=float(st.session_state.get("market_fee_pct",14.0)),
                                                  step=0.01, format="%.2f", key="market_fee_pct")
 
-                shipping_won = st.number_input("배송비(₩)", value=float(ss.get("shipping_won",0.0)),
+                shipping_won = st.number_input("배송비(₩)", value=float(st.session_state.get("shipping_won",0.0)),
                                                step=100.0, format="%.0f", key="shipping_won")
                 mode = st.radio("마진 방식", ["퍼센트","플러스"], horizontal=True, key="margin_mode")
 
                 if mode=="퍼센트":
-                    margin_pct = st.number_input("마진율 (%)",
-                                                 value=float(ss.get("margin_pct",10.0)),
+                    margin_pct = st.number_input("마진율 (%)", value=float(st.session_state.get("margin_pct",10.0)),
                                                  step=0.01, format="%.2f", key="margin_pct")
                     target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)*(1+margin_pct/100)+shipping_won
                     margin_value = target_price - base_cost_won; desc=f"{margin_pct:.2f}%"
                 else:
-                    margin_won = st.number_input("마진액 (₩)",
-                                                 value=float(ss.get("margin_won",10000.0)),
+                    margin_won = st.number_input("마진액 (₩)", value=float(st.session_state.get("margin_won",10000.0)),
                                                  step=100.0, format="%.0f", key="margin_won")
                     target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)+margin_won+shipping_won
                     margin_value = margin_won; desc=f"+{margin_won:,.0f}"
 
                 st.markdown(f'<div class="pill pill-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="pill pill-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>',
-                            unsafe_allow_html=True)
+                st.markdown(f'<div class="pill pill-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>', unsafe_allow_html=True)
 
-        # 출력 순서
-        if show_tr:
+        if st.session_state.get("__show_translator", False):
             translator_block(expanded=True); fx_block(expanded=False); margin_block(expanded=False)
         else:
             fx_block(expanded=True); margin_block(expanded=True); translator_block(expanded=False)
-
-        # 사이드바 스타일
-        st.markdown("""
-        <style>
-          [data-testid="stSidebar"]{
-            height:100vh !important; overflow-y:hidden !important;
-          }
-          [data-testid="stSidebar"] .pill{
-            font-size:0.85rem !important; border-radius:8px !important;
-            font-weight:600 !important; margin:.15rem 0; padding:.5rem .7rem;
-          }
-          .pill-green{ background:#dcfce7 !important; border:1px solid #22c55e !important; color:#111 !important; }
-          .pill-blue{  background:#dbeafe !important; border:1px solid #3b82f6 !important; color:#111 !important; }
-          .pill-yellow{background:#fef3c7 !important; border:1px solid #eab308 !important; color:#111 !important; }
-        </style>
-        """, unsafe_allow_html=True)
 
 # =========================
 # 2) Responsive
@@ -1139,11 +1172,20 @@ def _inject_css():
         """, unsafe_allow_html=True)
 
 # =========================
-# Section 9 — 상품명 생성기 (스마트스토어 · Top-N)
+# [SECTION 9] 상품명 생성기 (스마트스토어 · Top-N)
 # =========================
-import re, datetime as dt
+import re
 import pandas as pd
 import streamlit as st
+import datetime as dt
+
+# 안전 필터(없어도 동작하도록 기본값 지정)
+try:
+    STOPWORDS_GLOBAL
+except NameError:
+    STOPWORDS_GLOBAL = []
+PATTERN_RE  = re.compile(r"[^\w\s가-힣\+\-/]")             # 이모지/특수문자 대략 제거
+LITERAL_RE  = re.compile("|".join(map(re.escape, STOPWORDS_GLOBAL))) if STOPWORDS_GLOBAL else re.compile("$^")
 
 # ── 유틸
 def _dedupe_tokens(s:str)->str:
@@ -1195,29 +1237,23 @@ def _is_related_kw(kw:str, seed:str)->bool:
     allow |= set(dom)
     return any(a in kw for a in allow)
 
-# ── 데이터 캐시
 @st.cache_data(ttl=3600, show_spinner=False)
 def _cached_kstats(seed: str) -> pd.DataFrame:
-    if not seed: return pd.DataFrame()
     try:
-        df = _naver_keywordstool([seed])
+        df = _naver_keywordstool([seed]) if seed else pd.DataFrame()
     except Exception:
-        return pd.DataFrame()
+        df = pd.DataFrame()
     if df.empty: return pd.DataFrame()
-    for col, default in [("키워드",""),("PC월간검색수",0),("Mobile월간검색수",0),
-                         ("PC월평균클릭수",0),("Mobile월평균클릭수",0),
-                         ("PC월평균클릭률",0),("Mobile월평균클릭률",0),
-                         ("월평균노출광고수",0),("광고경쟁정도",0)]:
+    for col, default in [("키워드",""),("PC월간검색수",0),("Mobile월간검색수",0)]:
         if col not in df.columns: df[col]=default
-    for c in ["PC월간검색수","Mobile월간검색수","광고경쟁정도"]:
-        df[c] = pd.to_numeric(df.get(c,0), errors="coerce").fillna(0)
-    df["검색합계"] = df["PC월간검색수"] + df["Mobile월간검색수"]
+    df["검색합계"] = pd.to_numeric(df["PC월간검색수"], errors="coerce").fillna(0) + \
+                     pd.to_numeric(df["Mobile월간검색수"], errors="coerce").fillna(0)
     return df
 
 @st.cache_data(ttl=1200, show_spinner=False)
 def _suggest_keywords_by_searchad_and_datalab(seed_kw:str, months:int=3, top_rel:int=15, strict:bool=True) -> pd.DataFrame:
     base = _cached_kstats(seed_kw)
-    if base.empty or "키워드" not in base.columns: return pd.DataFrame()
+    if base.empty: return pd.DataFrame()
 
     df = base.copy()
     df = df[df["키워드"].astype(str).str.strip().str.len()>0]
@@ -1225,34 +1261,9 @@ def _suggest_keywords_by_searchad_and_datalab(seed_kw:str, months:int=3, top_rel
     df = df.sort_values("검색합계", ascending=False)
     if strict:
         df = df[df["키워드"].apply(lambda k: _is_related_kw(str(k), seed_kw))]
-    if df.empty and strict:
-        df = base.copy()
-        df = df[df["키워드"].astype(str).str.strip().str.len()>0]
-        df = df[df["키워드"].astype(str)!=str(seed_kw)]
-        df = df.sort_values("검색합계", ascending=False)
-    if df.empty: return pd.DataFrame()
-
-    df = df.head(max(5,min(50,top_rel))).reset_index(drop=True)
-
-    start = (dt.date.today() - dt.timedelta(days=30*months)).strftime("%Y-%m-%d")
-    end   = (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
-
-    dl_means = {}
-    kws_all = df["키워드"].tolist()
-    for i in range(0,len(kws_all),5):
-        chunk = kws_all[i:i+5]
-        groups = [{"groupName":k,"keywords":[k]} for k in chunk]
-        ts = _datalab_trend(groups, start, end, time_unit="week")
-        if ts.empty:
-            for k in chunk: dl_means[k]=0.0
-        else:
-            for k in chunk:
-                try: dl_means[k]=float(pd.to_numeric(ts.get(k), errors="coerce").mean())
-                except: dl_means[k]=0.0
-
-    df["dl_mean"] = df["키워드"].map(dl_means).fillna(0.0)
-    df["score"]   = pd.to_numeric(df["검색합계"], errors="coerce").fillna(0) * (df["dl_mean"].clip(lower=0)/100.0)
-    return df.sort_values(["score","검색합계"], ascending=[False,False]).reset_index(drop=True)
+    if df.empty and strict:  # 백업
+        df = base.copy().sort_values("검색합계", ascending=False)
+    return df.head(max(5, min(50, top_rel))).reset_index(drop=True)
 
 _FALLBACK_PAD = {
     "무릎보호대": ["스포츠","헬스","러닝","관절보호","압박밴드","테이핑","남녀공용","프리사이즈","충격흡수"]
@@ -1309,11 +1320,6 @@ def section_title_generator():
           [data-testid="stAppViewContainer"] .stAlert *{
             color:#ffffff !important; fill:#ffffff !important;
           }
-          [data-testid="stAppViewContainer"] .stAlert [data-testid="stMarkdownContainer"] *,
-          [data-testid="stAppViewContainer"] .stAlert a,
-          [data-testid="stAppViewContainer"] .stAlert svg{
-            color:#ffffff !important; fill:#ffffff !important;
-          }
         </style>
         """, unsafe_allow_html=True)
 
@@ -1329,7 +1335,7 @@ def section_title_generator():
     with c1: N = st.slider("추천 개수", 5, 20, 10, 1)
     with c2: min_chars = st.slider("최소 글자(권장 30~50)", 30, 50, 35, 1)
     with c3: max_chars = st.slider("최대 글자", 30, 50, 50, 1)
-    with c4: months = st.slider("검색 트렌드 기간(개월)", 1, 6, 3, help="DataLab 평균지수 계산 구간")
+    with c4: months = st.slider("검색 트렌드 기간(개월)", 1, 6, 3)
 
     relaxed = st.checkbox("느슨한 모드(연관성 필터 완화/백업 재시도)", value=True)
     st.caption("※ 추천은 ‘네이버 키워드도구(검색량)’ + ‘DataLab(검색지수)’ 기반. 엉뚱어 자동필터. 30자/50바이트 근접 자동 패딩.")
@@ -1339,12 +1345,12 @@ def section_title_generator():
         if not main_kw:
             st.error("메인 키워드를 먼저 입력하세요.")
         else:
-            with st.spinner("연관 키워드·트렌드 수집 중…"):
+            with st.spinner("연관 키워드 수집 중…"):
                 sugg_df = _suggest_keywords_by_searchad_and_datalab(main_kw, months=months, top_rel=15, strict=not relaxed)
             if sugg_df.empty:
                 st.warning("추천에 사용할 데이터가 없습니다. (API/권한/쿼터 또는 키워드 확인)")
             else:
-                cols = ["키워드","PC월간검색수","Mobile월간검색수","검색합계","dl_mean","score"]
+                cols = ["키워드","PC월간검색수","Mobile월간검색수","검색합계"]
                 st.dataframe(sugg_df[cols], use_container_width=True, height=320)
                 st.download_button("추천 키워드 CSV 다운로드",
                                    data=sugg_df[cols].to_csv(index=False).encode("utf-8-sig"),
