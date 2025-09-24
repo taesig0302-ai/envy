@@ -106,11 +106,11 @@ STOP_PRESETS = {
 }
 
 # =========================
-# 1) UI defaults & CSS (안정화 패치)
+# 1) UI defaults & CSS (Session + Theme)
 # =========================
 def _ensure_session_defaults():
-    """세션 스테이트 기본값 보장 (앱 진입 즉시 호출)"""
     ss = st.session_state
+    # ===== Theme & 기본 =====
     ss.setdefault("theme", "light")
     ss.setdefault("fx_base", "USD")
     ss.setdefault("sale_foreign", 1.00)
@@ -123,74 +123,146 @@ def _ensure_session_defaults():
     ss.setdefault("margin_pct", 10.00)
     ss.setdefault("margin_won", 10000.0)
 
-    # Stopwords manager 상태
+    # ===== Stopwords Manager =====
     ss.setdefault("STOP_GLOBAL", list(STOPWORDS_GLOBAL))
     ss.setdefault("STOP_BY_CAT", dict(STOPWORDS_BY_CAT))
     ss.setdefault("STOP_WHITELIST", [])
     ss.setdefault("STOP_REPLACE", ["무배=> ", "무료배송=> ", "정품=> "])
     ss.setdefault("STOP_AGGR", False)
 
-    # Rakuten genre map
+    # ===== Rakuten genre map =====
     ss.setdefault("rk_genre_map", {
         "전체(샘플)": "100283","뷰티/코스메틱": "100283","의류/패션": "100283","가전/디지털": "100283",
         "가구/인테리어": "100283","식품": "100283","생활/건강": "100283","스포츠/레저": "100283","문구/취미": "100283",
     })
 
 
+def _toggle_theme():
+    """다크/라이트 전환 — 세션 키 보장 + 즉시 반영"""
+    st.session_state.setdefault("theme", "light")
+    st.session_state["theme"] = (
+        "dark" if st.session_state.get("theme", "light") == "light" else "light"
+    )
+    st.experimental_rerun()
+
+
 def _inject_css():
-    """메인 뷰 색상 오버라이드 (사이드바 제외).
-    - 라이트/다크 대비 강화
-    - pill 규칙 단순화
-    - 다크 모드에서 흰 박스 입력창 → 검정 글자 강제
-    """
+    """메인 뷰 색상 오버라이드 (사이드바 제외). 라이트/다크 대비 + pill 규칙"""
     theme = st.session_state.get("theme", "light")
 
     if theme == "dark":
         bg, fg, fg_sub = "#0e1117", "#e6edf3", "#b6c2cf"
         card_bg, border = "#11151c", "rgba(255,255,255,.08)"
         btn_bg, btn_bg_hover = "#2563eb", "#1e3fae"
-        # 흰 입력창은 검정 글자로
         dark_fix_white_boxes = """
-        [data-testid="stAppViewContainer"] input,
+        [data-testid="stAppViewContainer"] .stTextInput input,
+        [data-testid="stAppViewContainer"] .stNumberInput input,
+        [data-testid="stAppViewContainer"] .stDateInput input,
         [data-testid="stAppViewContainer"] textarea,
-        [data-testid="stAppViewContainer"] [data-baseweb="select"] * {
+        [data-testid="stAppViewContainer"] [data-baseweb="select"] *,
+        [data-testid="stAppViewContainer"] .stMultiSelect [data-baseweb="select"] *{
             background:#ffffff !important;
-            color:#111 !important; -webkit-text-fill-color:#111 !important;
+            color:#111111 !important;
+            -webkit-text-fill-color:#111111 !important;
+        }
+        [data-testid="stAppViewContainer"] input::placeholder,
+        [data-testid="stAppViewContainer"] textarea::placeholder{
+            color:#6b7280 !important; opacity:1 !important;
         }
         """
         pill_rules = """
         [data-testid="stAppViewContainer"] .pill,
-        [data-testid="stAppViewContainer"] .pill * {
+        [data-testid="stAppViewContainer"] .pill *{
             color:#fff !important; -webkit-text-fill-color:#fff !important;
+        }
+        """
+        force_black_rules = """
+        [data-testid="stAppViewContainer"] .force-black,
+        [data-testid="stAppViewContainer"] .force-black *{
+            color:#111 !important; -webkit-text-fill-color:#111 !important;
+            text-shadow:none !important; filter:none !important; opacity:1 !important;
         }
         """
     else:
         bg, fg, fg_sub = "#ffffff", "#111111", "#4b5563"
         card_bg, border = "#ffffff", "rgba(0,0,0,.06)"
         btn_bg, btn_bg_hover = "#2563eb", "#1e3fae"
-        dark_fix_white_boxes = ""  # 필요 없음
+        dark_fix_white_boxes = ""  # 라이트모드 필요 없음
         pill_rules = """
         [data-testid="stAppViewContainer"] .pill,
-        [data-testid="stAppViewContainer"] .pill * {
+        [data-testid="stAppViewContainer"] .pill *{
             color:#111 !important; -webkit-text-fill-color:#111 !important;
         }
         [data-testid="stAppViewContainer"] .pill.pill-blue,
-        [data-testid="stAppViewContainer"] .pill.pill-blue * {
+        [data-testid="stAppViewContainer"] .pill.pill-blue *{
             color:#fff !important; -webkit-text-fill-color:#fff !important;
         }
         """
+        force_black_rules = ""  # 라이트모드 필요 없음
 
     st.markdown(f"""
     <style>
     [data-testid="stAppViewContainer"] {{
         background:{bg} !important; color:{fg} !important;
     }}
-    [data-testid="stAppViewContainer"] h1, [data-testid="stAppViewContainer"] p,
-    [data-testid="stAppViewContainer"] label, [data-testid="stAppViewContainer"] span {{
+    [data-testid="stAppViewContainer"] h1, [data-testid="stAppViewContainer"] h2,
+    [data-testid="stAppViewContainer"] h3, [data-testid="stAppViewContainer"] h4,
+    [data-testid="stAppViewContainer"] h5, [data-testid="stAppViewContainer"] h6,
+    [data-testid="stAppViewContainer"] p, [data-testid="stAppViewContainer"] li,
+    [data-testid="stAppViewContainer"] span, [data-testid="stAppViewContainer"] label,
+    [data-testid="stAppViewContainer"] .stMarkdown,
+    [data-testid="stAppViewContainer"] .stMarkdown * {{
         color:{fg} !important;
     }}
+    [data-testid="stAppViewContainer"] [data-baseweb="select"] *,
+    [data-testid="stAppViewContainer"] [data-baseweb="input"] input,
+    [data-testid="stAppViewContainer"] .stNumberInput input,
+    [data-testid="stAppViewContainer"] .stTextInput input {{
+        color:{fg} !important;
+    }}
+    [data-testid="stAppViewContainer"] input::placeholder {{
+        color:{fg_sub} !important; opacity:.9 !important;
+    }}
+    [data-testid="stAppViewContainer"] .card {{
+        background:{card_bg}; border:1px solid {border};
+        border-radius:14px; box-shadow:0 1px 6px rgba(0,0,0,.12);
+    }}
+    [data-testid="stAppViewContainer"] .stButton > button,
+    [data-testid="stAppViewContainer"] [data-testid="baseButton-secondary"],
+    [data-testid="stAppViewContainer"] [data-testid="baseButton-primary"],
+    [data-testid="stAppViewContainer"] [data-testid="stDownloadButton"] > button,
+    [data-testid="stAppViewContainer"] a[role="button"],
+    [data-testid="stAppViewContainer"] a[data-testid="stLinkButton"],
+    [data-testid="stAppViewContainer"] .stLinkButton a{{
+        background:{btn_bg} !important; color:#fff !important; -webkit-text-fill-color:#fff !important;
+        border:1px solid rgba(255,255,255,.12) !important; border-radius:10px !important;
+        font-weight:700 !important;
+    }}
+    [data-testid="stAppViewContainer"] .stButton > button *,
+    [data-testid="stAppViewContainer"] [data-testid="stDownloadButton"] > button *,
+    [data-testid="stAppViewContainer"] a[role="button"] *,
+    [data-testid="stAppViewContainer"] a[data-testid="stLinkButton"] *,
+    [data-testid="stAppViewContainer"] .stLinkButton a *{{
+        color:#fff !important; -webkit-text-fill-color:#fff !important;
+    }}
+    [data-testid="stAppViewContainer"] .stButton > button:hover,
+    [data-testid="stAppViewContainer"] [data-testid="stDownloadButton"] > button:hover,
+    [data-testid="stAppViewContainer"] [data-testid="baseButton-secondary"]:hover,
+    [data-testid="stAppViewContainer"] [data-testid="baseButton-primary"]:hover,
+    [data-testid="stAppViewContainer"] a[role="button"]:hover,
+    [data-testid="stAppViewContainer"] a[data-testid="stLinkButton"]:hover,
+    [data-testid="stAppViewContainer"] .stLinkButton a:hover{{
+        background:{btn_bg_hover} !important; text-decoration:none !important;
+    }}
     {pill_rules}
+    :root [data-testid="stSidebar"] .pill, :root [data-testid="stSidebar"] .pill *{{
+        color:#111 !important; -webkit-text-fill-color:#111 !important;
+    }}
+    [data-testid="stAppViewContainer"] h2, [data-testid="stAppViewContainer"] h3 {{
+        margin-top:.3rem !important;
+    }}
     {dark_fix_white_boxes}
+    {force_black_rules}
     </style>
     """, unsafe_allow_html=True)
 
