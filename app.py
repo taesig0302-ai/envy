@@ -106,11 +106,10 @@ STOP_PRESETS = {
 }
 
 # =========================
-# 1) UI defaults & CSS (Session + Theme)
+# 1) UI defaults & CSS
 # =========================
 def _ensure_session_defaults():
     ss = st.session_state
-    # ===== Theme & 기본 =====
     ss.setdefault("theme", "light")
     ss.setdefault("fx_base", "USD")
     ss.setdefault("sale_foreign", 1.00)
@@ -123,31 +122,24 @@ def _ensure_session_defaults():
     ss.setdefault("margin_pct", 10.00)
     ss.setdefault("margin_won", 10000.0)
 
-    # ===== Stopwords Manager =====
+    # Stopwords manager 상태
     ss.setdefault("STOP_GLOBAL", list(STOPWORDS_GLOBAL))
     ss.setdefault("STOP_BY_CAT", dict(STOPWORDS_BY_CAT))
     ss.setdefault("STOP_WHITELIST", [])
     ss.setdefault("STOP_REPLACE", ["무배=> ", "무료배송=> ", "정품=> "])
     ss.setdefault("STOP_AGGR", False)
 
-    # ===== Rakuten genre map =====
+    # Rakuten genre map
     ss.setdefault("rk_genre_map", {
         "전체(샘플)": "100283","뷰티/코스메틱": "100283","의류/패션": "100283","가전/디지털": "100283",
         "가구/인테리어": "100283","식품": "100283","생활/건강": "100283","스포츠/레저": "100283","문구/취미": "100283",
     })
 
 
-def _toggle_theme():
-    """다크/라이트 전환 — 세션 키 보장 + 즉시 반영"""
-    st.session_state.setdefault("theme", "light")
-    st.session_state["theme"] = (
-        "dark" if st.session_state.get("theme", "light") == "light" else "light"
-    )
-    st.experimental_rerun()
-
-
 def _inject_css():
-    """메인 뷰 색상 오버라이드 (사이드바 제외). 라이트/다크 대비 + pill 규칙"""
+    """메인 뷰만 색상 오버라이드(사이드바 제외).
+    라이트/다크 대비 강화 + 다크모드 흰박스(입력창) 검정 글자 + pill 분기 규칙
+    """
     theme = st.session_state.get("theme", "light")
 
     if theme == "dark":
@@ -167,10 +159,12 @@ def _inject_css():
         }
         [data-testid="stAppViewContainer"] input::placeholder,
         [data-testid="stAppViewContainer"] textarea::placeholder{
-            color:#6b7280 !important; opacity:1 !important;
+            color:#6b7280 !important;
+            opacity:1 !important;
         }
         """
         pill_rules = """
+        /* Dark: pill 기본은 흰 글자 */
         [data-testid="stAppViewContainer"] .pill,
         [data-testid="stAppViewContainer"] .pill *{
             color:#fff !important; -webkit-text-fill-color:#fff !important;
@@ -187,18 +181,20 @@ def _inject_css():
         bg, fg, fg_sub = "#ffffff", "#111111", "#4b5563"
         card_bg, border = "#ffffff", "rgba(0,0,0,.06)"
         btn_bg, btn_bg_hover = "#2563eb", "#1e3fae"
-        dark_fix_white_boxes = ""  # 라이트모드 필요 없음
+        dark_fix_white_boxes = ""  # 라이트에선 필요 없음
         pill_rules = """
+        /* Light: pill 기본은 검정 글자 */
         [data-testid="stAppViewContainer"] .pill,
         [data-testid="stAppViewContainer"] .pill *{
             color:#111 !important; -webkit-text-fill-color:#111 !important;
         }
+        /* Light: 파란 pill만 흰 글자 */
         [data-testid="stAppViewContainer"] .pill.pill-blue,
         [data-testid="stAppViewContainer"] .pill.pill-blue *{
             color:#fff !important; -webkit-text-fill-color:#fff !important;
         }
         """
-        force_black_rules = ""  # 라이트모드 필요 없음
+        force_black_rules = ""  # 라이트에선 불필요
 
     st.markdown(f"""
     <style>
