@@ -106,21 +106,21 @@ STOP_PRESETS = {
 }
 
 # =========================
-# Section 1 — Sidebar (독립형, 의존성 없음)
+# Section 1 — Sidebar (독립형, 의존성 안전)
 # =========================
 def _sidebar():
     import base64
     from pathlib import Path
+    import streamlit as st
+
+    # (있으면 사용, 없으면 무시) — 기존 초기화 헬퍼 호출 안전화
+    try:
+        _ensure_session_defaults()
+    except NameError:
+        pass
 
     # ---- 안전한 글로벌 기본값(fallback) ----
     global CURRENCIES, FX_DEFAULT
-    if "CURRENCIES" not in globals():
-        CURRENCRIES = {  # 오타 방지용 더미, 곧 아래로 대체
-            "USD":{"kr":"미국 달러","symbol":"$","unit":"USD"},
-            "EUR":{"kr":"유로","symbol":"€","unit":"EUR"},
-            "JPY":{"kr":"일본 엔","symbol":"¥","unit":"JPY"},
-            "CNY":{"kr":"중국 위안","symbol":"元","unit":"CNY"},
-        }
     if "CURRENCIES" not in globals():
         CURRENCIES = {
             "USD":{"kr":"미국 달러","symbol":"$","unit":"USD"},
@@ -146,9 +146,9 @@ def _sidebar():
     ss.setdefault("margin_pct", 10.00)
     ss.setdefault("margin_won", 10000.0)
 
-    # ---- 현재 theme 기준 CSS 주입 (기존 _inject_css()가 있다면 호출, 없으면 스킵) ----
+    # ---- 현재 theme 기준 CSS 주입 (있으면 호출) ----
     try:
-        _inject_css()  # 있으면 사용
+        _inject_css()
     except Exception:
         pass
 
@@ -223,7 +223,7 @@ def _sidebar():
                     f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[fx_base]["symbol"]})</span></div>',
                     unsafe_allow_html=True
                 )
-                st.caption(f"환율 기준: {FX_DEFAULT[fx_base]:,.2f} ₩/{CURRENCIES[fx_base]["unit"]}")
+                st.caption(f"환율 기준: {FX_DEFAULT[fx_base]:,.2f} ₩/{CURRENCIES[fx_base]['unit']}")
 
         def margin_block(expanded=True):
             with st.expander("📈 마진 계산기", expanded=expanded):
@@ -1158,11 +1158,7 @@ def _inject_css():
         """, unsafe_allow_html=True)
 
 # =========================
-# Section 9 — 상품명 생성기 (스마트스토어 Top-N)
-#  • 상위 키워드 추천: 검색광고×DataLab 점수
-#  • 엉뚱어 컷 + 느슨한 모드(필터 완화/백업 재시도)
-#  • 30자/50바이트 근접 자동 패딩/조합
-#  • 라이트 모드: 컬러박스 흰 글자
+# Section 9 — 상품명 생성기 (스마트스토어 · Top-N)
 # =========================
 import re, datetime as dt
 import pandas as pd
