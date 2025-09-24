@@ -106,11 +106,51 @@ STOP_PRESETS = {
 }
 
 # =========================
-# Section 1 — Sidebar (다크/라이트 토글 싱크 고정 + 보조 위젯)
+# Section 1 — Sidebar (독립형, 의존성 없음)
 # =========================
 def _sidebar():
-    _ensure_session_defaults()
-    _inject_css()  # 현재 theme 값 기준으로 CSS 주입
+    import base64
+    from pathlib import Path
+
+    # ---- 안전한 글로벌 기본값(fallback) ----
+    global CURRENCIES, FX_DEFAULT
+    if "CURRENCIES" not in globals():
+        CURRENCRIES = {  # 오타 방지용 더미, 곧 아래로 대체
+            "USD":{"kr":"미국 달러","symbol":"$","unit":"USD"},
+            "EUR":{"kr":"유로","symbol":"€","unit":"EUR"},
+            "JPY":{"kr":"일본 엔","symbol":"¥","unit":"JPY"},
+            "CNY":{"kr":"중국 위안","symbol":"元","unit":"CNY"},
+        }
+    if "CURRENCIES" not in globals():
+        CURRENCIES = {
+            "USD":{"kr":"미국 달러","symbol":"$","unit":"USD"},
+            "EUR":{"kr":"유로","symbol":"€","unit":"EUR"},
+            "JPY":{"kr":"일본 엔","symbol":"¥","unit":"JPY"},
+            "CNY":{"kr":"중국 위안","symbol":"元","unit":"CNY"},
+        }
+    if "FX_DEFAULT" not in globals():
+        FX_DEFAULT = {"USD":1400.0,"EUR":1500.0,"JPY":10.0,"CNY":200.0}
+
+    ss = st.session_state
+    # ---- 최소 세션 기본값을 여기서 직접 세팅 ----
+    ss.setdefault("theme", "light")
+    ss.setdefault("__show_translator", False)
+    ss.setdefault("fx_base", "USD")
+    ss.setdefault("sale_foreign", 1.00)
+    ss.setdefault("m_base", "USD")
+    ss.setdefault("purchase_foreign", 0.00)
+    ss.setdefault("card_fee_pct", 4.00)
+    ss.setdefault("market_fee_pct", 14.00)
+    ss.setdefault("shipping_won", 0.0)
+    ss.setdefault("margin_mode", "퍼센트")
+    ss.setdefault("margin_pct", 10.00)
+    ss.setdefault("margin_won", 10000.0)
+
+    # ---- 현재 theme 기준 CSS 주입 (기존 _inject_css()가 있다면 호출, 없으면 스킵) ----
+    try:
+        _inject_css()  # 있으면 사용
+    except Exception:
+        pass
 
     with st.sidebar:
         # 로고(있을 때만)
@@ -127,24 +167,25 @@ def _sidebar():
           }
         </style>
         """, unsafe_allow_html=True)
-        lp = Path(__file__).parent / "logo.png"
-        if lp.exists():
-            b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
-            st.markdown(f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>', unsafe_allow_html=True)
+        try:
+            lp = Path(__file__).parent / "logo.png"
+            if lp.exists():
+                b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
+                st.markdown(f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>', unsafe_allow_html=True)
+        except Exception:
+            pass
 
-        # ── 토글(콜백 제거: 단일 진실원본 = ss["theme"])
-        ss = st.session_state
-        ss.setdefault("theme", "light")
+        # 토글(콜백 제거: 단일 진실원본 = ss["theme"])
         c1, c2 = st.columns(2)
         with c1:
             is_dark_ui = st.toggle("🌓 다크", value=(ss["theme"] == "dark"), key="__theme_toggle")
             ss["theme"] = "dark" if is_dark_ui else "light"
         with c2:
-            st.toggle("🌐 번역기", value=ss.get("__show_translator", False), key="__show_translator")
+            ss["__show_translator"] = st.toggle("🌐 번역기", value=ss.get("__show_translator", False), key="__show_translator_toggle")
 
         show_tr = ss.get("__show_translator", False)
 
-        # ── 보조 위젯들
+        # ---- 보조 위젯들 ----
         def translator_block(expanded=True):
             with st.expander("🌐 구글 번역기", expanded=expanded):
                 LANG_LABELS_SB = {
@@ -182,13 +223,12 @@ def _sidebar():
                     f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[fx_base]["symbol"]})</span></div>',
                     unsafe_allow_html=True
                 )
-                st.caption(f"환율 기준: {FX_DEFAULT[fx_base]:,.2f} ₩/{CURRENCIES[fx_base]['unit']}")
+                st.caption(f"환율 기준: {FX_DEFAULT[fx_base]:,.2f} ₩/{CURRENCIES[fx_base]["unit"]}")
 
         def margin_block(expanded=True):
             with st.expander("📈 마진 계산기", expanded=expanded):
                 m_base = st.selectbox("매입 통화", list(CURRENCIES.keys()),
-                                      index=list(CURRENCRIES.keys()).index(ss.get("m_base","USD")) if 'CURRENCRIES' in globals() else list(CURRENCIES.keys()).index(ss.get("m_base","USD")),
-                                      key="m_base")
+                                      index=list(CURRENCIES.keys()).index(ss.get("m_base","USD")), key="m_base")
                 purchase_foreign = st.number_input("매입금액 (외화)",
                                                    value=float(ss.get("purchase_foreign",0.0)),
                                                    step=0.01, format="%.2f", key="purchase_foreign")
@@ -198,22 +238,27 @@ def _sidebar():
 
                 c1, c2 = st.columns(2)
                 with c1:
-                    card_fee = st.number_input("카드수수료(%)", value=float(ss.get("card_fee_pct",4.0)),
+                    card_fee = st.number_input("카드수수료(%)",
+                                               value=float(ss.get("card_fee_pct",4.0)),
                                                step=0.01, format="%.2f", key="card_fee_pct")
                 with c2:
-                    market_fee = st.number_input("마켓수수료(%)", value=float(ss.get("market_fee_pct",14.0)),
+                    market_fee = st.number_input("마켓수수료(%)",
+                                                 value=float(ss.get("market_fee_pct",14.0)),
                                                  step=0.01, format="%.2f", key="market_fee_pct")
+
                 shipping_won = st.number_input("배송비(₩)", value=float(ss.get("shipping_won",0.0)),
                                                step=100.0, format="%.0f", key="shipping_won")
                 mode = st.radio("마진 방식", ["퍼센트","플러스"], horizontal=True, key="margin_mode")
 
                 if mode=="퍼센트":
-                    margin_pct = st.number_input("마진율 (%)", value=float(ss.get("margin_pct",10.0)),
+                    margin_pct = st.number_input("마진율 (%)",
+                                                 value=float(ss.get("margin_pct",10.0)),
                                                  step=0.01, format="%.2f", key="margin_pct")
                     target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)*(1+margin_pct/100)+shipping_won
                     margin_value = target_price - base_cost_won; desc=f"{margin_pct:.2f}%"
                 else:
-                    margin_won = st.number_input("마진액 (₩)", value=float(ss.get("margin_won",10000.0)),
+                    margin_won = st.number_input("마진액 (₩)",
+                                                 value=float(ss.get("margin_won",10000.0)),
                                                  step=100.0, format="%.0f", key="margin_won")
                     target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)+margin_won+shipping_won
                     margin_value = margin_won; desc=f"+{margin_won:,.0f}"
