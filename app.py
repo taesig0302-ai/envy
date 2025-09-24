@@ -185,19 +185,33 @@ def _inject_css():
     /* 카드/경계선 */
     [data-testid="stAppViewContainer"] .card {{ background:{card_bg}; border:1px solid {border}; border-radius:14px; box-shadow:0 1px 6px rgba(0,0,0,.12); }}
 
-    /* 버튼 (라이트/다크 공통) */
+    /* ===== 버튼 — 라이트/다크 공통 파란배경+흰색 텍스트 ===== */
     [data-testid="stAppViewContainer"] .stButton > button,
     [data-testid="stAppViewContainer"] [data-testid="baseButton-secondary"],
     [data-testid="stAppViewContainer"] [data-testid="baseButton-primary"],
-    [data-testid="stAppViewContainer"] [data-testid="stDownloadButton"] > button {{
-        background:{btn_bg} !important; color:#fff !important; border:1px solid rgba(255,255,255,.12) !important;
+    [data-testid="stAppViewContainer"] [data-testid="stDownloadButton"] > button,
+    [data-testid="stAppViewContainer"] a[role="button"],
+    [data-testid="stAppViewContainer"] a[data-testid="stLinkButton"],
+    [data-testid="stAppViewContainer"] .stLinkButton a,
+    [data-testid="stAppViewContainer"] .stButton > button *,
+    [data-testid="stAppViewContainer"] [data-testid="stDownloadButton"] > button *,
+    [data-testid="stAppViewContainer"] a[role="button"] *,
+    [data-testid="stAppViewContainer"] a[data-testid="stLinkButton"] *,
+    [data-testid="stAppViewContainer"] .stLinkButton a * {{
+        background:{btn_bg} !important;
+        color:#fff !important;
+        -webkit-text-fill-color:#fff !important;
+        border:1px solid rgba(255,255,255,.12) !important;
         border-radius:10px !important; font-weight:700 !important;
     }}
     [data-testid="stAppViewContainer"] .stButton > button:hover,
     [data-testid="stAppViewContainer"] [data-testid="stDownloadButton"] > button:hover,
     [data-testid="stAppViewContainer"] [data-testid="baseButton-secondary"]:hover,
-    [data-testid="stAppViewContainer"] [data-testid="baseButton-primary"]:hover {{
-        background:{btn_bg_hover} !important; border-color:rgba(255,255,255,.18) !important;
+    [data-testid="stAppViewContainer"] [data-testid="baseButton-primary"]:hover,
+    [data-testid="stAppViewContainer"] a[role="button"]:hover,
+    [data-testid="stAppViewContainer"] a[data-testid="stLinkButton"]:hover,
+    [data-testid="stAppViewContainer"] .stLinkButton a:hover {{
+        background:{btn_bg_hover} !important; text-decoration:none !important;
     }}
 
     /* 라디오/체크 라벨 */
@@ -224,28 +238,6 @@ def _inject_css():
         color:#111 !important; -webkit-text-fill-color:#111 !important; text-shadow:none !important;
         filter:none !important; opacity:1 !important;
     }""" if theme == "dark" else "")}
-    /* PATCH: 라이트모드에서 파란 버튼/링크버튼/다운로드버튼 글자 흰색 강제 */
-[data-testid="stAppViewContainer"] .stButton > button,
-[data-testid="stAppViewContainer"] [data-testid="stDownloadButton"] > button,
-[data-testid="stAppViewContainer"] a[role="button"],
-[data-testid="stAppViewContainer"] a[data-testid="stLinkButton"],
-[data-testid="stAppViewContainer"] .stLinkButton a,
-[data-testid="stAppViewContainer"] .stButton > button *,
-[data-testid="stAppViewContainer"] [data-testid="stDownloadButton"] > button *,
-[data-testid="stAppViewContainer"] a[role="button"] *,
-[data-testid="stAppViewContainer"] a[data-testid="stLinkButton"] *,
-[data-testid="stAppViewContainer"] .stLinkButton a *{
-  color:#fff !important;
-  -webkit-text-fill-color:#fff !important;
-}
-
-/* (옵션) 블루 pill 박스 글자도 흰색으로 – 라이트모드에서만 쓰고 싶으면
-   이 블록은 theme == "light" 조건 문자열로 감싸줘도 됨 */
-[data-testid="stAppViewContainer"] .pill.pill-blue,
-[data-testid="stAppViewContainer"] .pill.pill-blue *{
-  color:#fff !important;
-  -webkit-text-fill-color:#fff !important;
-}
     </style>
     """, unsafe_allow_html=True)
 
