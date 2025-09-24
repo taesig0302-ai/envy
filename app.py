@@ -1,35 +1,86 @@
 # -*- coding: utf-8 -*-
-# ENVY — Season 1 (Dual Proxy Edition) — SAFE FULL BUILD
-# - Sidebar scroll-lock restored
-# - Dark/Light theme patched (main only; sidebar always light)
-# - st.link_button fallback (compat for older Streamlit)
-# - All widgets have stable keys
+# ENVY — Season 1 (Dual Proxy Edition) — SAFE FULL BUILD (2025-09-24)
+# - Sidebar scroll-lock (fixed)
+# - Dark/Light: main area full dark skin, inputs stay white with black text (readable)
+# - Sidebar always light
+# - link_button() helper supports both old/new Streamlit signatures (no TypeError)
 
 import io, re, json, math, time, base64, datetime as dt
 from pathlib import Path
-from urllib.parse import quote as _q
-
 import pandas as pd
 import streamlit as st
+
+try:
+    from urllib.parse import quote as _q
+except Exception:
+    def _q(s, safe=None): return s
 
 try:
     import requests
 except Exception:
     requests = None
 
-# -----------------------------------------------------------
-# Page setup
-# -----------------------------------------------------------
 st.set_page_config(page_title="ENVY — Season 1 (Dual Proxy Edition)", layout="wide")
 
-# -----------------------------------------------------------
-# Helpers
-# -----------------------------------------------------------
+# ---------------------------
+# Session defaults
+# ---------------------------
+def _ensure_session_defaults():
+    ss = st.session_state
+    ss.setdefault("theme", "light")  # "dark" | "light"
+    ss.setdefault("__show_translator", False)
+
+    # 계산기
+    ss.setdefault("fx_base", "USD")
+    ss.setdefault("sale_foreign", 1.00)
+    ss.setdefault("m_base", "USD")
+    ss.setdefault("purchase_foreign", 0.00)
+    ss.setdefault("card_fee_pct", 4.00)
+    ss.setdefault("market_fee_pct", 14.00)
+    ss.setdefault("shipping_won", 0.0)
+    ss.setdefault("margin_mode", "퍼센트")
+    ss.setdefault("margin_pct", 10.00)
+    ss.setdefault("margin_won", 10000.0)
+
+    # 라쿠텐 장르맵
+    ss.setdefault("rk_genre_map", {})
+
+_ensure_session_defaults()
+
+# ---------------------------
+# Const
+# ---------------------------
+CURRENCIES = {
+    "USD":{"kr":"미국 달러","symbol":"$","unit":"USD"},
+    "EUR":{"kr":"유로","symbol":"€","unit":"EUR"},
+    "JPY":{"kr":"일본 엔","symbol":"¥","unit":"JPY"},
+    "CNY":{"kr":"중국 위안","symbol":"元","unit":"CNY"},
+}
+FX_DEFAULT = {"USD":1400.0,"EUR":1500.0,"JPY":10.0,"CNY":200.0}
+
+# ---------------------------
+# Safe link button helper (new/old Streamlit)
+# ---------------------------
 def link_button(label: str, url: str, key: str | None = None):
-    """Streamlit 구버전 호환용 링크 버튼 헬퍼 (신버전이면 st.link_button 사용)."""
-    if hasattr(st, "link_button"):
-        # 최신 스트림릿이면 native 위젯 사용
-        return st.link_button(label, url, key=key)
+    """Streamlit 버전에 따라 st.link_button 시그니처가 다름.
+    - 신버전: st.link_button(label, url, key=...)
+    - 구버전: st.link_button(label, url) (key 미지원) 또는 존재하지 않음
+    안전하게 순차 시도하고, 모두 실패하면 HTML 버튼로 대체.
+    """
+    fn = getattr(st, "link_button", None)
+    if callable(fn):
+        # 신버전 시도
+        try:
+            return fn(label, url, key=key)
+        except TypeError:
+            # 구버전(키 미지원)
+            try:
+                return fn(label, url)
+            except Exception:
+                pass
+        except Exception:
+            pass
+    # 완전 구버전: HTML로 대체
     st.markdown(
         f"""
         <a href="{url}" target="_blank" rel="noopener">
@@ -43,44 +94,15 @@ def link_button(label: str, url: str, key: str | None = None):
         unsafe_allow_html=True,
     )
 
-def _ensure_session_defaults():
-    ss = st.session_state
-    ss.setdefault("theme", "light")  # "dark"|"light"
-    ss.setdefault("__show_translator", False)
-    # calc defaults
-    ss.setdefault("fx_base", "USD")
-    ss.setdefault("sale_foreign", 1.00)
-    ss.setdefault("m_base", "USD")
-    ss.setdefault("purchase_foreign", 0.00)
-    ss.setdefault("card_fee_pct", 4.00)
-    ss.setdefault("market_fee_pct", 14.00)
-    ss.setdefault("shipping_won", 0.0)
-    ss.setdefault("margin_mode", "퍼센트")
-    ss.setdefault("margin_pct", 10.00)
-    ss.setdefault("margin_won", 10000.0)
-    # misc
-    ss.setdefault("rk_genre_map", {})  # 라쿠텐 장르 맵용
-
-_ensure_session_defaults()
-
-CURRENCIES = {
-    "USD":{"kr":"미국 달러","symbol":"$","unit":"USD"},
-    "EUR":{"kr":"유로","symbol":"€","unit":"EUR"},
-    "JPY":{"kr":"일본 엔","symbol":"¥","unit":"JPY"},
-    "CNY":{"kr":"중국 위안","symbol":"元","unit":"CNY"},
-}
-FX_DEFAULT = {"USD":1400.0,"EUR":1500.0,"JPY":10.0,"CNY":200.0}
-
-# -----------------------------------------------------------
-# CSS (sidebar lock + theme patches)
-# -----------------------------------------------------------
+# ---------------------------
+# CSS (sidebar lock + theme)
+# ---------------------------
 def _inject_css():
     theme = st.session_state.get("theme","light")
 
-    # 공통: 사이드바 스크롤락 + pill 스타일 + 사이드바 항상 라이트
+    # Sidebar: 항상 밝게 + 스크롤락
     st.markdown("""
     <style>
-      /* Sidebar scroll lock */
       [data-testid="stSidebar"]{
         height:100vh !important;
         overflow-y:hidden !important;
@@ -97,23 +119,43 @@ def _inject_css():
       [data-testid="stSidebar"] .block-container{ padding-top:.4rem !important; padding-bottom:0 !important; }
       [data-testid="stSidebar"] .stExpander{ margin-bottom:.25rem !important; padding:.25rem .4rem !important; }
 
-      /* pills */
+      /* Sidebar text is always dark */
+      :root [data-testid="stSidebar"] *{
+        color:#111111 !important; -webkit-text-fill-color:#111111 !important; opacity:1 !important;
+        text-shadow:none !important; filter:none !important;
+      }
+
+      /* pills (used in sidebar) */
       .pill{ font-size:.85rem !important; border-radius:8px !important; font-weight:600 !important; padding:.5rem .7rem; }
       .pill-green{ background:#dcfce7 !important; border:1px solid #22c55e !important; color:#111 !important; }
       .pill-blue{  background:#dbeafe !important; border:1px solid #3b82f6 !important; color:#111 !important; }
       .pill-yellow{background:#fef3c7 !important; border:1px solid #eab308 !important; color:#111 !important; }
-
-      /* Sidebar input text is always dark */
-      :root [data-testid="stSidebar"] *{
-        color:#111111 !important; -webkit-text-fill-color:#111111 !important; opacity:1 !important;
-        mix-blend-mode:normal !important; text-shadow:none !important; filter:none !important;
-      }
     </style>
     """, unsafe_allow_html=True)
 
-    # 본문 테마 패치
     if theme == "dark":
-        # 다크: 입력류는 흰 배경 + 검정 글자 (시안성)
+        # 1) 본문 전체 다크 스킨
+        st.markdown("""
+        <style>
+          [data-testid="stAppViewContainer"]{
+            background:#0f172a !important; color:#e5e7eb !important;
+          }
+          [data-testid="stAppViewContainer"] *{
+            color:#e5e7eb !important;
+          }
+          h1,h2,h3,h4,h5,strong,b{ color:#ffffff !important; }
+          .stButton button{
+            background:#334155 !important; color:#fff !important; border:1px solid #475569 !important;
+          }
+          .stDownloadButton button{
+            background:#334155 !important; color:#fff !important; border:1px solid #475569 !important;
+          }
+          /* 차트/테이블 틀 */
+          .stDataFrame, .stTable{ background:#111827 !important; }
+        </style>
+        """, unsafe_allow_html=True)
+
+        # 2) 입력/선택/텍스트는 흰 바탕 + 검정 글자 (시안성) — **덮어쓰기**
         st.markdown("""
         <style>
           [data-testid="stAppViewContainer"] div[data-testid="stTextInput"] input,
@@ -134,10 +176,14 @@ def _inject_css():
           [data-baseweb="popover"] [role="listbox"] *{
             background:#ffffff !important; color:#111 !important; -webkit-text-fill-color:#111 !important;
           }
+          [data-testid="stAppViewContainer"] input::placeholder,
+          [data-testid="stAppViewContainer"] textarea::placeholder{
+            color:#6b7280 !important; opacity:1 !important;
+          }
         </style>
         """, unsafe_allow_html=True)
     else:
-        # 라이트: 본문 알럿/컬러박스 파란배경+흰 글자
+        # 라이트: 본문 컬러박스(알럿 등) 파란 배경 + 흰 글자
         st.markdown("""
         <style>
           [data-testid="stAppViewContainer"] .stAlert{
@@ -152,12 +198,12 @@ def _inject_css():
 
 _inject_css()
 
-# -----------------------------------------------------------
-# Sidebar
-# -----------------------------------------------------------
+# ---------------------------
+# Sidebar UI
+# ---------------------------
 def _sidebar():
     with st.sidebar:
-        # 로고(선택)
+        # 로고
         st.markdown("""
         <style>
           [data-testid="stSidebar"] .logo-circle{
@@ -180,16 +226,16 @@ def _sidebar():
         # 토글
         c1, c2 = st.columns(2)
         with c1:
-            is_dark = st.toggle("🌓 다크", value=(st.session_state.get("theme","light")=="dark"), key="__theme_toggle_sb")
+            is_dark = st.toggle("🌓 다크", value=(st.session_state.get("theme","light")=="dark"),
+                                key="__theme_toggle_sb")
             st.session_state["theme"] = "dark" if is_dark else "light"
         with c2:
-            st.session_state["__show_translator"] = st.toggle("🌐 번역기",
-                                                              value=st.session_state.get("__show_translator", False),
-                                                              key="__show_translator_toggle_sb")
+            st.session_state["__show_translator"] = st.toggle(
+                "🌐 번역기", value=st.session_state.get("__show_translator", False),
+                key="__show_translator_toggle_sb"
+            )
 
-        # 위젯들
-        show_tr = st.session_state.get("__show_translator", False)
-
+        # 환율/마진 (간단)
         def fx_block(expanded=True):
             with st.expander("💱 환율 계산기", expanded=expanded):
                 fx_base = st.selectbox("기준 통화", list(CURRENCIES.keys()),
@@ -248,17 +294,16 @@ def _sidebar():
                 st.markdown(f'<div class="pill pill-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>',
                             unsafe_allow_html=True)
 
-        # 노출 순서: 번역기 없는 버전(간단)
-        if show_tr:
+        if st.session_state.get("__show_translator", False):
             fx_block(expanded=False); margin_block(expanded=False)
         else:
             fx_block(expanded=True);  margin_block(expanded=True)
 
 _sidebar()
 
-# -----------------------------------------------------------
-# Sections (필요 기능만 요약)
-# -----------------------------------------------------------
+# ---------------------------
+# Simple sections (API-less demo to keep stable)
+# ---------------------------
 def section_category_keyword_lab():
     st.markdown('### 카테고리 ➔ 키워드 Top20 & 트렌드')
     cats = ["패션의류","패션잡화","뷰티/미용","디지털/가전","생활/건강","스포츠/레저"]
@@ -266,7 +311,6 @@ def section_category_keyword_lab():
     with c1: cat = st.selectbox("카테고리", cats, key="cat_lab")
     with c2: unit = st.selectbox("단위", ["week","month"], key="cat_unit")
     with c3: months = st.slider("조회기간(개월)", 1, 12, 3, key="cat_months")
-    # 데모 테이블
     df = pd.DataFrame({
         "키워드":[f"{cat} 키워드{i}" for i in range(1,21)],
         "검색합계":[int(100000/i) for i in range(1,21)],
@@ -286,7 +330,6 @@ def section_korea_radar():
     kw_txt = st.text_area("키워드(콤마)", "무릎보호대, 슬개골보호대", height=90, key="kr_kwtxt")
     if st.button("레이더 업데이트", key="kr_run"):
         kws = [k.strip() for k in kw_txt.split(",") if k.strip()]
-        # 네이버 API가 없는 환경을 위해 더미 표
         out = pd.DataFrame({"키워드":kws, "PC월간검색수":[9000]*len(kws), "Mobile월간검색수":[41000]*len(kws)})
         st.dataframe(out, use_container_width=True, height=300)
         st.download_button("CSV 다운로드", out.to_csv(index=False).encode("utf-8-sig"),
@@ -302,9 +345,8 @@ def section_rakuten():
 
 def section_title_generator():
     st.markdown('### 상품명 생성기 (스마트스토어 · Top-N)')
-    theme = st.session_state.get("theme","light")
-    if theme == "light":
-        st.info("라이트 모드에서 컬러박스는 파란 배경/흰 글자로 표시됩니다.")
+    if st.session_state.get("theme","light") == "light":
+        st.info("라이트 모드: 본문 컬러박스는 파란 배경/흰 글자로 표시됩니다.")
 
     cA,cB = st.columns([1,2])
     with cA:
@@ -331,14 +373,10 @@ def section_title_generator():
         for s in sugg:
             cand = " ".join(base+[s])
             if len(cand.encode("utf-8"))>max_bytes:
-                # 잘림
                 raw=cand.encode("utf-8")[:max_bytes]
                 while True:
-                    try:
-                        cand=raw.decode("utf-8")
-                        break
-                    except UnicodeDecodeError:
-                        raw=raw[:-1]
+                    try: cand=raw.decode("utf-8"); break
+                    except UnicodeDecodeError: raw=raw[:-1]
             titles.append(cand)
             if len(titles)>=N: break
         if titles:
@@ -347,7 +385,6 @@ def section_title_generator():
         st.divider()
         for i,t in enumerate(titles,1):
             st.markdown(f"**{i}.** {t}")
-
         st.download_button("제목 CSV 다운로드",
                            data=pd.DataFrame({"title":titles}).to_csv(index=False).encode("utf-8-sig"),
                            file_name=f"titles_{main_kw}.csv", mime="text/csv", key="dl_tg")
@@ -375,12 +412,11 @@ def section_sellerlife_placeholder():
     st.info("임베드는 보류 중입니다. 아래 버튼으로 원본 페이지를 새 탭에서 여세요.")
     link_button("셀러라이프 직접 열기 (새 탭)", "https://sellochomes.co.kr/sellerlife/", key="btn_sellerlife")
 
-# -----------------------------------------------------------
+# ---------------------------
 # Layout
-# -----------------------------------------------------------
+# ---------------------------
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
-# 1행: 카테고리/직접입력 | 레이더(국내/해외 탭) | 상품명 생성기
 colA, colB, colC = st.columns([4,8,4], gap="medium")
 with colA:
     tab_cat, tab_direct = st.tabs(["카테고리", "직접 입력"])
@@ -394,8 +430,7 @@ with colA:
         if st.button("트렌드 조회", key="kw_run_dir"):
             cols = [k.strip() for k in kw.split(",") if k.strip()]
             df = pd.DataFrame({"날짜":[f"2024-0{i}-01" for i in range(1,6)]})
-            for c in cols:
-                df[c] = [i*10 for i in range(1,6)]
+            for c in cols: df[c] = [i*10 for i in range(1,6)]
             st.dataframe(df, use_container_width=True, height=260)
             st.line_chart(df.set_index("날짜"))
 with colB:
@@ -407,7 +442,6 @@ with colC:
 
 st.markdown('<div style="height:14px"></div>', unsafe_allow_html=True)
 
-# 2행: 11번가 / 아이템스카우트 / 셀러라이프
 c1, c2, c3 = st.columns([3,3,3], gap="medium")
 with c1: section_11st()
 with c2: section_itemscout_placeholder()
