@@ -1072,18 +1072,15 @@ def _stopwords_manager_ui(compact: bool = False):
 # =========================
 # 9) 상품명 추천 생성기 — 스마트스토어 최적화(Top-N)
 #    • 상위키워드 추천: 검색광고 키워드도구 × DataLab 평균지수
-#    • 엉뚱 키워드 필터(양산/지갑/돗자리 등 제거) + 느슨한 모드(필터 완화/백업 재시도)
-#    • None/빈 DF 안전 보정
-#    • 추천 키워드 2~3개 자동 조합 + 30자/50바이트 근접 패딩
-#    • 라이트 모드: 본문 성공 박스(st.success) 파란 배경 + 흰 글자
+#    • 느슨한 모드(필터 완화/백업 재시도) + 엉뚱어 컷
+#    • 추천 키워드 2~3개 조합 + 30자/50바이트 근접 패딩
+#    • 라이트 모드: 컬러박스(성공 박스) 파란 배경 + 흰 글자 강제
 # =========================
-import re, math, json, datetime as dt
+import re, datetime as dt
 import pandas as pd
 import streamlit as st
 
-# ── 전역 제공 가정: _naver_keywordstool, _datalab_trend, PATTERN_RE, LITERAL_RE
-
-# -------- 공통 유틸 --------
+# ── 공통 유틸 ─────────────────────────────────────────────────────────
 def _dedupe_tokens(s:str)->str:
     seen=set(); out=[]
     for t in s.split():
@@ -1110,7 +1107,7 @@ def _apply_filters_soft(text:str)->str:
     out = re.sub(r"\s+"," ", out).strip()
     return out
 
-# -------- 키워드 필터링 --------
+# ── 도메인 룰/필터 ─────────────────────────────────────────────────────
 _ALLOWED_BY_DOMAIN = {
     "무릎보호대": ["무릎","보호대","무릎보호대","관절","압박","테이핑","밴드","서포트",
                  "스포츠","운동","헬스","러닝","재활","부상","쿠션","지지대","슬리브","슬개골"],
@@ -1137,7 +1134,7 @@ def _is_related_kw(kw:str, seed:str)->bool:
     allow = set(toks + dom)
     return any(a in k for a in allow)
 
-# -------- 안전 보정: 키워드도구 DF --------
+# ── 키워드도구 캐시 ────────────────────────────────────────────────────
 @st.cache_data(ttl=3600, show_spinner=False)
 def _cached_kstats(seed: str) -> pd.DataFrame:
     if not seed: return pd.DataFrame()
@@ -1147,6 +1144,7 @@ def _cached_kstats(seed: str) -> pd.DataFrame:
         return pd.DataFrame()
     if df.empty: return pd.DataFrame()
 
+    # 누락 컬럼 안전 보정
     for col, default in [
         ("키워드",""), ("PC월간검색수", 0), ("Mobile월간검색수", 0),
         ("PC월평균클릭수", 0), ("Mobile월평균클릭수", 0),
@@ -1160,7 +1158,7 @@ def _cached_kstats(seed: str) -> pd.DataFrame:
     df["검색합계"] = df["PC월간검색수"] + df["Mobile월간검색수"]
     return df
 
-# -------- 상위 키워드 추천(검색량 × 트렌드) — 느슨한 모드 추가 --------
+# ── 상위 키워드 추천(검색량 × 트렌드) — 느슨한 모드 포함 ───────────────
 @st.cache_data(ttl=1200, show_spinner=False)
 def _suggest_keywords_by_searchad_and_datalab(seed_kw:str, months:int=3, top_rel:int=15, strict:bool=True) -> pd.DataFrame:
     base = _cached_kstats(seed_kw)
@@ -1172,7 +1170,7 @@ def _suggest_keywords_by_searchad_and_datalab(seed_kw:str, months:int=3, top_rel
     df = df[df["키워드"].astype(str) != str(seed_kw)]
     df = df.sort_values("검색합계", ascending=False)
 
-    # 엄격 모드면 연관성 필터 적용
+    # 엄격 모드면 연관성 필터
     if strict:
         df = df[df["키워드"].apply(lambda k: _is_related_kw(str(k), seed_kw))]
 
@@ -1191,6 +1189,7 @@ def _suggest_keywords_by_searchad_and_datalab(seed_kw:str, months:int=3, top_rel
     start = (dt.date.today() - dt.timedelta(days=30*months)).strftime("%Y-%m-%d")
     end   = (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
 
+    # DataLab 평균지수
     dl_means = {}
     kws_all = df["키워드"].tolist()
     for i in range(0, len(kws_all), 5):
@@ -1210,16 +1209,15 @@ def _suggest_keywords_by_searchad_and_datalab(seed_kw:str, months:int=3, top_rel
     df["score"]   = pd.to_numeric(df["검색합계"], errors="coerce").fillna(0) * (df["dl_mean"].clip(lower=0)/100.0)
     return df.sort_values(["score","검색합계"], ascending=[False, False]).reset_index(drop=True)
 
-# -------- 도메인 기본 패딩(추천어가 없을 때) --------
+# ── 도메인 기본 패딩(추천어 없을 때) ────────────────────────────────────
 _FALLBACK_PAD = {
     "무릎보호대": ["스포츠","헬스","러닝","관절보호","압박밴드","테이핑","남녀공용","프리사이즈","충격흡수"]
 }
 
-# -------- 제목 합성 (여러 추천어 조합 + 30자/50바이트 패딩) --------
+# ── 제목 합성(조합+패딩) ───────────────────────────────────────────────
 def _compose_titles(main_kw:str, attrs:list[str], sugg:list[str], min_chars:int=30, max_bytes:int=50, topn:int=10):
     base_tokens = [t for t in [main_kw] + attrs if t]
-
-    # 추천어 없으면 도메인 기본 패딩 사용 → 그래도 없으면 seed 토큰으로 확보
+    # 추천어 없으면 도메인 기본 패딩 사용 → 그래도 없으면 seed 토큰
     if not sugg:
         sugg = _FALLBACK_PAD.get(main_kw, []) or _ALLOWED_BY_DOMAIN.get(main_kw, [])
     if not sugg:
@@ -1228,7 +1226,7 @@ def _compose_titles(main_kw:str, attrs:list[str], sugg:list[str], min_chars:int=
     candidates=[]; used=set()
     L = min(len(sugg), 5)
 
-    # 1) 추천어 1~3개 조합
+    # 추천어 1~3개 조합
     for i in range(L):
         candidates.append(base_tokens + [sugg[i]])
         for j in range(i+1, L):
@@ -1244,7 +1242,7 @@ def _compose_titles(main_kw:str, attrs:list[str], sugg:list[str], min_chars:int=
         title = _apply_filters_soft(_dedupe_tokens(" ".join(toks)))
         if not title: continue
 
-        # 2) 길이가 부족하면(문자 기준) 추천어/속성으로 패딩
+        # 길이 부족 시 추천어/속성으로 패딩(문자 기준), 바이트도 확인
         if len(title) < min_chars:
             pad_pool = [x for x in (sugg + attrs) if x and x not in toks]
             for p in pad_pool:
@@ -1255,7 +1253,6 @@ def _compose_titles(main_kw:str, attrs:list[str], sugg:list[str], min_chars:int=
                 if len(title) >= min_chars:
                     break
 
-        # 3) 최종 바이트 컷
         if len(title.encode("utf-8")) > max_bytes:
             title = _truncate_bytes(title, max_bytes)
 
@@ -1267,16 +1264,16 @@ def _compose_titles(main_kw:str, attrs:list[str], sugg:list[str], min_chars:int=
 
     return out[:topn]
 
-# -------- 메인 UI --------
+# ── 메인 UI ────────────────────────────────────────────────────────────
 def section_title_generator():
     st.markdown('<div class="card main"><div class="card-title">상품명 생성기 (스마트스토어 · Top-N)</div>', unsafe_allow_html=True)
 
-    # 라이트 모드: 본문 성공 박스(st.success) 스타일 오버라이드
+    # 라이트 모드: 컬러박스(성공 박스) 파란 배경 + 흰 글자 강제
     is_dark = (st.session_state.get("theme","light") == "dark")
     if not is_dark:
         st.markdown("""
         <style>
-          /* 본문 success/info/warn/error 공통 박스에 파란 배경+흰 글자 */
+          /* 컬러박스(성공/정보/경고/에러 공통 stAlert)를 파란 배경 + 흰 글자 */
           [data-testid="stAppViewContainer"] div.stAlert { 
             background:#2563eb !important; 
             border:1px solid #1e40af !important; 
@@ -1289,7 +1286,7 @@ def section_title_generator():
           [data-testid="stAppViewContainer"] div.stAlert strong,
           [data-testid="stAppViewContainer"] div.stAlert svg,
           [data-testid="stAppViewContainer"] div.stAlert [data-testid="stMarkdownContainer"] * {
-            color:#fff !important; fill:#fff !important;
+            color:#ffffff !important; fill:#ffffff !important;
           }
         </style>
         """, unsafe_allow_html=True)
