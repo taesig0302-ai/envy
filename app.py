@@ -9,7 +9,8 @@
 # - [패치] 1행: 카테고리/레이더 위치 교체
 # - [패치] Light: 본문 버튼 파란배경+흰색 폰트 고정
 # - [패치] Dark: (레이더) 디바이스/키워드 소스, (카테고리) 카테고리/단위만 검정 폰트 강제
-# - [핵심패치] 11번가 임베드 안정화: 자동 새로고침 제거, 수동 갱신 버튼 + PROXY 경고 배너, 프록시 미설정 시 원본 링크만 노출
+# - [패치] 11번가 임베드: 자동 새로고침 제거, 수동 새로고침 버튼/PROXY 경고 배너 추가
+# - [패치] 11번가 상세보기: 프록시 경유 미리보기/새 탭 열기
 
 import base64, time, re, math, json, io, datetime as dt
 from pathlib import Path
@@ -34,9 +35,8 @@ st.set_page_config(page_title="ENVY — Season 1 (Dual Proxy Edition)", layout="
 # =========================
 SHOW_ADMIN_BOX = False
 
-# Proxies (Cloudflare Worker)
-# ⚠️ 운영 규칙: 임베드는 반드시 프록시(Cloudflare Worker v2, ?url= 방식) 경유. PROXY_URL 미설정 시 안내만 노출.
-NAVER_PROXY   = "https://envy-proxy.taesig0302.workers.dev"
+# Proxies (Cloudflare Worker) — ⚠️ 프록시 강제 / PROXY_URL 필요
+NAVER_PROXY = "https://envy-proxy.taesig0302.workers.dev"
 ELEVENST_PROXY = "https://worker-11stjs.taesig0302.workers.dev"
 ITEMSCOUT_PROXY = "https://worker-itemscoutjs.taesig0302.workers.dev"
 SELLERLIFE_PROXY = "https://worker-sellerlifejs.taesig0302.workers.dev"
@@ -120,14 +120,12 @@ def _ensure_session_defaults():
     ss.setdefault("margin_pct", 10.00)
     ss.setdefault("margin_won", 10000.0)
 
-    # Stopwords manager 상태
     ss.setdefault("STOP_GLOBAL", list(STOPWORDS_GLOBAL))
     ss.setdefault("STOP_BY_CAT", dict(STOPWORDS_BY_CAT))
     ss.setdefault("STOP_WHITELIST", [])
     ss.setdefault("STOP_REPLACE", ["무배=> ", "무료배송=> ", "정품=> "])
     ss.setdefault("STOP_AGGR", False)
 
-    # Rakuten genre map
     ss.setdefault("rk_genre_map", {
         "전체(샘플)": "100283","뷰티/코스메틱": "100283","의류/패션": "100283","가전/디지털": "100283",
         "가구/인테리어": "100283","식품": "100283","생활/건강": "100283","스포츠/레저": "100283","문구/취미": "100283",
@@ -138,7 +136,6 @@ def _toggle_theme():
 
 def _inject_css():
     theme = st.session_state.get("theme", "light")
-
     if theme == "dark":
         bg, fg, fg_sub = "#0e1117", "#e6edf3", "#b6c2cf"
         card_bg, border = "#11151c", "rgba(255,255,255,.08)"
@@ -183,8 +180,7 @@ def _inject_css():
         [data-testid="stAppViewContainer"] .pill *{
             color:#111 !important; -webkit-text-fill-color:#111 !important;
         }
-        [data-testid="stAppViewContainer"] .pill.pill-blue,
-        [data-testid="stAppViewContainer"] .pill.pill-blue *{
+        .pill.pill-blue, .pill.pill-blue *{
             color:#fff !important; -webkit-text-fill-color:#fff !important;
         }
         """
@@ -193,12 +189,8 @@ def _inject_css():
     st.markdown(f"""
     <style>
     [data-testid="stAppViewContainer"] {{ background:{bg} !important; color:{fg} !important; }}
-
-    [data-testid="stAppViewContainer"] h1, [data-testid="stAppViewContainer"] h2,
-    [data-testid="stAppViewContainer"] h3, [data-testid="stAppViewContainer"] h4,
-    [data-testid="stAppViewContainer"] h5, [data-testid="stAppViewContainer"] h6,
-    [data-testid="stAppViewContainer"] p, [data-testid="stAppViewContainer"] li,
-    [data-testid="stAppViewContainer"] span, [data-testid="stAppViewContainer"] label,
+    [data-testid="stAppViewContainer"] h1, h2, h3, h4, h5, h6,
+    [data-testid="stAppViewContainer"] p, li, span, label,
     [data-testid="stAppViewContainer"] .stMarkdown,
     [data-testid="stAppViewContainer"] .stMarkdown * {{ color:{fg} !important; }}
 
@@ -221,27 +213,23 @@ def _inject_css():
     [data-testid="stAppViewContainer"] a[role="button"],
     [data-testid="stAppViewContainer"] a[data-testid="stLinkButton"],
     [data-testid="stAppViewContainer"] .stLinkButton a{{
-        background:{btn_bg} !important; color:#fff !important; -webkit-text-fill-color:#fff !important;
+        background:#2563eb !important; color:#fff !important; -webkit-text-fill-color:#fff !important;
         border:1px solid rgba(255,255,255,.12) !important; border-radius:10px !important;
         font-weight:700 !important;
     }}
-    [data-testid="stAppViewContainer"] .stButton > button *,
-    [data-testid="stAppViewContainer"] [data-testid="stDownloadButton"] > button *,
-    [data-testid="stAppViewContainer"] a[role="button"] *,
-    [data-testid="stAppViewContainer"] a[data-testid="stLinkButton"] *,
-    [data-testid="stAppViewContainer"] .stLinkButton a *{{ color:#fff !important; -webkit-text-fill-color:#fff !important; }}
-
     [data-testid="stAppViewContainer"] .stButton > button:hover,
     [data-testid="stAppViewContainer"] [data-testid="stDownloadButton"] > button:hover,
     [data-testid="stAppViewContainer"] [data-testid="baseButton-secondary"]:hover,
     [data-testid="stAppViewContainer"] [data-testid="baseButton-primary"]:hover,
     [data-testid="stAppViewContainer"] a[role="button"]:hover,
     [data-testid="stAppViewContainer"] a[data-testid="stLinkButton"]:hover,
-    [data-testid="stAppViewContainer"] .stLinkButton a:hover{{ background:{btn_bg_hover} !important; text-decoration:none !important; }}
+    [data-testid="stAppViewContainer"] .stLinkButton a:hover{{ background:#1e3fae !important; }}
 
     {pill_rules}
 
-    :root [data-testid="stSidebar"] .pill, :root [data-testid="stSidebar"] .pill *{{ color:#111 !important; -webkit-text-fill-color:#111 !important; }}
+    :root [data-testid="stSidebar"] .pill, :root [data-testid="stSidebar"] .pill *{{
+        color:#111 !important; -webkit-text-fill-color:#111 !important;
+    }}
 
     [data-testid="stAppViewContainer"] h2, [data-testid="stAppViewContainer"] h3 {{ margin-top:.3rem !important; }}
 
@@ -298,7 +286,7 @@ def section_datalab():
         unit = st.selectbox("단위", ["date", "week", "month"], key="datalab_unit")
     with col3:
         months = st.slider("조회기간(개월)", 1, 12, 3, key="datalab_months")
-    # ... (호출 로직 생략 — 기존 유지)
+    # … (API 호출/그리기 파트는 동일 유지)
 
 # =========================
 # 4) Sidebar (theme + translator toggle + calculators)
@@ -319,14 +307,19 @@ def _sidebar():
             margin:.35rem auto .6rem auto; box-shadow:0 2px 8px rgba(0,0,0,.12);
             border:1px solid rgba(0,0,0,.06);
         }
-        [data-testid="stSidebar"] .logo-circle img{ width:100%;height:100%;object-fit:cover;display:block; }
+        [data-testid="stSidebar"] .logo-circle img{
+            width:100%;height:100%;object-fit:cover;display:block;
+        }
         </style>
         """, unsafe_allow_html=True)
 
         lp = Path(__file__).parent / "logo.png"
         if lp.exists():
             b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
-            st.markdown(f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>',
+                unsafe_allow_html=True
+            )
 
         c1, c2 = st.columns(2)
         with c1:
@@ -336,7 +329,6 @@ def _sidebar():
             st.toggle("🌐 번역기", value=False, key="__show_translator")
         show_tr = st.session_state.get("__show_translator", False)
 
-        # 번역기 / 환율 / 마진 계산기 (기존 유지)
         def translator_block(expanded=True):
             with st.expander("🌐 구글 번역기", expanded=expanded):
                 LANG_LABELS_SB = {
@@ -371,8 +363,11 @@ def _sidebar():
                                                value=float(st.session_state.get("sale_foreign",1.0)),
                                                step=0.01, format="%.2f", key="sale_foreign")
                 won = FX_DEFAULT[fx_base]*sale_foreign
-                st.markdown(f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b>'
-                            f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[fx_base]["symbol"]})</span></div>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b>'
+                    f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[fx_base]["symbol"]})</span></div>',
+                    unsafe_allow_html=True
+                )
                 st.caption(f"환율 기준: {FX_DEFAULT[fx_base]:,.2f} ₩/{CURRENCIES[fx_base]['unit']}")
 
         def margin_block(expanded=True):
@@ -385,7 +380,8 @@ def _sidebar():
                                                    step=0.01, format="%.2f", key="purchase_foreign")
                 base_cost_won = FX_DEFAULT[m_base]*purchase_foreign if purchase_foreign>0 \
                     else FX_DEFAULT[st.session_state.get("fx_base","USD")]*st.session_state.get("sale_foreign",1.0)
-                st.markdown(f'<div class="pill pill-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="pill pill-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>',
+                            unsafe_allow_html=True)
 
                 c1, c2 = st.columns(2)
                 with c1:
@@ -416,7 +412,8 @@ def _sidebar():
                     margin_value = margin_won; desc=f"+{margin_won:,.0f}"
 
                 st.markdown(f'<div class="pill pill-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="pill pill-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="pill pill-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>',
+                            unsafe_allow_html=True)
 
         if show_tr:
             translator_block(expanded=True); fx_block(expanded=False); margin_block(expanded=False)
@@ -427,12 +424,13 @@ def _sidebar():
             st.divider()
             st.text_input("PROXY_URL(디버그)", key="PROXY_URL", help="Cloudflare Worker 주소 (옵션)")
 
-    # 사이드바 스타일 고정(항상 라이트)
+    # 사이드바 스타일 고정
     st.markdown("""
     <style>
     [data-testid="stSidebar"]{ height:100vh !important; overflow-y:hidden !important; -ms-overflow-style:none !important; scrollbar-width:none !important; }
     [data-testid="stSidebar"] > div:first-child{ height:100vh !important; overflow-y:hidden !important; }
     [data-testid="stSidebar"]::-webkit-scrollbar, [data-testid="stSidebar"] > div:first-child::-webkit-scrollbar{ display:none !important; }
+
     [data-testid="stSidebar"] .block-container{ padding-top:.4rem !important; padding-bottom:0 !important; }
     [data-testid="stSidebar"] .stExpander{ margin-bottom:.2rem !important; padding:.25rem .4rem !important; }
     [data-testid="stSidebar"] .stNumberInput input, [data-testid="stSidebar"] .stTextInput input, [data-testid="stSidebar"] textarea{
@@ -443,8 +441,9 @@ def _sidebar():
     .pill-green{ background:#dcfce7 !important; border:1px solid #22c55e !important; color:#111 !important; }
     .pill-blue{ background:#dbeafe !important; border:1px solid #3b82f6 !important; color:#111 !important; }
     .pill-yellow{background:#fef3c7 !important; border:1px solid #eab308 !important; color:#111 !important; }
+
     :root [data-testid="stSidebar"]{ background:#ffffff !important; color:#111111 !important; }
-    :root [data-testid="stSidebar"] *{ color:#111111 !important; -webkit-text-fill-color:#111111 !important; opacity:1 !important; }
+    :root [data-testid="stSidebar"] *{ color:#111111 !important; -webkit-text-fill-color:#111111 !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -459,22 +458,18 @@ def _rakuten_keys():
 @st.cache_data(ttl=900, show_spinner=False)
 def _rk_fetch_rank_cached(genre_id: str, topn: int = 20, strip_emoji: bool=True) -> pd.DataFrame:
     app_id, affiliate = _rakuten_keys()
-
     def _clean(s: str) -> str:
         if not strip_emoji: return s
         return re.sub(r"[\U00010000-\U0010ffff]", "", s or "")
-
     if not (requests and app_id):
         rows=[{"rank":i+1,"keyword":_clean(f"[샘플] 키워드 {i+1} ハロウィン 秋 🍂"),
                "shop":"샘플","url":"https://example.com"} for i in range(topn)]
         return pd.DataFrame(rows)
-
     def _do():
         api = "https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628"
         params = {"applicationId": app_id, "genreId": str(genre_id).strip(), "hits": topn}
         if affiliate: params["affiliateId"] = affiliate
-        r = requests.get(api, params=params, timeout=12)
-        r.raise_for_status()
+        r = requests.get(api, params=params, timeout=12); r.raise_for_status()
         items = r.json().get("Items", [])[:topn]
         rows=[]
         for it in items:
@@ -486,7 +481,6 @@ def _rk_fetch_rank_cached(genre_id: str, topn: int = 20, strip_emoji: bool=True)
                 "url": node.get("itemUrl",""),
             })
         return pd.DataFrame(rows)
-
     try:
         return _do()
     except Exception:
@@ -674,7 +668,15 @@ def section_korea_ui():
 # 7) DataLab Trend (Open API) + Category → Top20 UI (+ Direct Trend)
 # =========================
 @st.cache_data(ttl=1800, show_spinner=False)
-def _datalab_trend(groups, start_date, end_date, time_unit="week", device="", gender="", ages=None) -> pd.DataFrame:
+def _datalab_trend(
+    groups: list,
+    start_date: str,
+    end_date: str,
+    time_unit: str = "week",
+    device: str = "",
+    gender: str = "",
+    ages: list | None = None,
+) -> pd.DataFrame:
     if not requests: return pd.DataFrame()
     cid = _get_key("NAVER_CLIENT_ID"); csec = _get_key("NAVER_CLIENT_SECRET")
     if not (cid and csec): return pd.DataFrame()
@@ -706,7 +708,13 @@ def _datalab_trend(groups, start_date, end_date, time_unit="week", device="", ge
         big.rename(columns={"period": "날짜", "ratio": "검색지수"}, inplace=True)
         pv = big.pivot_table(index="날짜", columns="keyword", values="검색지수", aggfunc="mean")
         return pv.reset_index().sort_values("날짜")
-    except Exception:
+    except requests.HTTPError as e:
+        try: msg = r.text
+        except Exception: msg = str(e)
+        st.error(f"DataLab HTTP {r.status_code}: {msg}")
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"DataLab 호출 오류: {e}")
         return pd.DataFrame()
 
 SEED_MAP = {
@@ -728,6 +736,7 @@ def section_category_keyword_lab():
     st.markdown('<div class="card"><div class="card-title">카테고리 → 키워드 Top20 & 트렌드</div>', unsafe_allow_html=True)
     is_dark = (st.session_state.get("theme","light") == "dark")
     cA, cB, cC = st.columns([1, 1, 1])
+
     if is_dark: st.markdown("<div class='force-black'>", unsafe_allow_html=True)
     with cA:
         cat = st.selectbox("카테고리", list(SEED_MAP.keys()))
@@ -895,7 +904,7 @@ def _stopwords_manager_ui(compact: bool = False):
                     st.error(f"가져오기 실패: {e}")
 
 # =========================
-# 9) 상품명 생성기 (스마트스토어 최적화 Top-N)
+# 9) 상품명 생성기
 # =========================
 import re as _re
 def _dedupe_tokens(s:str)->str:
@@ -917,7 +926,8 @@ def _truncate_bytes(text:str, max_bytes:int=50)->str:
 
 def _apply_filters_soft(text:str)->str:
     try:
-        out = _re.sub(r"[^\S\r\n]+", " ", text)
+        out = _re.sub(r"[\\[\\]{}|^~`<>]", " ", text)
+        out = _re.sub(r"(무배|무료배송|정품)", " ", out)
     except Exception:
         out = text
     return _re.sub(r"\s+"," ", out).strip()
@@ -1069,45 +1079,46 @@ def section_title_generator():
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
-# 10) 11번가 — 아마존 베스트 (임베드)  ★ 안정화 패치 적용
+# 10) 11번가 — 아마존 베스트 (임베드)  ← ★ 패치 반영
 # =========================
-import json as _json
+import time as _t, json as _json
 from urllib.parse import quote as _q
 
 def section_11st():
     """11번가 아마존 베스트 (모바일) — 프록시 경유 임베드 (자동 새로고침 없음)"""
-    st.markdown('<div class="card main"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="card main"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>',
+        unsafe_allow_html=True
+    )
 
-    # 프록시 주소: secrets > ELEVENST_PROXY 우선, 없으면 전역 상수
     base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
     raw_url = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
 
-    # PROXY 경고/안내
     st.markdown(
         f"""
 <div style="padding:10px;border:1px solid #e5e7eb;border-radius:12px;background:#fffbe6;margin-bottom:10px;">
 <b>임베드 안내</b><br>
 · 이 섹션은 반드시 <code>PROXY_URL</code>(Cloudflare Worker) 경유로만 동작합니다.<br>
 · 현재 PROXY_URL: <code>{base_proxy or '(미설정)'}</code><br>
-· 11번가 레이트리밋을 피하기 위해 <b>자동 새로고침을 사용하지 않습니다</b>. 아래 버튼으로 수동 갱신하세요.
+· 레이트리밋 방지를 위해 <b>자동 새로고침 없음</b>. 아래 버튼으로 수동 새로고침하세요.
 </div>
 """,
         unsafe_allow_html=True,
     )
 
     if not base_proxy:
-        st.warning("프록시(ELEVENST_PROXY)가 설정되어 있지 않습니다. 사이드바/Secrets에서 설정해 주세요.")
+        st.warning("프록시(ELEVENST_PROXY)가 설정되어 있지 않습니다. Secrets 또는 전역 상수로 설정하세요.")
         st.link_button("원본 페이지(새 탭)", raw_url, use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
     ss = st.session_state
-    ss.setdefault("__11st_token", str(int(time.time())))
+    ss.setdefault("__11st_token", str(int(_t.time())))
 
     cols = st.columns([1, 5])
     with cols[0]:
         if st.button("🔄 새로고침", key="btn_refresh_11st"):
-            ss["__11st_token"] = str(int(time.time()))
+            ss["__11st_token"] = str(int(_t.time()))
 
     src = f"{base_proxy}/?url={_q(raw_url, safe=':/?&=%')}&r={ss['__11st_token']}"
 
@@ -1133,7 +1144,7 @@ def section_11st():
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────
-# 11번가 상품 상세 바로보기 (프록시 경유)  ★ 안정화 패치 적용
+# 10-B) 11번가 상품 상세 바로보기 (프록시 경유) ← ★ 패치 반영
 # ─────────────────────────────────────────
 def _11st_extract_product_id(s: str) -> str | None:
     if not s: return None
@@ -1158,4 +1169,90 @@ def section_11st_detail():
 
     c1, c2 = st.columns([1,1])
     with c1:
-        if st.button("상세 미리보기(내장
+        if st.button("상세 미리보기(내장)", use_container_width=True, disabled=not proxied):
+            if proxied:
+                html = f"""
+                <style>
+                  .embed-11st-detail {{
+                    height: 900px; overflow: hidden; border-radius: 10px; border:1px solid #e5e7eb;
+                  }}
+                  .embed-11st-detail iframe {{
+                    width: 100%; height: 100%; border: 0; border-radius: 10px; background: transparent;
+                  }}
+                </style>
+                <div class="embed-11st-detail">
+                  <iframe
+                    src="{proxied}"
+                    title="11st-detail"
+                    referrerpolicy="no-referrer"
+                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                  ></iframe>
+                </div>
+                """
+                st.components.v1.html(html, height=920, scrolling=False)
+    with c2:
+        if proxied:
+            st.link_button("새 탭으로 열기(프록시)", proxied, use_container_width=True)
+        else:
+            st.info("상품 URL 또는 ID를 입력하면 버튼이 활성화됩니다.")
+
+    with st.expander("도움말 / 파싱 규칙", expanded=False):
+        st.write("- `https://www.11st.co.kr/products/123` 또는 `https://m.11st.co.kr/products/123` 또는 `productId=123` 모두 인식합니다.")
+        st.write("- 숫자만 입력해도 동작합니다. (예: `1234567890`)")
+        st.write("- 프록시가 없으면 원본 링크로만 열 수 있습니다.")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# =========================
+# (보류) 아이템스카우트 / 셀러라이프 플레이스홀더
+# =========================
+def section_itemscout_placeholder():
+    st.markdown('<div class="card main"><div class="card-title">아이템스카우트</div>', unsafe_allow_html=True)
+    st.info("임베드는 보류 중입니다. 아래 버튼으로 원본 페이지를 새 탭에서 여세요.")
+    st.link_button("아이템스카우트 직접 열기 (새 탭)", "https://app.itemscout.io/market/keyword")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+def section_sellerlife_placeholder():
+    st.markdown('<div class="card main"><div class="card-title">셀러라이프</div>', unsafe_allow_html=True)
+    st.info("임베드는 보류 중입니다. 아래 버튼으로 원본 페이지를 새 탭에서 여세요.")
+    st.link_button("셀러라이프 직접 열기 (새 탭)", "https://sellochomes.co.kr/sellerlife/")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# =========================
+# 외부 Stopwords 섹션(선택)
+# =========================
+def section_stopwords_manager():
+    st.markdown('<div class="card main"><div class="card-title">금칙어 리스트 관리자 (현업용)</div>', unsafe_allow_html=True)
+    _stopwords_manager_ui(compact=False)
+
+# =========================
+# 11) Layout — row1: (카테고리 or 직접 입력) | Radar | 상품명 생성기
+# =========================
+_ = _sidebar()
+_responsive_probe()
+vwbin = _get_view_bin()
+st.title("ENVY — Season 1 (Dual Proxy Edition)")
+
+# 1행 — [패치] 카테고리(탭) ↔ 레이더 위치 교체
+row1_a, row1_b, row1_c = st.columns([4, 8, 4], gap="medium")
+with row1_a:
+    tab_cat, tab_direct = st.tabs(["카테고리", "직접 입력"])
+    with tab_cat:
+        section_category_keyword_lab()
+    with tab_direct:
+        section_keyword_trend_widget()
+with row1_b:
+    section_radar()
+with row1_c:
+    section_title_generator()
+st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
+
+# 2행
+c1, c2, c3 = st.columns([3, 3, 3], gap="medium")
+with c1:
+    section_11st()
+with c2:
+    section_itemscout_placeholder()
+with c3:
+    section_sellerlife_placeholder()
+st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
