@@ -1146,60 +1146,47 @@ def section_title_generator():
         st.download_button("제목 CSV 다운로드", data=pd.DataFrame({"title":sorted_titles}).to_csv(index=False).encode("utf-8-sig"), file_name=f"titles_{main_kw}.csv", mime="text/csv")
     st.markdown("</div>", unsafe_allow_html=True)
 
-# =========================
-# 10) 11번가 — 아마존 베스트 + 상품 상세 바로보기
-# =========================
-import time, re
-from urllib.parse import quote as _q
-
+# 10) 11번가 — 아마존 베스트 (워커 강화 파라미터 적용: clean=1, js=1, ua=mo)
 def section_11st():
-    """11번가 아마존 베스트 (모바일)"""
+    """11번가 아마존 베스트 (모바일, 프록시 워커 v2.9 대응)"""
     st.markdown(
         '<div class="card main"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>',
         unsafe_allow_html=True
     )
+
     ss = st.session_state
     ss.setdefault("__11st_token", str(int(time.time())))
-
     if st.button("🔄 새로고침 (11번가)", key="btn_refresh_11st"):
         ss["__11st_token"] = str(int(time.time()))
 
+    # 프록시 워커 주소(없으면 원본으로)
     base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
     raw_url = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
-    src_base = raw_url if not base_proxy else f"{base_proxy}/?url={_q(raw_url, safe=':/?&=%')}"
 
-    token = ss["__11st_token"]
+    # 워커 v2.9용 필수 파라미터: clean=1(클린 모드), js=1(런타임 패치 ON), ua=mo(모바일 UA)
+    src_base = raw_url if not base_proxy else f"{base_proxy}/?url={_q(raw_url, safe=':/?&=%')}"
+    want = src_base + ("&" if "?" in src_base else "?") + f"r={ss['__11st_token']}&clean=1&js=1&ua=mo"
+
     html = f"""
     <style>
       .embed-11st-wrap {{
-        height: 940px; overflow: hidden;
-        border-radius: 10px;
+        height: 940px; overflow:hidden; border-radius:10px;
       }}
       .embed-11st-wrap iframe {{
-        width: 100%; height: 100%; border: 0; border-radius: 10px;
-        background: transparent;
+        width:100%; height:100%; border:0; border-radius:10px; background:transparent;
       }}
     </style>
     <div class="embed-11st-wrap">
-      <iframe id="envy_11st_iframe" title="11st"></iframe>
+      <iframe
+        src="{want}"
+        title="11st"
+        referrerpolicy="no-referrer"
+        sandbox="allow-scripts allow-forms allow-popups allow-pointer-lock allow-same-origin allow-top-navigation-by-user-activation"
+      ></iframe>
     </div>
-    <script>
-    (function(){{
-        var base = {json.dumps(src_base)};
-        var token = {json.dumps(token)};
-        var want = base + (base.indexOf('?')>=0 ? '&' : '?') + 'r=' + token;
-        var prev = window.__ENVY_11ST_SRC || "";
-        var ifr = document.getElementById("envy_11st_iframe");
-        if(!ifr) return;
-        if (prev === want && ifr.getAttribute('src') === want) return;
-        ifr.setAttribute('src', want);
-        window.__ENVY_11ST_SRC = want;
-    }})();
-    </script>
     """
     st.components.v1.html(html, height=960, scrolling=False)
     st.markdown("</div>", unsafe_allow_html=True)
-
 
 # ─────────────────────────────────────────
 # 11번가 상품 상세 바로보기 (프록시 경유)
