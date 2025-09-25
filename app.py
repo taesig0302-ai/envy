@@ -1,41 +1,34 @@
 # -*- coding: utf-8 -*-
-# ENVY — Season 1 (Dual Proxy Edition, Radar tabs=국내/해외, Rakuten scope radio removed)
-# 이번 버전(옵션2: 11번가 임베드 안정장치 포함):
-# - 11번가 임베드 복구: credentialless iframe + stateless proxy 가정 + 헬스체크/폴백
-# - 수동 새로고침만 허용(자동 리로드 없음)
-# - 런타임 토글 ?enable_11st=0/1 (기본 ON)
-# - 기존: 다크/라이트 대비 강화, 레이더/라쿠텐/제목생성기/금칙어 관리 유지
+# ENVY — Season 1 (Dual Proxy Edition, 안정화 옵션2: 11번가 임베드 가드 + 새 탭 버튼 폴백)
 
-import base64, time, re, math, json, io, datetime as dt
+import base64, time, re, math, json, io, html
+import datetime as dt
 from pathlib import Path
 from urllib.parse import quote as uquote
+
 import pandas as pd
 import streamlit as st
 
-# -------- Optional imports --------
+# Optional imports (환경에 따라 없을 수 있음)
 try:
     import requests
 except Exception:
     requests = None
 try:
-    from deep_translator import GoogleTranslator
+    from deep_translator import GoogleTranslator  # noqa
 except Exception:
     GoogleTranslator = None
 
 st.set_page_config(page_title="ENVY — Season 1 (Dual Proxy Edition)", layout="wide")
-
-# =========================
-# 0) GLOBALS & DEFAULT KEYS
-# =========================
 SHOW_ADMIN_BOX = False
 
-# Proxies (Cloudflare Worker) — ELEVENST_PROXY는 반드시 stateless 프록시(쿠키/Set-Cookie 제거)여야 함
+# Proxies (Cloudflare Worker) — ELEVENST_PROXY는 stateless 프록시(쿠키/Set-Cookie 제거) 권장
 NAVER_PROXY = "https://envy-proxy.taesig0302.workers.dev"
 ELEVENST_PROXY = "https://worker-11stjs.taesig0302.workers.dev"
 ITEMSCOUT_PROXY = "https://worker-itemscoutjs.taesig0302.workers.dev"
 SELLERLIFE_PROXY = "https://worker-sellerlifejs.taesig0302.workers.dev"
 
-# 런타임 토글: ?enable_11st=0/1 (default True)
+# 런타임 토글: ?enable_11st=0/1 (기본 ON)
 def _flag_from_query(name: str, default: bool) -> bool:
     try:
         qp = st.query_params
@@ -47,26 +40,22 @@ def _flag_from_query(name: str, default: bool) -> bool:
 
 ENABLE_11ST = _flag_from_query("enable_11st", True)
 
-# ---- Default credentials (secrets 가 있으면 secrets 우선) ----
+# Default credentials (secrets 우선)
 DEFAULT_KEYS = {
-    # Rakuten
     "RAKUTEN_APP_ID": "1043271015809337425",
     "RAKUTEN_AFFILIATE_ID": "4c723498.cbfeca46.4c723499.1deb6f77",
-    # NAVER Searchad(검색광고 API / 키워드도구)
     "NAVER_API_KEY": "0100000000785cf1d8f039b13a5d3c3d1262b84e9ad4a046637e8887bbd003051b0d2a5cdf",
     "NAVER_SECRET_KEY": "AQAAAAB4XPHY8DmxOl08PRJiuE6ao1LN3lh0kF9rOJ4m5b8O5g==",
     "NAVER_CUSTOMER_ID": "2274338",
-    # NAVER Developers (DataLab Open API)
     "NAVER_CLIENT_ID": "T27iw3tyujrM1nG_shFT",
     "NAVER_CLIENT_SECRET": "s59xKPYLz1",
-    # 선택: DataLab Referer(허용 도메인 등록 시) — 필요 없으면 비워두기
-    "NAVER_WEB_REFERER": ""
+    "NAVER_WEB_REFERER": "",
 }
 
 def _get_key(name: str) -> str:
     return (st.secrets.get(name, "") or DEFAULT_KEYS.get(name, "")).strip()
 
-# Simple FX
+# 간단 환율
 CURRENCIES = {
     "USD":{"kr":"미국 달러","symbol":"$","unit":"USD"},
     "EUR":{"kr":"유로","symbol":"€","unit":"EUR"},
@@ -74,17 +63,10 @@ CURRENCIES = {
     "CNY":{"kr":"중국 위안","symbol":"元","unit":"CNY"},
 }
 FX_DEFAULT = {"USD":1400.0,"EUR":1500.0,"JPY":10.0,"CNY":200.0}
-
-# =========================
-# Stopwords — 전역/카테고리 + 프리셋
-# =========================
 STOPWORDS_GLOBAL = [
-    # 광고/행사/가격 과장
     "무료배송","무배","초특가","특가","핫딜","최저가","세일","sale","이벤트","사은품","증정",
     "쿠폰","역대급","역대가","폭탄세일","원가","정가","파격","초대박","할인폭","혜택가",
-    # 운영/AS 리스크
     "파손","환불","교환","재고","품절","한정수량","긴급","급처","특판",
-    # 과도한 마케팅 표현/이모지
     "mustbuy","강추","추천","추천템","🔥","💥","⭐","best","베스트"
 ]
 STOPWORDS_BY_CAT = {
@@ -111,10 +93,6 @@ STOP_PRESETS = {
         "aggressive": True
     }
 }
-
-# =========================
-# 1) UI defaults & CSS
-# =========================
 def _ensure_session_defaults():
     ss = st.session_state
     ss.setdefault("theme", "light")
@@ -128,15 +106,11 @@ def _ensure_session_defaults():
     ss.setdefault("margin_mode", "퍼센트")
     ss.setdefault("margin_pct", 10.00)
     ss.setdefault("margin_won", 10000.0)
-
-    # Stopwords manager 상태
     ss.setdefault("STOP_GLOBAL", list(STOPWORDS_GLOBAL))
     ss.setdefault("STOP_BY_CAT", dict(STOPWORDS_BY_CAT))
     ss.setdefault("STOP_WHITELIST", [])
     ss.setdefault("STOP_REPLACE", ["무배=> ", "무료배송=> ", "정품=> "])
     ss.setdefault("STOP_AGGR", False)
-
-    # Rakuten genre map
     ss.setdefault("rk_genre_map", {
         "전체(샘플)": "100283","뷰티/코스메틱": "100283","의류/패션": "100283","가전/디지털": "100283",
         "가구/인테리어": "100283","식품": "100283","생활/건강": "100283","스포츠/레저": "100283","문구/취미": "100283",
@@ -146,9 +120,7 @@ def _toggle_theme():
     st.session_state["theme"] = "dark" if st.session_state.get("theme", "light") == "light" else "light"
 
 def _inject_css():
-    """메인 뷰만 색상 오버라이드(사이드바 제외). 라이트/다크 대비 강화."""
     theme = st.session_state.get("theme", "light")
-
     if theme == "dark":
         bg, fg, fg_sub = "#0e1117", "#e6edf3", "#b6c2cf"
         card_bg, border = "#11151c", "rgba(255,255,255,.08)"
@@ -160,75 +132,48 @@ def _inject_css():
         [data-testid="stAppViewContainer"] textarea,
         [data-testid="stAppViewContainer"] [data-baseweb="select"] *,
         [data-testid="stAppViewContainer"] .stMultiSelect [data-baseweb="select"] *{
-            background:#ffffff !important;
-            color:#111111 !important;
-            -webkit-text-fill-color:#111111 !important;
+            background:#ffffff !important; color:#111111 !important; -webkit-text-fill-color:#111111 !important;
         }
-        [data-testid="stAppViewContainer"] input::placeholder,
-        [data-testid="stAppViewContainer"] textarea::placeholder{
-            color:#6b7280 !important;
-            opacity:1 !important;
-        }
-        """
+        [data-testid="stAppViewContainer"] input::placeholder, [data-testid="stAppViewContainer"] textarea::placeholder{
+            color:#6b7280 !important; opacity:1 !important;
+        }"""
         pill_rules = """
-        /* Dark: pill 기본은 흰 글자 */
-        [data-testid="stAppViewContainer"] .pill,
-        [data-testid="stAppViewContainer"] .pill *{
+        [data-testid="stAppViewContainer"] .pill, [data-testid="stAppViewContainer"] .pill *{
             color:#fff !important; -webkit-text-fill-color:#fff !important;
-        }
-        """
+        }"""
         force_black_rules = """
-        [data-testid="stAppViewContainer"] .force-black,
-        [data-testid="stAppViewContainer"] .force-black *{
-            color:#111 !important; -webkit-text-fill-color:#111 !important;
-            text-shadow:none !important; filter:none !important; opacity:1 !important;
-        }
-        """
+        [data-testid="stAppViewContainer"] .force-black, [data-testid="stAppViewContainer"] .force-black *{
+            color:#111 !important; -webkit-text-fill-color:#111 !important; text-shadow:none !important; filter:none !important; opacity:1 !important;
+        }"""
     else:
         bg, fg, fg_sub = "#ffffff", "#111111", "#4b5563"
         card_bg, border = "#ffffff", "rgba(0,0,0,.06)"
         btn_bg, btn_bg_hover = "#2563eb", "#1e3fae"
-        dark_fix_white_boxes = ""  # 라이트에선 필요 없음
+        dark_fix_white_boxes, force_black_rules = "", ""
         pill_rules = """
-        /* Light: pill 기본은 검정 글자 */
-        [data-testid="stAppViewContainer"] .pill,
-        [data-testid="stAppViewContainer"] .pill *{
+        [data-testid="stAppViewContainer"] .pill, [data-testid="stAppViewContainer"] .pill *{
             color:#111 !important; -webkit-text-fill-color:#111 !important;
         }
-        /* Light: 파란 pill만 흰 글자 */
-        [data-testid="stAppViewContainer"] .pill.pill-blue,
-        [data-testid="stAppViewContainer"] .pill.pill-blue *{
+        [data-testid="stAppViewContainer"] .pill.pill-blue, [data-testid="stAppViewContainer"] .pill.pill-blue *{
             color:#fff !important; -webkit-text-fill-color:#fff !important;
-        }
-        """
-        force_black_rules = ""  # 라이트에선 불필요
+        }"""
 
     st.markdown(f"""
     <style>
     [data-testid="stAppViewContainer"] {{ background:{bg} !important; color:{fg} !important; }}
-    [data-testid="stAppViewContainer"] h1, h2, h3, h4, h5, h6,
-    [data-testid="stAppViewContainer"] p, li, span, label, .stMarkdown,
-    [data-testid="stAppViewContainer"] .stMarkdown * {{ color:{fg} !important; }}
-    [data-testid="stAppViewContainer"] [data-baseweb="select"] *,
-    [data-testid="stAppViewContainer"] [data-baseweb="input"] input,
-    [data-testid="stAppViewContainer"] .stNumberInput input,
-    [data-testid="stAppViewContainer"] .stTextInput input {{ color:{fg} !important; }}
+    [data-testid="stAppViewContainer"] h1, h2, h3, h4, h5, h6, p, li, span, label, .stMarkdown, .stMarkdown * {{ color:{fg} !important; }}
+    [data-testid="stAppViewContainer"] [data-baseweb="select"] *, [data-testid="stAppViewContainer"] [data-baseweb="input"] input,
+    [data-testid="stAppViewContainer"] .stNumberInput input, [data-testid="stAppViewContainer"] .stTextInput input {{ color:{fg} !important; }}
     [data-testid="stAppViewContainer"] input::placeholder {{ color:{fg_sub} !important; opacity:.9 !important; }}
     [data-testid="stAppViewContainer"] .card {{
-        background:{card_bg}; border:1px solid {border};
-        border-radius:14px; box-shadow:0 1px 6px rgba(0,0,0,.12);
+        background:{card_bg}; border:1px solid {border}; border-radius:14px; box-shadow:0 1px 6px rgba(0,0,0,.12);
     }}
-    /* 본문 버튼/링크 버튼 — 파란 배경 + 흰 글자 고정 */
-    [data-testid="stAppViewContainer"] .stButton > button,
-    [data-testid="stAppViewContainer"] [data-testid="baseButton-secondary"],
-    [data-testid="stAppViewContainer"] [data-testid="baseButton-primary"],
-    [data-testid="stAppViewContainer"] [data-testid="stDownloadButton"] > button,
-    [data-testid="stAppViewContainer"] a[role="button"],
-    [data-testid="stAppViewContainer"] a[data-testid="stLinkButton"],
-    [data-testid="stAppViewContainer"] .stLinkButton a{{
+    [data-testid="stAppViewContainer"] .stButton > button, [data-testid="stAppViewContainer"] [data-testid="baseButton-secondary"],
+    [data-testid="stAppViewContainer"] [data-testid="baseButton-primary"], [data-testid="stAppViewContainer"] [data-testid="stDownloadButton"] > button,
+    [data-testid="stAppViewContainer"] a[role="button"], [data-testid="stAppViewContainer"] a[data-testid="stLinkButton"],
+    [data-testid="stAppViewContainer"] .stLinkButton a {{
         background:{btn_bg} !important; color:#fff !important; -webkit-text-fill-color:#fff !important;
-        border:1px solid rgba(255,255,255,.12) !important; border-radius:10px !important;
-        font-weight:700 !important;
+        border:1px solid rgba(255,255,255,.12) !important; border-radius:10px !important; font-weight:700 !important;
     }}
     [data-testid="stAppViewContainer"] .stButton > button:hover,
     [data-testid="stAppViewContainer"] [data-testid="stDownloadButton"] > button:hover,
@@ -244,12 +189,8 @@ def _inject_css():
     {force_black_rules}
     </style>
     """, unsafe_allow_html=True)
-
-# =========================
-# 2) Responsive
-# =========================
 def _responsive_probe():
-    html = """
+    html_js = """
     <script>
     (function(){
       const bps=[900,1280,1600];
@@ -261,7 +202,7 @@ def _responsive_probe():
     })();
     </script>
     """
-    st.components.v1.html(html, height=0, scrolling=False)
+    st.components.v1.html(html_js, height=0, scrolling=False)
 
 def _get_view_bin():
     try:
@@ -272,27 +213,6 @@ def _get_view_bin():
         return max(0, min(3, int(raw)))
     except:
         return 3
-
-# =========================
-# 3) Naver DataLab — 카테고리 Top20 & 트렌드 (UI 스켈레톤)
-# =========================
-def section_datalab():
-    st.header("카테고리 ➔ 키워드 Top20 & 트렌드")
-    categories = [
-        "패션의류","패션잡화","뷰티","출산/육아","식품","생활/건강",
-        "가구/인테리어","디지털/가전","스포츠/레저","취미/반려동물","면세점","기타",
-    ]
-    col1, col2, col3 = st.columns([2, 1, 2])
-    with col1:
-        category = st.selectbox("카테고리", categories, key="datalab_category")
-    with col2:
-        unit = st.selectbox("단위", ["date", "week", "month"], key="datalab_unit")
-    with col3:
-        months = st.slider("조회기간(개월)", 1, 12, 3, key="datalab_months")
-
-# =========================
-# 4) Sidebar (theme + translator toggle + calculators)
-# =========================
 def _sidebar():
     _ensure_session_defaults()
     _inject_css()
@@ -313,10 +233,7 @@ def _sidebar():
         lp = Path(__file__).parent / "logo.png"
         if lp.exists():
             b64 = base64.b64encode(lp.read_bytes()).decode("ascii")
-            st.markdown(
-                f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>',
-                unsafe_allow_html=True
-            )
+            st.markdown(f'<div class="logo-circle"><img src="data:image/png;base64,{b64}"></div>', unsafe_allow_html=True)
 
         # 토글
         c1, c2 = st.columns(2)
@@ -327,7 +244,7 @@ def _sidebar():
             st.toggle("🌐 번역기", value=False, key="__show_translator")
         show_tr = st.session_state.get("__show_translator", False)
 
-        # ---- 위젯들 ----
+        # 위젯: 번역기
         def translator_block(expanded=True):
             with st.expander("🌐 구글 번역기", expanded=expanded):
                 LANG = {"auto":"자동 감지","ko":"한국어","en":"영어","ja":"일본어","zh-CN":"중국어(간체)","zh-TW":"중국어(번체)","vi":"베트남어","th":"태국어","id":"인도네시아어","de":"독일어","fr":"프랑스어","es":"스페인어","it":"이탈리아어","pt":"포르투갈어"}
@@ -346,6 +263,7 @@ def _sidebar():
                     except Exception as e:
                         st.error(f"번역 중 오류: {e}")
 
+        # 위젯: 환율/마진
         def fx_block(expanded=True):
             with st.expander("💱 환율 계산기", expanded=expanded):
                 fx_base = st.selectbox("기준 통화", list(CURRENCIES.keys()),
@@ -355,11 +273,7 @@ def _sidebar():
                                                value=float(st.session_state.get("sale_foreign",1.0)),
                                                step=0.01, format="%.2f", key="sale_foreign")
                 won = FX_DEFAULT[fx_base]*sale_foreign
-                st.markdown(
-                    f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b>'
-                    f'<span style="opacity:.75;font-weight:700"> ({CURRENCIES[fx_base]["symbol"]})</span></div>',
-                    unsafe_allow_html=True
-                )
+                st.markdown(f'<div class="pill pill-green">환산 금액: <b>{won:,.2f} 원</b> <span style="opacity:.75;font-weight:700"> ({CURRENCIES[fx_base]["symbol"]})</span></div>', unsafe_allow_html=True)
                 st.caption(f"환율 기준: {FX_DEFAULT[fx_base]:,.2f} ₩/{CURRENCIES[fx_base]['unit']}")
 
         def margin_block(expanded=True):
@@ -370,42 +284,25 @@ def _sidebar():
                 purchase_foreign = st.number_input("매입금액 (외화)",
                                                    value=float(st.session_state.get("purchase_foreign",0.0)),
                                                    step=0.01, format="%.2f", key="purchase_foreign")
-                base_cost_won = FX_DEFAULT[m_base]*purchase_foreign if purchase_foreign>0 \
-                    else FX_DEFAULT[st.session_state.get("fx_base","USD")]*st.session_state.get("sale_foreign",1.0)
-                st.markdown(f'<div class="pill pill-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>',
-                            unsafe_allow_html=True)
-
+                base_cost_won = FX_DEFAULT[m_base]*purchase_foreign if purchase_foreign>0 else FX_DEFAULT[st.session_state.get("fx_base","USD")]*st.session_state.get("sale_foreign",1.0)
+                st.markdown(f'<div class="pill pill-green">원가(₩): <b>{base_cost_won:,.2f} 원</b></div>', unsafe_allow_html=True)
                 c1, c2 = st.columns(2)
                 with c1:
-                    card_fee = st.number_input("카드수수료(%)",
-                                               value=float(st.session_state.get("card_fee_pct",4.0)),
-                                               step=0.01, format="%.2f", key="card_fee_pct")
+                    card_fee = st.number_input("카드수수료(%)", value=float(st.session_state.get("card_fee_pct",4.0)), step=0.01, format="%.2f", key="card_fee_pct")
                 with c2:
-                    market_fee = st.number_input("마켓수수료(%)",
-                                                 value=float(st.session_state.get("market_fee_pct",14.0)),
-                                                 step=0.01, format="%.2f", key="market_fee_pct")
-
-                shipping_won = st.number_input("배송비(₩)",
-                                               value=float(st.session_state.get("shipping_won",0.0)),
-                                               step=100.0, format="%.0f", key="shipping_won")
-
+                    market_fee = st.number_input("마켓수수료(%)", value=float(st.session_state.get("market_fee_pct",14.0)), step=0.01, format="%.2f", key="market_fee_pct")
+                shipping_won = st.number_input("배송비(₩)", value=float(st.session_state.get("shipping_won",0.0)), step=100.0, format="%.0f", key="shipping_won")
                 mode = st.radio("마진 방식", ["퍼센트","플러스"], horizontal=True, key="margin_mode")
                 if mode=="퍼센트":
-                    margin_pct = st.number_input("마진율 (%)",
-                                                 value=float(st.session_state.get("margin_pct",10.0)),
-                                                 step=0.01, format="%.2f", key="margin_pct")
+                    margin_pct = st.number_input("마진율 (%)", value=float(st.session_state.get("margin_pct",10.0)), step=0.01, format="%.2f", key="margin_pct")
                     target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)*(1+margin_pct/100)+shipping_won
                     margin_value = target_price - base_cost_won; desc=f"{margin_pct:.2f}%"
                 else:
-                    margin_won = st.number_input("마진액 (₩)",
-                                                 value=float(st.session_state.get("margin_won",10000.0)),
-                                                 step=100.0, format="%.0f", key="margin_won")
+                    margin_won = st.number_input("마진액 (₩)", value=float(st.session_state.get("margin_won",10000.0)), step=100.0, format="%.0f", key="margin_won")
                     target_price = base_cost_won*(1+card_fee/100)*(1+market_fee/100)+margin_won+shipping_won
                     margin_value = margin_won; desc=f"+{margin_won:,.0f}"
-
                 st.markdown(f'<div class="pill pill-blue">판매가: <b>{target_price:,.2f} 원</b></div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="pill pill-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>',
-                            unsafe_allow_html=True)
+                st.markdown(f'<div class="pill pill-yellow">순이익(마진): <b>{margin_value:,.2f} 원</b> — {desc}</div>', unsafe_allow_html=True)
 
         if show_tr:
             translator_block(expanded=True); fx_block(expanded=False); margin_block(expanded=False)
@@ -436,10 +333,6 @@ def _sidebar():
     :root [data-testid="stSidebar"] *{ color:#111111 !important; -webkit-text-fill-color:#111111 !important; opacity:1 !important; }
     </style>
     """, unsafe_allow_html=True)
-
-# =========================
-# 5) Rakuten Ranking
-# =========================
 def _rakuten_keys():
     app_id = _get_key("RAKUTEN_APP_ID")
     affiliate = _get_key("RAKUTEN_AFFILIATE_ID")
@@ -458,12 +351,11 @@ def _rk_fetch_rank_cached(genre_id: str, topn: int = 20, strip_emoji: bool=True)
                "shop":"샘플","url":"https://example.com"} for i in range(topn)]
         return pd.DataFrame(rows)
 
-    def _do():
+    try:
         api = "https://app.rakuten.co.jp/services/api/IchibaItem/Ranking/20170628"
         params = {"applicationId": app_id, "genreId": str(genre_id).strip(), "hits": topn}
         if affiliate: params["affiliateId"] = affiliate
-        r = requests.get(api, params=params, timeout=12)
-        r.raise_for_status()
+        r = requests.get(api, params=params, timeout=12); r.raise_for_status()
         items = r.json().get("Items", [])[:topn]
         rows=[]
         for it in items:
@@ -475,9 +367,6 @@ def _rk_fetch_rank_cached(genre_id: str, topn: int = 20, strip_emoji: bool=True)
                 "url": node.get("itemUrl",""),
             })
         return pd.DataFrame(rows)
-
-    try:
-        return _do()
     except Exception:
         rows=[{"rank":i+1,"keyword":_clean(f"[샘플] 키워드 {i+1} ハロウィン 秋 🍂"),
                "shop":"샘플","url":"https://example.com"} for i in range(topn)]
@@ -522,10 +411,6 @@ def section_rakuten_ui():
                 st.session_state["rk_genre_map"][k] = st.text_input(k, st.session_state["rk_genre_map"].get(k,"100283"), key=f"rk_{k}")
         st.info("세션에 저장됩니다. 앱 재실행 시 초기값으로 돌아올 수 있어요.")
     st.markdown('</div>', unsafe_allow_html=True)
-
-# =========================
-# 6) Korea Radar (Naver Searchad API)
-# =========================
 import hashlib, hmac, base64 as b64
 
 def _naver_signature(timestamp: str, method: str, uri: str, secret: str) -> str:
@@ -658,10 +543,6 @@ def section_korea_ui():
         st.download_button("CSV 다운로드", out.to_csv(index=False).encode("utf-8-sig"),
                            file_name="korea_keyword_C.csv", mime="text/csv")
     st.markdown("</div>", unsafe_allow_html=True)
-
-# =========================
-# 7) DataLab Trend (Open API) + Category → Top20 UI (+ Direct Trend)
-# =========================
 @st.cache_data(ttl=1800, show_spinner=False)
 def _datalab_trend(groups: list, start_date: str, end_date: str, time_unit: str = "week",
                    device: str = "", gender: str = "", ages: list | None = None) -> pd.DataFrame:
@@ -670,15 +551,11 @@ def _datalab_trend(groups: list, start_date: str, end_date: str, time_unit: str 
     if not (cid and csec): return pd.DataFrame()
 
     url = "https://openapi.naver.com/v1/datalab/search"
-    headers = {
-        "X-Naver-Client-Id": cid,
-        "X-Naver-Client-Secret": csec,
-        "Content-Type": "application/json; charset=utf-8",
-    }
+    headers = {"X-Naver-Client-Id": cid, "X-Naver-Client-Secret": csec, "Content-Type": "application/json; charset=utf-8"}
     ref = (_get_key("NAVER_WEB_REFERER") or "").strip()
     if ref: headers["Referer"] = ref
 
-    payload = { "startDate": start_date, "endDate": end_date, "timeUnit": time_unit, "keywordGroups": (groups or [])[:5] }
+    payload = {"startDate": start_date, "endDate": end_date, "timeUnit": time_unit, "keywordGroups": (groups or [])[:5]}
     try:
         r = requests.post(url, headers=headers, data=json.dumps(payload), timeout=12)
         r.raise_for_status()
@@ -737,17 +614,10 @@ def section_category_keyword_lab():
         st.warning("키워드도구 응답이 비었습니다. (API/권한/쿼터 확인)")
         st.markdown("</div>", unsafe_allow_html=True); return
 
-    df["검색합계"] = pd.to_numeric(df["PC월간검색수"], errors="coerce").fillna(0) + \
-                      pd.to_numeric(df["Mobile월간검색수"], errors="coerce").fillna(0)
+    df["검색합계"] = pd.to_numeric(df["PC월간검색수"], errors="coerce").fillna(0) + pd.to_numeric(df["Mobile월간검색수"], errors="coerce").fillna(0)
     top20 = df.sort_values("검색합계", ascending=False).head(20).reset_index(drop=True)
-    st.dataframe(
-        top20[["키워드", "검색합계", "PC월간검색수", "Mobile월간검색수", "월평균노출광고수", "광고경쟁정도"]],
-        use_container_width=True, height=340,
-    )
-    st.download_button(
-        "CSV 다운로드", top20.to_csv(index=False).encode("utf-8-sig"),
-        file_name=f"category_{cat}_top20.csv", mime="text/csv", key=f"dl_top20_{cat}",
-    )
+    st.dataframe(top20[["키워드", "검색합계", "PC월간검색수", "Mobile월간검색수", "월평균노출광고수", "광고경쟁정도"]], use_container_width=True, height=340)
+    st.download_button("CSV 다운로드", top20.to_csv(index=False).encode("utf-8-sig"), file_name=f"category_{cat}_top20.csv", mime="text/csv", key=f"dl_top20_{cat}")
 
     topk = st.slider("라인차트 키워드 수", 3, 10, 5, help="상위 N개 키워드만 트렌드를 그립니다.")
     kws = top20["키워드"].head(topk).tolist()
@@ -764,9 +634,6 @@ def section_category_keyword_lab():
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-# =========================
-# 7-B) Keyword Trend Widget (Direct Input)
-# =========================
 def section_keyword_trend_widget():
     st.markdown('<div class="card"><div class="card-title">키워드 트렌드 (직접 입력)</div>', unsafe_allow_html=True)
     kwtxt = st.text_input("키워드(콤마)", "가방, 원피스", key="kw_txt_direct")
@@ -784,27 +651,362 @@ def section_keyword_trend_widget():
         else:
             st.dataframe(df, use_container_width=True, height=260)
             st.line_chart(df.set_index("날짜"))
-            st.download_button(
-                "CSV 다운로드", data=df.to_csv(index=False).encode("utf-8-sig"),
-                file_name="keyword_trend_direct.csv", mime="text/csv", key="dl_kw_trend_direct",
-            )
+            st.download_button("CSV 다운로드", data=df.to_csv(index=False).encode("utf-8-sig"),
+                               file_name="keyword_trend_direct.csv", mime="text/csv", key="dl_kw_trend_direct")
+    st.markdown('</div>', unsafe_allow_html=True)
+def _dedupe_tokens(s:str)->str:
+    seen=set(); out=[]
+    for t in s.split():
+        k=t.lower()
+        if k in seen: continue
+        seen.add(k); out.append(t)
+    return " ".join(out)
+
+def _truncate_bytes(text:str, max_bytes:int=50)->str:
+    raw=text.encode("utf-8")
+    if len(raw)<=max_bytes: return text
+    cut=raw[:max_bytes]
+    while True:
+        try: s=cut.decode("utf-8"); break
+        except UnicodeDecodeError: cut=cut[:-1]
+    return s.rstrip()+"…"
+
+def _apply_filters_soft(text:str)->str:
+    try:
+        out = re.sub(r"[\\[\\]{}|^~`<>]", " ", text)
+        out = re.sub(r"(무배|무료배송|정품)", " ", out)
+    except Exception:
+        out = text
+    return re.sub(r"\s+"," ", out).strip()
+
+_ALLOWED_BY_DOMAIN = {
+    "무릎보호대": ["무릎","보호대","무릎보호대","관절","압박","테이핑","밴드","서포트","스포츠","운동","헬스","러닝","재활","부상","쿠션","지지대","슬리브","슬개골"],
+}
+_BLOCK_LIST = {"양산","돗자리","지갑","모자","우산","머그","키링","슬리퍼","가랜드"}
+
+def _seed_tokens(seed:str)->list[str]:
+    toks = [t for t in re.split(r"[,\s/|]+", seed or "") if len(t)>=2]
+    extras=[]
+    for t in toks:
+        if "무릎보호대" in t: extras += ["무릎","보호대"]
+    return list(dict.fromkeys(toks+extras))
+
+def _is_related_kw(kw:str, seed:str)->bool:
+    if not kw: return False
+    if kw in _BLOCK_LIST: return False
+    allow = set(_seed_tokens(seed))
+    dom = []
+    for s in allow:
+        if s in _ALLOWED_BY_DOMAIN: dom += _ALLOWED_BY_DOMAIN[s]
+    allow |= set(dom)
+    return any(a in kw for a in allow)
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _cached_kstats(seed: str) -> pd.DataFrame:
+    if not seed: return pd.DataFrame()
+    try:
+        df = _naver_keywordstool([seed])
+    except Exception: return pd.DataFrame()
+    if df.empty: return pd.DataFrame()
+    for col, default in [("키워드",""),("PC월간검색수",0),("Mobile월간검색수",0),
+                         ("PC월평균클릭수",0),("Mobile월평균클릭수",0),
+                         ("PC월평균클릭률",0),("Mobile월평균클릭률",0),
+                         ("월평균노출광고수",0),("광고경쟁정도",0)]:
+        if col not in df.columns: df[col]=default
+    for c in ["PC월간검색수","Mobile월간검색수","광고경쟁정도"]:
+        df[c] = pd.to_numeric(df.get(c,0), errors="coerce").fillna(0)
+    df["검색합계"] = df["PC월간검색수"] + df["Mobile월간검색수"]
+    return df
+
+@st.cache_data(ttl=1200, show_spinner=False)
+def _suggest_keywords_by_searchad_and_datalab(seed_kw:str, months:int=3, top_rel:int=15, strict:bool=True) -> pd.DataFrame:
+    base = _cached_kstats(seed_kw)
+    if base.empty or "키워드" not in base.columns: return pd.DataFrame()
+    df = base.copy()
+    df = df[df["키워드"].astype(str).str.strip().str.len()>0]
+    df = df[df["키워드"].astype(str)!=str(seed_kw)]
+    df = df.sort_values("검색합계", ascending=False)
+    if strict: df = df[df["키워드"].apply(lambda k: _is_related_kw(str(k), seed_kw))]
+    if df.empty and strict:
+        df = base.copy()
+        df = df[df["키워드"].astype(str).str.strip().str.len()>0]
+        df = df[df["키워드"].astype(str)!=str(seed_kw)]
+        df = df.sort_values("검색합계", ascending=False)
+    if df.empty: return pd.DataFrame()
+    df = df.head(max(5,min(50,top_rel))).reset_index(drop=True)
+    start=(dt.date.today()-dt.timedelta(days=30*months)).strftime("%Y-%m-%d")
+    end=(dt.date.today()-dt.timedelta(days=1)).strftime("%Y-%m-%d")
+    dl_means={}
+    for i in range(0,len(df),5):
+        chunk=df["키워드"].tolist()[i:i+5]
+        groups=[{"groupName":k,"keywords":[k]} for k in chunk]
+        ts=_datalab_trend(groups,start,end,time_unit="week")
+        if ts.empty:
+            for k in chunk: dl_means.setdefault(k,0.0)
+        else:
+            for k in chunk:
+                try: dl_means[k]=float(pd.to_numeric(ts.get(k),errors="coerce").mean())
+                except: dl_means[k]=0.0
+    df["dl_mean"]=df["키워드"].map(dl_means).fillna(0.0)
+    df["score"]=pd.to_numeric(df["검색합계"],errors="coerce").fillna(0)*(df["dl_mean"].clip(lower=0)/100.0)
+    return df.sort_values(["score","검색합계"],ascending=[False,False]).reset_index(drop=True)
+
+_FALLBACK_PAD={"무릎보호대":["스포츠","헬스","러닝","관절보호","압박밴드","테이핑","남녀공용","프리사이즈","충격흡수"]}
+
+def _compose_titles(main_kw:str, attrs:list[str], sugg:list[str], min_chars:int=30, max_bytes:int=50, topn:int=10):
+    base=[t for t in [main_kw]+attrs if t]
+    if not sugg: sugg=_FALLBACK_PAD.get(main_kw,[]) or _ALLOWED_BY_DOMAIN.get(main_kw,[]) or _seed_tokens(main_kw)
+    candidates=[]
+    L=min(len(sugg),5)
+    for i in range(L):
+        candidates.append(base+[sugg[i]])
+        for j in range(i+1,L):
+            candidates.append(base+[sugg[i],sugg[j]])
+            for k in range(j+1,L):
+                candidates.append(base+[sugg[i],sugg[j],sugg[k]])
+    if not candidates: candidates=[base]
+    out=[]; used=set()
+    for toks in candidates:
+        title=_apply_filters_soft(_dedupe_tokens(" ".join(toks)))
+        if not title: continue
+        if len(title)<min_chars:
+            pad=[x for x in (sugg+attrs) if x and x not in toks]
+            for p in pad:
+                trial=_apply_filters_soft(_dedupe_tokens(title+" "+p))
+                if len(trial.encode("utf-8"))>max_bytes: break
+                title=trial
+                if len(title)>=min_chars: break
+        if len(title.encode("utf-8"))>max_bytes: title=_truncate_bytes(title,max_bytes)
+        key=title.lower().strip()
+        if key and key not in used:
+            out.append(title); used.add(key)
+        if len(out)>=topn: break
+    return out[:topn]
+
+def section_title_generator():
+    st.markdown('<div class="card main"><div class="card-title">상품명 생성기 (스마트스토어 · Top-N)</div>', unsafe_allow_html=True)
+    cA,cB=st.columns([1,2])
+    with cA:
+        brand=st.text_input("브랜드", placeholder="예: 무지 / Apple")
+        attrs=st.text_input("속성(콤마, 선택)", placeholder="예: 스포츠, 헬스, 러닝, 남녀공용, 압박밴드")
+    with cB:
+        kws_raw=st.text_input("키워드(콤마, 첫 번째가 메인)", placeholder="예: 무릎보호대, 관절보호, 충격흡수")
+        main_kw=next((k.strip() for k in (kws_raw or "").split(",") if k.strip()),"")
+    c1,c2,c3,c4=st.columns([1,1,1,1])
+    with c1: N=st.slider("추천 개수",5,20,10,1)
+    with c2: min_chars=st.slider("최소 글자(권장 30~50)",30,50,35,1)
+    with c3: max_chars=st.slider("최대 글자",30,50,50,1)
+    with c4: months=st.slider("검색 트렌드 기간(개월)",1,6,3)
+    relaxed=st.checkbox("느슨한 모드(연관성 필터 완화/백업 재시도)", value=True)
+    st.caption("※ 상위 키워드 추천은 ‘네이버 검색광고 키워드도구’ + ‘네이버 DataLab Open API’. 30자/50바이트 자동 패딩.")
+    sugg_df=pd.DataFrame()
+    if st.button("상위 키워드 추천 불러오기 (데이터랩+키워드도구)"):
+        if not main_kw: st.error("메인 키워드를 먼저 입력하세요.")
+        else:
+            with st.spinner("연관 키워드·트렌드 수집 중…"):
+                sugg_df=_suggest_keywords_by_searchad_and_datalab(main_kw,months=months,top_rel=15,strict=not relaxed)
+            if sugg_df.empty: st.warning("추천 데이터 없음")
+            else:
+                show=["키워드","PC월간검색수","Mobile월간검색수","검색합계","dl_mean","score"]
+                st.dataframe(sugg_df[show], use_container_width=True, height=320)
+                st.download_button("추천 키워드 CSV 다운로드", data=sugg_df[show].to_csv(index=False).encode("utf-8-sig"),
+                                   file_name=f"suggest_keywords_{main_kw}.csv", mime="text/csv")
+    if st.button("상품명 생성"):
+        if not main_kw:
+            st.error("키워드를 입력하세요."); st.markdown("</div>", unsafe_allow_html=True); return
+        if sugg_df.empty:
+            sugg_df=_suggest_keywords_by_searchad_and_datalab(main_kw,months=months,top_rel=15,strict=not relaxed)
+        at_list=[a.strip() for a in (attrs or "").split(",") if a.strip()]
+        sugg=(sugg_df["키워드"].tolist() if not sugg_df.empty else [])
+        titles=_compose_titles(main_kw,at_list,sugg,min_chars=min_chars,max_bytes=max_chars,topn=N)
+        def _fit_score(t): by=len(t.encode("utf-8")); fit=(max_chars-by) if by<=max_chars else 999; cov=sum(int(k in t) for k in (sugg[:10] if sugg else [])); return (fit,-cov)
+        sorted_titles=sorted(titles,key=_fit_score); primary=sorted_titles[0] if sorted_titles else ""
+        if primary:
+            by=len(primary.encode("utf-8")); ch=len(primary)
+            st.success(f"1순위(등록용) — {primary} (문자 {ch}/{max_chars} · 바이트 {by}/{max_chars})")
+        st.divider()
+        for i,t in enumerate(sorted_titles,1):
+            ch=len(t); by=len(t.encode("utf-8")); warn=[]
+            if ch<min_chars: warn.append(f"{min_chars}자 미만")
+            if by>max_chars: warn.append(f"{max_bytes}바이트 초과")
+            suf="" if not warn else " — "+" / ".join([f":red[{w}]" for w in warn])
+            st.markdown(f"**{i}.** {t}  <span style='opacity:.7'>(문자 {ch}/{max_bytes} · 바이트 {by}/{max_bytes})</span>{suf}", unsafe_allow_html=True)
+        st.download_button("제목 CSV 다운로드", data=pd.DataFrame({"title":sorted_titles}).to_csv(index=False).encode("utf-8-sig"),
+                           file_name=f"titles_{main_kw}.csv", mime="text/csv")
+    st.markdown("</div>", unsafe_allow_html=True)
+# 새 탭 버튼 유틸
+def _open_new_tab_button(label: str, url: str, key: str, height: int = 48):
+    safe_label = html.escape(label); safe_url = html.escape(url or "")
+    comp = f"""
+    <div id="{key}">
+      <button type="button" onclick="window.open('{safe_url}', '_blank', 'noopener,noreferrer');" class="envy-open-btn">
+        {safe_label}
+      </button>
+    </div>
+    <style>
+      #{key} .envy-open-btn {{
+        display:inline-flex; align-items:center; justify-content:center;
+        width:100%; height:40px; padding:0 .9rem; border-radius:10px;
+        border:1px solid rgba(0,0,0,.06); font-weight:700; cursor:pointer;
+        background:#2563eb; color:#fff;
+      }}
+      #{key} .envy-open-btn:hover {{ background:#1e3fae; }}
+    </style>
+    """
+    st.components.v1.html(comp, height=height, scrolling=False)
+
+# 프록시 헬스체크
+def _proxy_healthcheck(url: str, timeout: int = 8) -> tuple[bool, str]:
+    if not requests: return True, "requests 미탑재 — 체크 생략"
+    try:
+        r = requests.get(url, timeout=timeout, headers={"User-Agent":"Mozilla/5.0"})
+        ctype = (r.headers.get("Content-Type","") or "").lower()
+        txt = r.text[:2000] if ("text" in ctype or "html" in ctype) else ""
+        if r.status_code >= 500: return False, f"HTTP {r.status_code}"
+        bad_patterns = ["X-Frame-Options", "frame-ancestors", "서버 오류", "오류가 발생", "에러가 발생"]
+        if any(b in txt for b in bad_patterns): return False, "임베드 차단 신호 감지"
+        return True, "ok"
+    except Exception as e:
+        return False, f"{e}"
+
+def section_11st():
+    st.markdown('<div class="card main"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>', unsafe_allow_html=True)
+    base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
+    raw_url = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
+
+    if not base_proxy:
+        st.warning("프록시(ELEVENST_PROXY)가 설정되어 있지 않습니다. Secrets 또는 전역 상수로 설정하세요.")
+        _open_new_tab_button("원본 열기(직접)", raw_url, key="btn_open_11st_raw")
+        st.markdown("</div>", unsafe_allow_html=True); return
+
+    ss = st.session_state
+    ss.setdefault("__11st_token", str(int(time.time())))
+    ss.setdefault("__11st_ok", None)
+
+    cols = st.columns([1, 2, 3])
+    with cols[0]:
+        if st.button("🔄 새로고침", key="btn_refresh_11st"):
+            ss["__11st_token"] = str(int(time.time()))
+            ss["__11st_ok"] = None
+    with cols[1]:
+        st.caption(f"PROXY: {base_proxy}")
+
+    proxied = f"{base_proxy}/?url={uquote(raw_url, safe=':/?&=%')}&r={ss['__11st_token']}"
+
+    if ss.get("__11st_ok") is None:
+        with st.spinner("프록시 헬스체크 중…"):
+            ok, msg = _proxy_healthcheck(proxied)
+            ss["__11st_ok"] = bool(ok); ss["__11st_msg"] = msg
+
+    if not ss.get("__11st_ok", True):
+        st.error(f"임베드 비활성화(헬스체크 실패): {ss.get('__11st_msg')}")
+        c1, c2 = st.columns(2)
+        with c1:
+            _open_new_tab_button("새 탭으로 열기(프록시)", proxied, key="btn_open_11st_proxy_fail")
+        with c2:
+            _open_new_tab_button("원본 열기(직접)", raw_url, key="btn_open_11st_raw_fail")
+        st.markdown("</div>", unsafe_allow_html=True); return
+
+    iframe_html = f"""
+    <style>
+      .embed-11st-wrap {{ height: 940px; overflow: hidden; border-radius: 10px; border:1px solid #e5e7eb; }}
+      .embed-11st-wrap iframe {{ width: 100%; height: 100%; border: 0; border-radius: 10px; background: transparent; }}
+    </style>
+    <div class="embed-11st-wrap">
+      <iframe
+        src="{proxied}"
+        title="11st"
+        referrerpolicy="no-referrer"
+        credentialless
+        sandbox="allow-scripts allow-forms allow-popups allow-pointer-lock allow-same-origin allow-top-navigation-by-user-activation"
+        loading="eager"
+      ></iframe>
+    </div>
+    """
+    st.components.v1.html(iframe_html, height=960, scrolling=False)
+
+    st.markdown("###### 열기 옵션")
+    c3, c4 = st.columns(2)
+    with c3:
+        _open_new_tab_button("새 탭으로 열기(프록시)", proxied, key="btn_open_11st_proxy_ok")
+    with c4:
+        _open_new_tab_button("원본 열기(직접)", raw_url, key="btn_open_11st_raw_ok")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# 상세 미리보기
+def _11st_extract_product_id(s: str) -> str | None:
+    if not s: return None
+    s = s.strip()
+    if s.isdigit(): return s
+    m = re.search(r"/products/(\d+)", s)
+    if m: return m.group(1)
+    m = re.search(r"[?&]productId=(\d+)", s)
+    if m: return m.group(1)
+    return None
+
+def section_11st_detail():
+    st.markdown('<div class="card main"><div class="card-title">11번가 — 상품 상세 바로보기</div>', unsafe_allow_html=True)
+    base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
+    st.caption(f"PROXY_URL: {base_proxy or '(미설정)'}")
+
+    raw_input = st.text_input("상품 URL 또는 상품ID", placeholder="예: https://www.11st.co.kr/products/1234567890  또는  1234567890")
+    pid = _11st_extract_product_id(raw_input)
+
+    target = f"https://m.11st.co.kr/products/{pid}" if pid else None
+    proxied = (target if not base_proxy else f"{base_proxy}/?url={uquote(target, safe=':/?&=%')}") if target else None
+
+    c1, c2, c3 = st.columns([1,1,1])
+    with c1:
+        disabled = not proxied
+        if st.button("상세 미리보기(내장)", use_container_width=True, disabled=disabled):
+            if proxied:
+                ok, msg = _proxy_healthcheck(proxied)
+                if not ok:
+                    st.error(f"미리보기 비활성화(헬스체크 실패): {msg}")
+                else:
+                    html_if = f"""
+                    <style>
+                      .embed-11st-detail {{ height: 900px; overflow: hidden; border-radius: 10px; border:1px solid #e5e7eb; }}
+                      .embed-11st-detail iframe {{ width: 100%; height: 100%; border: 0; border-radius: 10px; background: transparent; }}
+                    </style>
+                    <div class="embed-11st-detail">
+                      <iframe
+                        src="{proxied}"
+                        title="11st-detail"
+                        referrerpolicy="no-referrer"
+                        credentialless
+                        sandbox="allow-scripts allow-forms allow-popups allow-pointer-lock allow-same-origin allow-top-navigation-by-user-activation"
+                        loading="eager"
+                      ></iframe>
+                    </div>
+                    """
+                    st.components.v1.html(html_if, height=920, scrolling=False)
+    with c2:
+        if proxied:
+            _open_new_tab_button("새 탭으로 열기(프록시)", proxied, key="btn_open_11st_detail_proxy")
+        else:
+            st.info("상품 URL 또는 ID를 입력하면 버튼이 활성화됩니다.")
+    with c3:
+        if target:
+            _open_new_tab_button("원본 열기(직접)", target, key="btn_open_11st_detail_raw")
+
+    with st.expander("도움말 / 파싱 규칙", expanded=False):
+        st.write("- `https://www.11st.co.kr/products/123` 또는 `https://m.11st.co.kr/products/123` 또는 `productId=123` 모두 인식합니다.")
+        st.write("- 숫자만 입력해도 동작합니다. (예: `1234567890`)")
+        st.write("- 프록시가 없으면 원본 링크만 새 탭으로 열 수 있습니다.")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+def section_itemscout_placeholder():
+    st.markdown('<div class="card main"><div class="card-title">아이템스카우트</div>', unsafe_allow_html=True)
+    st.info("임베드는 보류 중입니다. 아래 버튼으로 원본 페이지를 새 탭에서 여세요.")
+    st.link_button("아이템스카우트 직접 열기 (새 탭)", "https://app.itemscout.io/market/keyword")
     st.markdown('</div>', unsafe_allow_html=True)
 
-# =========================
-# 8) Radar Card (tabs: 국내 -> 해외)
-# =========================
-def section_radar():
-    st.markdown('<div class="card main"><div class="card-title">AI 키워드 레이더</div>', unsafe_allow_html=True)
-    tab_domestic, tab_overseas = st.tabs(["국내", "해외"])
-    with tab_domestic:
-        section_korea_ui()
-    with tab_overseas:
-        section_rakuten_ui()
+def section_sellerlife_placeholder():
+    st.markdown('<div class="card main"><div class="card-title">셀러라이프</div>', unsafe_allow_html=True)
+    st.info("임베드는 보류 중입니다. 아래 버튼으로 원본 페이지를 새 탭에서 여세요.")
+    st.link_button("셀러라이프 직접 열기 (새 탭)", "https://sellochomes.co.kr/sellerlife/")
     st.markdown('</div>', unsafe_allow_html=True)
-
-# =========================
-# Stopwords Manager UI (공용)
-# =========================
 def _stopwords_manager_ui(compact: bool = False):
     ss = st.session_state
     ss.setdefault("STOP_GLOBAL", list(STOPWORDS_GLOBAL))
@@ -862,15 +1064,8 @@ def _stopwords_manager_ui(compact: bool = False):
                 st.success("치환 규칙 저장 완료")
 
         with tab_io:
-            payload = {
-                "global": ss["STOP_GLOBAL"],
-                "by_cat": ss["STOP_BY_CAT"],
-                "whitelist": ss["STOP_WHITELIST"],
-                "replace": ss["STOP_REPLACE"],
-                "aggressive": bool(ss["STOP_AGGR"]),
-            }
-            st.download_button("설정 내려받기(JSON)",
-                               data=json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"),
+            payload = {"global": ss["STOP_GLOBAL"], "by_cat": ss["STOP_BY_CAT"], "whitelist": ss["STOP_WHITELIST"], "replace": ss["STOP_REPLACE"], "aggressive": bool(ss["STOP_AGGR"])}
+            st.download_button("설정 내려받기(JSON)", data=json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"),
                                file_name="stopwords_profile.json", mime="application/json", key="stop_dl")
             up = st.file_uploader("설정 가져오기(JSON)", type=["json"], key="stop_ul")
             if up:
@@ -885,362 +1080,10 @@ def _stopwords_manager_ui(compact: bool = False):
                 except Exception as e:
                     st.error(f"가져오기 실패: {e}")
 
-# =========================
-# 9) 상품명 생성기 (스마트스토어 Top-N)
-# =========================
-import re as _re
-
-def _dedupe_tokens(s:str)->str:
-    seen=set(); out=[]
-    for t in s.split():
-        k=t.lower()
-        if k in seen: continue
-        seen.add(k); out.append(t)
-    return " ".join(out)
-
-def _truncate_bytes(text:str, max_bytes:int=50)->str:
-    raw=text.encode("utf-8")
-    if len(raw)<=max_bytes: return text
-    cut=raw[:max_bytes]
-    while True:
-        try: s=cut.decode("utf-8"); break
-        except UnicodeDecodeError: cut=cut[:-1]
-    return s.rstrip()+"…"
-
-def _apply_filters_soft(text:str)->str:
-    try:
-        out = _re.sub(r"[\\[\\]{}|^~`<>]", " ", text)
-        out = _re.sub(r"(무배|무료배송|정품)", " ", out)
-    except Exception:
-        out = text
-    return _re.sub(r"\s+"," ", out).strip()
-
-_ALLOWED_BY_DOMAIN = {
-    "무릎보호대": ["무릎","보호대","무릎보호대","관절","압박","테이핑","밴드","서포트",
-                 "스포츠","운동","헬스","러닝","재활","부상","쿠션","지지대","슬리브","슬개골"],
-}
-_BLOCK_LIST = {"양산","돗자리","지갑","모자","우산","머그","키링","슬리퍼","가랜드"}
-
-def _seed_tokens(seed:str)->list[str]:
-    toks = [t for t in _re.split(r"[,\s/|]+", seed or "") if len(t)>=2]
-    extras=[]
-    for t in toks:
-        if "무릎보호대" in t: extras += ["무릎","보호대"]
-    return list(dict.fromkeys(toks+extras))
-
-def _is_related_kw(kw:str, seed:str)->bool:
-    if not kw: return False
-    if kw in _BLOCK_LIST: return False
-    allow = set(_seed_tokens(seed))
-    dom = []
-    for s in allow:
-        if s in _ALLOWED_BY_DOMAIN: dom += _ALLOWED_BY_DOMAIN[s]
-    allow |= set(dom)
-    return any(a in kw for a in allow)
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def _cached_kstats(seed: str) -> pd.DataFrame:
-    if not seed: return pd.DataFrame()
-    try:
-        df = _naver_keywordstool([seed])
-    except Exception: return pd.DataFrame()
-    if df.empty: return pd.DataFrame()
-    for col, default in [("키워드",""),("PC월간검색수",0),("Mobile월간검색수",0),
-                         ("PC월평균클릭수",0),("Mobile월평균클릭수",0),
-                         ("PC월평균클릭률",0),("Mobile월평균클릭률",0),
-                         ("월평균노출광고수",0),("광고경쟁정도",0)]:
-        if col not in df.columns: df[col]=default
-    for c in ["PC월간검색수","Mobile월간검색수","광고경쟁정도"]:
-        df[c] = pd.to_numeric(df.get(c,0), errors="coerce").fillna(0)
-    df["검색합계"] = df["PC월간검색수"] + df["Mobile월간검색수"]
-    return df
-
-@st.cache_data(ttl=1200, show_spinner=False)
-def _suggest_keywords_by_searchad_and_datalab(seed_kw:str, months:int=3, top_rel:int=15, strict:bool=True) -> pd.DataFrame:
-    base = _cached_kstats(seed_kw)
-    if base.empty or "키워드" not in base.columns: return pd.DataFrame()
-    df = base.copy()
-    df = df[df["키워드"].astype(str).str.strip().str.len()>0]
-    df = df[df["키워드"].astype(str)!=str(seed_kw)]
-    df = df.sort_values("검색합계", ascending=False)
-    if strict: df = df[df["키워드"].apply(lambda k: _is_related_kw(str(k), seed_kw))]
-    if df.empty and strict:
-        df = base.copy()
-        df = df[df["키워드"].astype(str).str.strip().str.len()>0]
-        df = df[df["키워드"].astype(str)!=str(seed_kw)]
-        df = df.sort_values("검색합계", ascending=False)
-    if df.empty: return pd.DataFrame()
-    df = df.head(max(5,min(50,top_rel))).reset_index(drop=True)
-    start=(dt.date.today()-dt.timedelta(days=30*months)).strftime("%Y-%m-%d")
-    end=(dt.date.today()-dt.timedelta(days=1)).strftime("%Y-%m-%d")
-    dl_means={}
-    for i in range(0,len(df),5):
-        chunk=df["키워드"].tolist()[i:i+5]
-        groups=[{"groupName":k,"keywords":[k]} for k in chunk]
-        ts=_datalab_trend(groups,start,end,time_unit="week")
-        if ts.empty: [dl_means.setdefault(k,0.0) for k in chunk]
-        else:
-            for k in chunk:
-                try: dl_means[k]=float(pd.to_numeric(ts.get(k),errors="coerce").mean())
-                except: dl_means[k]=0.0
-    df["dl_mean"]=df["키워드"].map(dl_means).fillna(0.0)
-    df["score"]=pd.to_numeric(df["검색합계"],errors="coerce").fillna(0)*(df["dl_mean"].clip(lower=0)/100.0)
-    return df.sort_values(["score","검색합계"],ascending=[False,False]).reset_index(drop=True)
-
-_FALLBACK_PAD={"무릎보호대":["스포츠","헬스","러닝","관절보호","압박밴드","테이핑","남녀공용","프리사이즈","충격흡수"]}
-
-def _compose_titles(main_kw:str, attrs:list[str], sugg:list[str], min_chars:int=30, max_bytes:int=50, topn:int=10):
-    base=[t for t in [main_kw]+attrs if t]
-    if not sugg: sugg=_FALLBACK_PAD.get(main_kw,[]) or _ALLOWED_BY_DOMAIN.get(main_kw,[]) or _seed_tokens(main_kw)
-    candidates=[]
-    L=min(len(sugg),5)
-    for i in range(L):
-        candidates.append(base+[sugg[i]])
-        for j in range(i+1,L):
-            candidates.append(base+[sugg[i],sugg[j]])
-            for k in range(j+1,L):
-                candidates.append(base+[sugg[i],sugg[j],sugg[k]])
-    if not candidates: candidates=[base]
-    out=[]; used=set()
-    for toks in candidates:
-        title=_apply_filters_soft(_dedupe_tokens(" ".join(toks)))
-        if not title: continue
-        if len(title)<min_chars:
-            pad=[x for x in (sugg+attrs) if x and x not in toks]
-            for p in pad:
-                trial=_apply_filters_soft(_dedupe_tokens(title+" "+p))
-                if len(trial.encode("utf-8"))>max_bytes: break
-                title=trial
-                if len(title)>=min_chars: break
-        if len(title.encode("utf-8"))>max_bytes: title=_truncate_bytes(title,max_bytes)
-        key=title.lower().strip()
-        if key and key not in used:
-            out.append(title); used.add(key)
-        if len(out)>=topn: break
-    return out[:topn]
-
-def section_title_generator():
-    st.markdown('<div class="card main"><div class="card-title">상품명 생성기 (스마트스토어 · Top-N)</div>', unsafe_allow_html=True)
-    cA,cB=st.columns([1,2])
-    with cA: brand=st.text_input("브랜드", placeholder="예: 무지 / Apple"); attrs=st.text_input("속성(콤마, 선택)", placeholder="예: 스포츠, 헬스, 러닝, 남녀공용, 압박밴드")
-    with cB: kws_raw=st.text_input("키워드(콤마, 첫 번째가 메인)", placeholder="예: 무릎보호대, 관절보호, 충격흡수"); main_kw=next((k.strip() for k in (kws_raw or "").split(",") if k.strip()),"")
-    c1,c2,c3,c4=st.columns([1,1,1,1])
-    with c1: N=st.slider("추천 개수",5,20,10,1)
-    with c2: min_chars=st.slider("최소 글자(권장 30~50)",30,50,35,1)
-    with c3: max_chars=st.slider("최대 글자",30,50,50,1)
-    with c4: months=st.slider("검색 트렌드 기간(개월)",1,6,3)
-    relaxed=st.checkbox("느슨한 모드(연관성 필터 완화/백업 재시도)", value=True)
-    st.caption("※ 상위 키워드 추천은 ‘네이버 검색광고 키워드도구’ + ‘네이버 DataLab Open API’. 30자/50바이트 자동 패딩.")
-    sugg_df=pd.DataFrame()
-    if st.button("상위 키워드 추천 불러오기 (데이터랩+키워드도구)"):
-        if not main_kw: st.error("메인 키워드를 먼저 입력하세요.")
-        else:
-            with st.spinner("연관 키워드·트렌드 수집 중…"):
-                sugg_df=_suggest_keywords_by_searchad_and_datalab(main_kw,months=months,top_rel=15,strict=not relaxed)
-            if sugg_df.empty: st.warning("추천 데이터 없음")
-            else:
-                show=["키워드","PC월간검색수","Mobile월간검색수","검색합계","dl_mean","score"]
-                st.dataframe(sugg_df[show], use_container_width=True, height=320)
-                st.download_button("추천 키워드 CSV 다운로드", data=sugg_df[show].to_csv(index=False).encode("utf-8-sig"), file_name=f"suggest_keywords_{main_kw}.csv", mime="text/csv")
-    if st.button("상품명 생성"):
-        if not main_kw: st.error("키워드를 입력하세요."); st.markdown("</div>", unsafe_allow_html=True); return
-        if sugg_df.empty: sugg_df=_suggest_keywords_by_searchad_and_datalab(main_kw,months=months,top_rel=15,strict=not relaxed)
-        at_list=[a.strip() for a in (attrs or "").split(",") if a.strip()]
-        sugg=(sugg_df["키워드"].tolist() if not sugg_df.empty else [])
-        titles=_compose_titles(main_kw,at_list,sugg,min_chars=min_chars,max_bytes=max_chars,topn=N)
-        def _fit_score(t): by=len(t.encode("utf-8")); fit=(max_chars-by) if by<=max_chars else 999; cov=sum(int(k in t) for k in (sugg[:10] if sugg else [])); return (fit,-cov)
-        sorted_titles=sorted(titles,key=_fit_score); primary=sorted_titles[0] if sorted_titles else ""
-        if primary: by=len(primary.encode("utf-8")); ch=len(primary); st.success(f"1순위(등록용) — {primary} (문자 {ch}/{max_chars} · 바이트 {by}/{max_chars})")
-        st.divider()
-        for i,t in enumerate(sorted_titles,1):
-            ch=len(t); by=len(t.encode("utf-8")); warn=[]
-            if ch<min_chars: warn.append(f"{min_chars}자 미만")
-            if by>max_chars: warn.append(f"{max_chars}바이트 초과")
-            suf="" if not warn else " — "+" / ".join([f":red[{w}]" for w in warn])
-            st.markdown(f"**{i}.** {t}  <span style='opacity:.7'>(문자 {ch}/{max_chars} · 바이트 {by}/{max_chars})</span>{suf}", unsafe_allow_html=True)
-        st.download_button("제목 CSV 다운로드", data=pd.DataFrame({"title":sorted_titles}).to_csv(index=False).encode("utf-8-sig"), file_name=f"titles_{main_kw}.csv", mime="text/csv")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# =========================
-# 10) 11번가 — 아마존 베스트 (임베드, 안전장치)
-# =========================
-def _proxy_healthcheck(url: str, timeout: int = 8) -> tuple[bool, str]:
-    """프록시 경유 대상 URL의 가벼운 헬스체크(텍스트 일부 스캔)"""
-    if not requests:
-        return True, "requests 미탑재 — 체크 생략"
-    try:
-        r = requests.get(url, timeout=timeout, headers={"User-Agent":"Mozilla/5.0"})
-        ctype = (r.headers.get("Content-Type","") or "").lower()
-        txt = r.text[:2000] if ("text" in ctype or "html" in ctype) else ""
-        # 5xx, 혹은 에러 메시지 패턴 감지
-        if r.status_code >= 500:
-            return False, f"HTTP {r.status_code}"
-        bad_patterns = ["서버 오류", "재시도", "잠시 후", "오류가 발생", "에러가 발생"]
-        if any(b in txt for b in bad_patterns):
-            return False, "에러페이지 감지"
-        return True, "ok"
-    except Exception as e:
-        return False, f"{e}"
-
-def section_11st():
-    """11번가 아마존 베스트(모바일) — 프록시 임베드 + 헬스체크/폴백"""
-    st.markdown(
-        '<div class="card main"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>',
-        unsafe_allow_html=True
-    )
-
-    base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
-    raw_url = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
-
-    if not base_proxy:
-        st.warning("프록시(ELEVENST_PROXY)가 설정되어 있지 않습니다. Secrets 또는 전역 상수로 설정하세요.")
-        st.link_button("원본 페이지(새 탭)", raw_url, use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True); return
-
-    ss = st.session_state
-    ss.setdefault("__11st_token", str(int(time.time())))
-    ss.setdefault("__11st_ok", None)  # 최근 헬스체크 결과
-
-    cols = st.columns([1, 2, 3])
-    with cols[0]:
-        if st.button("🔄 새로고침", key="btn_refresh_11st"):
-            ss["__11st_token"] = str(int(time.time()))
-            ss["__11st_ok"] = None
-    with cols[1]:
-        st.caption(f"PROXY: {base_proxy}")
-
-    proxied = f"{base_proxy}/?url={uquote(raw_url, safe=':/?&=%')}&r={ss['__11st_token']}"
-
-    # 헬스체크(최초/새로고침 시 1회)
-    if ss.get("__11st_ok") is None:
-        with st.spinner("프록시 헬스체크 중…"):
-            ok, msg = _proxy_healthcheck(proxied)
-            ss["__11st_ok"] = bool(ok)
-            ss["__11st_msg"] = msg
-
-    if not ss.get("__11st_ok", True):
-        st.error(f"임베드 비활성화(헬스체크 실패): {ss.get('__11st_msg')}")
-        st.link_button("새 탭으로 열기(프록시)", proxied, use_container_width=True)
-        st.link_button("원본 열기(직접)", raw_url, use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True); return
-
-    iframe_html = f"""
-    <style>
-      .embed-11st-wrap {{
-        height: 940px; overflow: hidden; border-radius: 10px; border:1px solid #e5e7eb;
-      }}
-      .embed-11st-wrap iframe {{
-        width: 100%; height: 100%; border: 0; border-radius: 10px; background: transparent;
-      }}
-    </style>
-    <div class="embed-11st-wrap">
-      <iframe
-        src="{proxied}"
-        title="11st"
-        referrerpolicy="no-referrer"
-        credentialless
-        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-        loading="eager"
-      ></iframe>
-    </div>
-    """
-    st.components.v1.html(iframe_html, height=960, scrolling=False)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ─────────────────────────────────────────
-# 10-B) 11번가 — 상품 상세 바로보기 (프록시 경유, 안전장치)
-# ─────────────────────────────────────────
-def _11st_extract_product_id(s: str) -> str | None:
-    """11번가 상품 URL/텍스트에서 productId 추출"""
-    if not s: return None
-    s = s.strip()
-    if s.isdigit(): return s
-    m = re.search(r"/products/(\d+)", s)
-    if m: return m.group(1)
-    m = re.search(r"[?&]productId=(\d+)", s)
-    if m: return m.group(1)
-    return None
-
-def section_11st_detail():
-    st.markdown('<div class="card main"><div class="card-title">11번가 — 상품 상세 바로보기</div>', unsafe_allow_html=True)
-
-    base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
-    st.caption(f"PROXY_URL: {base_proxy or '(미설정)'}")
-
-    raw_input = st.text_input("상품 URL 또는 상품ID", placeholder="예: https://www.11st.co.kr/products/1234567890  또는  1234567890")
-    pid = _11st_extract_product_id(raw_input)
-
-    target = f"https://m.11st.co.kr/products/{pid}" if pid else None
-    proxied = (target if not base_proxy else f"{base_proxy}/?url={uquote(target, safe=':/?&=%')}") if target else None
-
-    c1, c2 = st.columns([1,1])
-    with c1:
-        disabled = not proxied
-        if st.button("상세 미리보기(내장)", use_container_width=True, disabled=disabled):
-            if proxied:
-                ok, msg = _proxy_healthcheck(proxied)
-                if not ok:
-                    st.error(f"미리보기 비활성화(헬스체크 실패): {msg}")
-                else:
-                    html = f"""
-                    <style>
-                      .embed-11st-detail {{
-                        height: 900px; overflow: hidden; border-radius: 10px; border:1px solid #e5e7eb;
-                      }}
-                      .embed-11st-detail iframe {{
-                        width: 100%; height: 100%; border: 0; border-radius: 10px; background: transparent;
-                      }}
-                    </style>
-                    <div class="embed-11st-detail">
-                      <iframe
-                        src="{proxied}"
-                        title="11st-detail"
-                        referrerpolicy="no-referrer"
-                        credentialless
-                        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-                        loading="eager"
-                      ></iframe>
-                    </div>
-                    """
-                    st.components.v1.html(html, height=920, scrolling=False)
-    with c2:
-        if proxied:
-            st.link_button("새 탭으로 열기(프록시)", proxied, use_container_width=True)
-        else:
-            st.info("상품 URL 또는 ID를 입력하면 버튼이 활성화됩니다.")
-
-    with st.expander("도움말 / 파싱 규칙", expanded=False):
-        st.write("- `https://www.11st.co.kr/products/123` 또는 `https://m.11st.co.kr/products/123` 또는 `productId=123` 모두 인식합니다.")
-        st.write("- 숫자만 입력해도 동작합니다. (예: `1234567890`)")
-        st.write("- 프록시가 없으면 원본 링크로만 열 수 있습니다.")
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# =========================
-# (보류) 아이템스카우트 / 셀러라이프 플레이스홀더 섹션
-# =========================
-def section_itemscout_placeholder():
-    st.markdown('<div class="card main"><div class="card-title">아이템스카우트</div>', unsafe_allow_html=True)
-    st.info("임베드는 보류 중입니다. 아래 버튼으로 원본 페이지를 새 탭에서 여세요.")
-    st.link_button("아이템스카우트 직접 열기 (새 탭)", "https://app.itemscout.io/market/keyword")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-def section_sellerlife_placeholder():
-    st.markdown('<div class="card main"><div class="card-title">셀러라이프</div>', unsafe_allow_html=True)
-    st.info("임베드는 보류 중입니다. 아래 버튼으로 원본 페이지를 새 탭에서 여세요.")
-    st.link_button("셀러라이프 직접 열기 (새 탭)", "https://sellochomes.co.kr/sellerlife/")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# =========================
-# 외부 Stopwords 섹션(선택)
-# =========================
 def section_stopwords_manager():
     st.markdown('<div class="card main"><div class="card-title">금칙어 리스트 관리자 (현업용)</div>', unsafe_allow_html=True)
     _stopwords_manager_ui(compact=False)
-
-# =========================
-# 11) Layout — row1: (카테고리 or 직접 입력) | Radar | 상품명 생성기
-# =========================
+# 메인 레이아웃
 _ = _sidebar()
 _responsive_probe()
 vwbin = _get_view_bin()
@@ -1255,7 +1098,13 @@ with row1_a:
     with tab_direct:
         section_keyword_trend_widget()
 with row1_b:
-    section_radar()
+    st.markdown('<div class="card main"><div class="card-title">AI 키워드 레이더</div>', unsafe_allow_html=True)
+    tab_domestic, tab_overseas = st.tabs(["국내", "해외"])
+    with tab_domestic:
+        section_korea_ui()
+    with tab_overseas:
+        section_rakuten_ui()
+    st.markdown('</div>', unsafe_allow_html=True)
 with row1_c:
     section_title_generator()
 st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
