@@ -1,20 +1,14 @@
 # -*- coding: utf-8 -*-
-# ENVY — Season 1 (Dual Proxy Edition, Radar tabs=국내/해외, Rakuten scope radio removed, row1 ratio 8:5:3)
-# 이번 버전(11번가 임시 비활성화 패치 포함):
-# - 상품명 생성기 카드 내부 탭: [생성기 | 금칙어 관리]
-# - 외부 금칙어 섹션은 유지(선택). 동일 세션키 공유로 동기화됨.
-# - 사이드바: 다크+번역기 토글 / 번역기 ON: 번역기 펼침·계산기 접힘, OFF: 계산기 펼침·번역기 접힘
-# - 다크모드 시안성 패치(메인영역 위젯 전부 색상 반전) + 라이트 모드 대비 강화
-# - 네이버 키워드도구 실패 시 간단 디버그 메시지 표시
-# - [패치] 1행: 카테고리/레이더 위치 교체
-# - [패치] Light: 본문 버튼 파란배경+흰색 폰트 고정
-# - [패치] Dark: (레이더) 디바이스/키워드 소스, (카테고리) 카테고리/단위만 검정 폰트 강제
-# - [패치] 11번가 임시 비활성화(ENABLE_11ST=False) + 2행 레이아웃 2컬럼(아이템스카우트/셀러라이프)
+# ENVY — Season 1 (Dual Proxy Edition, Radar tabs=국내/해외, Rakuten scope radio removed)
+# 이번 버전(옵션2: 11번가 임베드 안정장치 포함):
+# - 11번가 임베드 복구: credentialless iframe + stateless proxy 가정 + 헬스체크/폴백
+# - 수동 새로고침만 허용(자동 리로드 없음)
+# - 런타임 토글 ?enable_11st=0/1 (기본 ON)
+# - 기존: 다크/라이트 대비 강화, 레이더/라쿠텐/제목생성기/금칙어 관리 유지
 
-import base64, time, re, math, json, io
-import datetime as dt
+import base64, time, re, math, json, io, datetime as dt
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote as uquote
 import pandas as pd
 import streamlit as st
 
@@ -35,14 +29,23 @@ st.set_page_config(page_title="ENVY — Season 1 (Dual Proxy Edition)", layout="
 # =========================
 SHOW_ADMIN_BOX = False
 
-# 11번가 임시 비활성화 플래그
-ENABLE_11ST = False
-
-# Proxies (Cloudflare Worker)
+# Proxies (Cloudflare Worker) — ELEVENST_PROXY는 반드시 stateless 프록시(쿠키/Set-Cookie 제거)여야 함
 NAVER_PROXY = "https://envy-proxy.taesig0302.workers.dev"
-ELEVENST_PROXY = "https://worker-11stjs.taesig0302.workers.dev"  # 사용 안함(비활성화 상태)
+ELEVENST_PROXY = "https://worker-11stjs.taesig0302.workers.dev"
 ITEMSCOUT_PROXY = "https://worker-itemscoutjs.taesig0302.workers.dev"
 SELLERLIFE_PROXY = "https://worker-sellerlifejs.taesig0302.workers.dev"
+
+# 런타임 토글: ?enable_11st=0/1 (default True)
+def _flag_from_query(name: str, default: bool) -> bool:
+    try:
+        qp = st.query_params
+        val = qp.get(name, str(int(default)))
+    except Exception:
+        val = (st.experimental_get_query_params().get(name, [str(int(default))])[0])
+    val = str(val).strip().lower()
+    return val in ("1","true","yes","y","on")
+
+ENABLE_11ST = _flag_from_query("enable_11st", True)
 
 # ---- Default credentials (secrets 가 있으면 secrets 우선) ----
 DEFAULT_KEYS = {
@@ -202,41 +205,19 @@ def _inject_css():
 
     st.markdown(f"""
     <style>
-    /* 메인 컨테이너(사이드바 제외) */
-    [data-testid="stAppViewContainer"] {{
-        background:{bg} !important; color:{fg} !important;
-    }}
-
-    /* 본문 타이포 기본색 고정 */
-    [data-testid="stAppViewContainer"] h1, [data-testid="stAppViewContainer"] h2,
-    [data-testid="stAppViewContainer"] h3, [data-testid="stAppViewContainer"] h4,
-    [data-testid="stAppViewContainer"] h5, [data-testid="stAppViewContainer"] h6,
-    [data-testid="stAppViewContainer"] p, [data-testid="stAppViewContainer"] li,
-    [data-testid="stAppViewContainer"] span, [data-testid="stAppViewContainer"] label,
-    [data-testid="stAppViewContainer"] .stMarkdown,
-    [data-testid="stAppViewContainer"] .stMarkdown * {{
-        color:{fg} !important;
-    }}
-
-    /* 입력/셀렉트/숫자필드 텍스트 */
+    [data-testid="stAppViewContainer"] {{ background:{bg} !important; color:{fg} !important; }}
+    [data-testid="stAppViewContainer"] h1, h2, h3, h4, h5, h6,
+    [data-testid="stAppViewContainer"] p, li, span, label, .stMarkdown,
+    [data-testid="stAppViewContainer"] .stMarkdown * {{ color:{fg} !important; }}
     [data-testid="stAppViewContainer"] [data-baseweb="select"] *,
     [data-testid="stAppViewContainer"] [data-baseweb="input"] input,
     [data-testid="stAppViewContainer"] .stNumberInput input,
-    [data-testid="stAppViewContainer"] .stTextInput input {{
-        color:{fg} !important;
-    }}
-
-    /* placeholder(일반) */
-    [data-testid="stAppViewContainer"] input::placeholder {{
-        color:{fg_sub} !important; opacity:.9 !important;
-    }}
-
-    /* 카드/경계선 */
+    [data-testid="stAppViewContainer"] .stTextInput input {{ color:{fg} !important; }}
+    [data-testid="stAppViewContainer"] input::placeholder {{ color:{fg_sub} !important; opacity:.9 !important; }}
     [data-testid="stAppViewContainer"] .card {{
         background:{card_bg}; border:1px solid {border};
         border-radius:14px; box-shadow:0 1px 6px rgba(0,0,0,.12);
     }}
-
     /* 본문 버튼/링크 버튼 — 파란 배경 + 흰 글자 고정 */
     [data-testid="stAppViewContainer"] .stButton > button,
     [data-testid="stAppViewContainer"] [data-testid="baseButton-secondary"],
@@ -249,40 +230,17 @@ def _inject_css():
         border:1px solid rgba(255,255,255,.12) !important; border-radius:10px !important;
         font-weight:700 !important;
     }}
-    [data-testid="stAppViewContainer"] .stButton > button *,
-    [data-testid="stAppViewContainer"] [data-testid="stDownloadButton"] > button *,
-    [data-testid="stAppViewContainer"] a[role="button"] *,
-    [data-testid="stAppViewContainer"] a[data-testid="stLinkButton"] *,
-    [data-testid="stAppViewContainer"] .stLinkButton a *{{
-        color:#fff !important; -webkit-text-fill-color:#fff !important;
-    }}
     [data-testid="stAppViewContainer"] .stButton > button:hover,
     [data-testid="stAppViewContainer"] [data-testid="stDownloadButton"] > button:hover,
     [data-testid="stAppViewContainer"] [data-testid="baseButton-secondary"]:hover,
     [data-testid="stAppViewContainer"] [data-testid="baseButton-primary"]:hover,
     [data-testid="stAppViewContainer"] a[role="button"]:hover,
     [data-testid="stAppViewContainer"] a[data-testid="stLinkButton"]:hover,
-    [data-testid="stAppViewContainer"] .stLinkButton a:hover{{
-        background:{btn_bg_hover} !important; text-decoration:none !important;
-    }}
-
-    /* pill 규칙 (모드별 분기) */
+    [data-testid="stAppViewContainer"] .stLinkButton a:hover{{ background:{btn_bg_hover} !important; }}
     {pill_rules}
-
-    /* 사이드바 pill — 항상 검정 */
-    :root [data-testid="stSidebar"] .pill, :root [data-testid="stSidebar"] .pill *{{
-        color:#111 !important; -webkit-text-fill-color:#111 !important;
-    }}
-
-    /* 여백 보정 */
-    [data-testid="stAppViewContainer"] h2, [data-testid="stAppViewContainer"] h3 {{
-        margin-top:.3rem !important;
-    }}
-
-    /* 다크모드: 흰 박스(입력류) 검정 글자 강제 */
+    :root [data-testid="stSidebar"] .pill, :root [data-testid="stSidebar"] .pill *{{ color:#111 !important; -webkit-text-fill-color:#111 !important; }}
+    [data-testid="stAppViewContainer"] h2, [data-testid="stAppViewContainer"] h3 {{ margin-top:.3rem !important; }}
     {dark_fix_white_boxes}
-
-    /* 다크모드: 특정 블록만 검정 글자 강제(필요 구간에 .force-black 래퍼 사용) */
     {force_black_rules}
     </style>
     """, unsafe_allow_html=True)
@@ -296,14 +254,10 @@ def _responsive_probe():
     (function(){
       const bps=[900,1280,1600];
       const w=Math.max(document.documentElement.clientWidth||0, window.innerWidth||0);
-      let bin=0;
-      for(let i=0;i<bps.length;i++) if(w>=bps[i]) bin=i+1;
+      let bin=0; for(let i=0;i<bps.length;i++) if(w>=bps[i]) bin=i+1;
       const url=new URL(window.location);
       const curr=url.searchParams.get('vwbin');
-      if(curr!==String(bin)){
-        url.searchParams.set('vwbin', String(bin));
-        window.location.replace(url.toString());
-      }
+      if(curr!==String(bin)){ url.searchParams.set('vwbin', String(bin)); window.location.replace(url.toString()); }
     })();
     </script>
     """
@@ -335,7 +289,6 @@ def section_datalab():
         unit = st.selectbox("단위", ["date", "week", "month"], key="datalab_unit")
     with col3:
         months = st.slider("조회기간(개월)", 1, 12, 3, key="datalab_months")
-    # 이후 API 호출/표시는 아래 category_keyword_lab / keyword_trend_widget을 사용
 
 # =========================
 # 4) Sidebar (theme + translator toggle + calculators)
@@ -343,10 +296,6 @@ def section_datalab():
 def _sidebar():
     _ensure_session_defaults()
     _inject_css()
-    try:
-        _inject_alert_center()
-    except Exception:
-        pass
 
     with st.sidebar:
         # 로고
@@ -357,9 +306,7 @@ def _sidebar():
             margin:.35rem auto .6rem auto; box-shadow:0 2px 8px rgba(0,0,0,.12);
             border:1px solid rgba(0,0,0,.06);
         }
-        [data-testid="stSidebar"] .logo-circle img{
-            width:100%;height:100%;object-fit:cover;display:block;
-        }
+        [data-testid="stSidebar"] .logo-circle img{ width:100%;height:100%;object-fit:cover;display:block; }
         </style>
         """, unsafe_allow_html=True)
 
@@ -383,27 +330,18 @@ def _sidebar():
         # ---- 위젯들 ----
         def translator_block(expanded=True):
             with st.expander("🌐 구글 번역기", expanded=expanded):
-                LANG_LABELS_SB = {
-                    "auto":"자동 감지","ko":"한국어","en":"영어","ja":"일본어","zh-CN":"중국어(간체)",
-                    "zh-TW":"중국어(번체)","vi":"베트남어","th":"태국어","id":"인도네시아어",
-                    "de":"독일어","fr":"프랑스어","es":"스페인어","it":"이탈리아어","pt":"포르투갈어"
-                }
-                def _code_sb(x):
-                    return {v:k for k,v in LANG_LABELS_SB.items()}.get(x, x)
-
-                src_label = st.selectbox("원문 언어", list(LANG_LABELS_SB.values()),
-                                         index=list(LANG_LABELS_SB.keys()).index("auto"), key="sb_tr_src")
-                tgt_label = st.selectbox("번역 언어", list(LANG_LABELS_SB.values()),
-                                         index=list(LANG_LABELS_SB.keys()).index("ko"), key="sb_tr_tgt")
+                LANG = {"auto":"자동 감지","ko":"한국어","en":"영어","ja":"일본어","zh-CN":"중국어(간체)","zh-TW":"중국어(번체)","vi":"베트남어","th":"태국어","id":"인도네시아어","de":"독일어","fr":"프랑스어","es":"스페인어","it":"이탈리아어","pt":"포르투갈어"}
+                def _code_sb(x): return {v:k for k,v in LANG.items()}.get(x, x)
+                src_label = st.selectbox("원문 언어", list(LANG.values()), index=list(LANG.keys()).index("auto"), key="sb_tr_src")
+                tgt_label = st.selectbox("번역 언어", list(LANG.values()), index=list(LANG.keys()).index("ko"), key="sb_tr_tgt")
                 text_in = st.text_area("텍스트", height=120, key="sb_tr_in")
                 if st.button("번역 실행", key="sb_tr_btn"):
                     try:
                         from deep_translator import GoogleTranslator as _GT
-                        src_code = _code_sb(src_label); tgt_code = _code_sb(tgt_label)
-                        out_main = _GT(source=src_code, target=tgt_code).translate(text_in or "")
+                        out_main = _GT(source=_code_sb(src_label), target=_code_sb(tgt_label)).translate(text_in or "")
                         st.text_area(f"결과 ({tgt_label})", value=out_main, height=120, key="sb_tr_out_main")
-                        if tgt_code != "ko":
-                            out_ko = _GT(source=tgt_code, target="ko").translate(out_main or "")
+                        if _code_sb(tgt_label) != "ko":
+                            out_ko = _GT(source=_code_sb(tgt_label), target="ko").translate(out_main or "")
                             st.text_area("결과 (한국어)", value=out_ko, height=120, key="sb_tr_out_ko")
                     except Exception as e:
                         st.error(f"번역 중 오류: {e}")
@@ -411,7 +349,7 @@ def _sidebar():
         def fx_block(expanded=True):
             with st.expander("💱 환율 계산기", expanded=expanded):
                 fx_base = st.selectbox("기준 통화", list(CURRENCIES.keys()),
-                                       index=list(CURRENCRIES.keys()).index(st.session_state.get("fx_base","USD")) if 'CURRENCRIES' in globals() else list(CURRENCIES.keys()).index(st.session_state.get("fx_base","USD")),
+                                       index=list(CURRENCIES.keys()).index(st.session_state.get("fx_base","USD")),
                                        key="fx_base")
                 sale_foreign = st.number_input("판매금액 (외화)",
                                                value=float(st.session_state.get("sale_foreign",1.0)),
@@ -478,30 +416,24 @@ def _sidebar():
             st.divider()
             st.text_input("PROXY_URL(디버그)", key="PROXY_URL", help="Cloudflare Worker 주소 (옵션)")
 
-    # ==== CSS: compact + scroll lock + pill styles + 사이드바 always light ====
+    # 사이드바 스타일 보정
     st.markdown("""
     <style>
     [data-testid="stSidebar"]{ height:100vh !important; overflow-y:hidden !important; -ms-overflow-style:none !important; scrollbar-width:none !important; }
     [data-testid="stSidebar"] > div:first-child{ height:100vh !important; overflow-y:hidden !important; }
     [data-testid="stSidebar"]::-webkit-scrollbar, [data-testid="stSidebar"] > div:first-child::-webkit-scrollbar{ display:none !important; }
-
     [data-testid="stSidebar"] .block-container{ padding-top:.4rem !important; padding-bottom:0 !important; }
-    [data-testid="stSidebar"] .block-container > div:last-child{ margin-bottom:0 !important; }
-
     [data-testid="stSidebar"] .stExpander{ margin-bottom:.2rem !important; padding:.25rem .4rem !important; }
     [data-testid="stSidebar"] .stNumberInput input, [data-testid="stSidebar"] .stTextInput input, [data-testid="stSidebar"] textarea{
         min-height:26px !important; line-height:1.2 !important; font-size:0.85rem !important;
     }
-    [data-testid="stSidebar"] .pill{ margin:.15rem 0 .25rem 0 !important; padding:.5rem .7rem !important; font-size:0.85rem !important;
+    .pill{ margin:.15rem 0 .25rem 0 !important; padding:.5rem .7rem !important; font-size:0.85rem !important;
         border-radius:8px !important; font-weight:600 !important; }
     .pill-green{ background:#dcfce7 !important; border:1px solid #22c55e !important; color:#111 !important; }
     .pill-blue{ background:#dbeafe !important; border:1px solid #3b82f6 !important; color:#111 !important; }
     .pill-yellow{background:#fef3c7 !important; border:1px solid #eab308 !important; color:#111 !important; }
-
     :root [data-testid="stSidebar"]{ background:#ffffff !important; color:#111111 !important; }
-    :root [data-testid="stSidebar"] *{ color:#111111 !important; -webkit-text-fill-color:#111111 !important; opacity:1 !important;
-        mix-blend-mode:normal !important; text-shadow:none !important; filter:none !important; }
-    :root [data-testid="stSidebar"] .stExpanderHeader, :root [data-testid="stSidebar"] .stExpanderHeader *{ color:#111111 !important; }
+    :root [data-testid="stSidebar"] *{ color:#111111 !important; -webkit-text-fill-color:#111111 !important; opacity:1 !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -640,7 +572,7 @@ def _naver_keywordstool(hint_keywords: list[str]) -> pd.DataFrame:
 def _count_product_from_shopping(keyword: str) -> int|None:
     if not requests: return None
     try:
-        url=f"https://search.shopping.naver.com/search/all?where=all&frm=NVSCTAB&query={quote(keyword)}"
+        url=f"https://search.shopping.naver.com/search/all?where=all&frm=NVSCTAB&query={uquote(keyword)}"
         r=requests.get(url, timeout=10); r.raise_for_status()
         from bs4 import BeautifulSoup
         soup = BeautifulSoup(r.text, "html.parser")
@@ -661,7 +593,6 @@ def section_korea_ui():
     st.caption("※ 검색지표는 네이버 검색광고 API(키워드도구) 기준, 상품수는 네이버쇼핑 ‘전체’ 탭 크롤링 기준입니다.")
     c1, c2, c3 = st.columns([1,1,1])
 
-    # 다크 모드일 때, 디바이스/키워드 소스 컨트롤만 검정 폰트로 보이도록 래퍼
     if is_dark: st.markdown("<div class='force-black'>", unsafe_allow_html=True)
     with c1:
         months = st.slider("분석기간(개월, 표시용)", 1, 6, 3)
@@ -732,15 +663,8 @@ def section_korea_ui():
 # 7) DataLab Trend (Open API) + Category → Top20 UI (+ Direct Trend)
 # =========================
 @st.cache_data(ttl=1800, show_spinner=False)
-def _datalab_trend(
-    groups: list,
-    start_date: str,
-    end_date: str,
-    time_unit: str = "week",
-    device: str = "",
-    gender: str = "",
-    ages: list | None = None,
-) -> pd.DataFrame:
+def _datalab_trend(groups: list, start_date: str, end_date: str, time_unit: str = "week",
+                   device: str = "", gender: str = "", ages: list | None = None) -> pd.DataFrame:
     if not requests: return pd.DataFrame()
     cid = _get_key("NAVER_CLIENT_ID"); csec = _get_key("NAVER_CLIENT_SECRET")
     if not (cid and csec): return pd.DataFrame()
@@ -755,7 +679,6 @@ def _datalab_trend(
     if ref: headers["Referer"] = ref
 
     payload = { "startDate": start_date, "endDate": end_date, "timeUnit": time_unit, "keywordGroups": (groups or [])[:5] }
-
     try:
         r = requests.post(url, headers=headers, data=json.dumps(payload), timeout=12)
         r.raise_for_status()
@@ -772,11 +695,6 @@ def _datalab_trend(
         big.rename(columns={"period": "날짜", "ratio": "검색지수"}, inplace=True)
         pv = big.pivot_table(index="날짜", columns="keyword", values="검색지수", aggfunc="mean")
         return pv.reset_index().sort_values("날짜")
-    except requests.HTTPError as e:
-        try: msg = r.text
-        except Exception: msg = str(e)
-        st.error(f"DataLab HTTP {r.status_code}: {msg}")
-        return pd.DataFrame()
     except Exception as e:
         st.error(f"DataLab 호출 오류: {e}")
         return pd.DataFrame()
@@ -797,12 +715,10 @@ SEED_MAP = {
 }
 
 def section_category_keyword_lab():
-    """카테고리 → 키워드 Top20 + DataLab 라인차트"""
     st.markdown('<div class="card"><div class="card-title">카테고리 → 키워드 Top20 & 트렌드</div>', unsafe_allow_html=True)
     is_dark = (st.session_state.get("theme","light") == "dark")
     cA, cB, cC = st.columns([1, 1, 1])
 
-    # 다크 모드에서 (카테고리, 단위)만 검정 폰트로 보이게 래핑
     if is_dark: st.markdown("<div class='force-black'>", unsafe_allow_html=True)
     with cA:
         cat = st.selectbox("카테고리", list(SEED_MAP.keys()))
@@ -1146,6 +1062,161 @@ def section_title_generator():
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
+# 10) 11번가 — 아마존 베스트 (임베드, 안전장치)
+# =========================
+def _proxy_healthcheck(url: str, timeout: int = 8) -> tuple[bool, str]:
+    """프록시 경유 대상 URL의 가벼운 헬스체크(텍스트 일부 스캔)"""
+    if not requests:
+        return True, "requests 미탑재 — 체크 생략"
+    try:
+        r = requests.get(url, timeout=timeout, headers={"User-Agent":"Mozilla/5.0"})
+        ctype = (r.headers.get("Content-Type","") or "").lower()
+        txt = r.text[:2000] if ("text" in ctype or "html" in ctype) else ""
+        # 5xx, 혹은 에러 메시지 패턴 감지
+        if r.status_code >= 500:
+            return False, f"HTTP {r.status_code}"
+        bad_patterns = ["서버 오류", "재시도", "잠시 후", "오류가 발생", "에러가 발생"]
+        if any(b in txt for b in bad_patterns):
+            return False, "에러페이지 감지"
+        return True, "ok"
+    except Exception as e:
+        return False, f"{e}"
+
+def section_11st():
+    """11번가 아마존 베스트(모바일) — 프록시 임베드 + 헬스체크/폴백"""
+    st.markdown(
+        '<div class="card main"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>',
+        unsafe_allow_html=True
+    )
+
+    base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
+    raw_url = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
+
+    if not base_proxy:
+        st.warning("프록시(ELEVENST_PROXY)가 설정되어 있지 않습니다. Secrets 또는 전역 상수로 설정하세요.")
+        st.link_button("원본 페이지(새 탭)", raw_url, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True); return
+
+    ss = st.session_state
+    ss.setdefault("__11st_token", str(int(time.time())))
+    ss.setdefault("__11st_ok", None)  # 최근 헬스체크 결과
+
+    cols = st.columns([1, 2, 3])
+    with cols[0]:
+        if st.button("🔄 새로고침", key="btn_refresh_11st"):
+            ss["__11st_token"] = str(int(time.time()))
+            ss["__11st_ok"] = None
+    with cols[1]:
+        st.caption(f"PROXY: {base_proxy}")
+
+    proxied = f"{base_proxy}/?url={uquote(raw_url, safe=':/?&=%')}&r={ss['__11st_token']}"
+
+    # 헬스체크(최초/새로고침 시 1회)
+    if ss.get("__11st_ok") is None:
+        with st.spinner("프록시 헬스체크 중…"):
+            ok, msg = _proxy_healthcheck(proxied)
+            ss["__11st_ok"] = bool(ok)
+            ss["__11st_msg"] = msg
+
+    if not ss.get("__11st_ok", True):
+        st.error(f"임베드 비활성화(헬스체크 실패): {ss.get('__11st_msg')}")
+        st.link_button("새 탭으로 열기(프록시)", proxied, use_container_width=True)
+        st.link_button("원본 열기(직접)", raw_url, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True); return
+
+    iframe_html = f"""
+    <style>
+      .embed-11st-wrap {{
+        height: 940px; overflow: hidden; border-radius: 10px; border:1px solid #e5e7eb;
+      }}
+      .embed-11st-wrap iframe {{
+        width: 100%; height: 100%; border: 0; border-radius: 10px; background: transparent;
+      }}
+    </style>
+    <div class="embed-11st-wrap">
+      <iframe
+        src="{proxied}"
+        title="11st"
+        referrerpolicy="no-referrer"
+        credentialless
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+        loading="eager"
+      ></iframe>
+    </div>
+    """
+    st.components.v1.html(iframe_html, height=960, scrolling=False)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────
+# 10-B) 11번가 — 상품 상세 바로보기 (프록시 경유, 안전장치)
+# ─────────────────────────────────────────
+def _11st_extract_product_id(s: str) -> str | None:
+    """11번가 상품 URL/텍스트에서 productId 추출"""
+    if not s: return None
+    s = s.strip()
+    if s.isdigit(): return s
+    m = re.search(r"/products/(\d+)", s)
+    if m: return m.group(1)
+    m = re.search(r"[?&]productId=(\d+)", s)
+    if m: return m.group(1)
+    return None
+
+def section_11st_detail():
+    st.markdown('<div class="card main"><div class="card-title">11번가 — 상품 상세 바로보기</div>', unsafe_allow_html=True)
+
+    base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
+    st.caption(f"PROXY_URL: {base_proxy or '(미설정)'}")
+
+    raw_input = st.text_input("상품 URL 또는 상품ID", placeholder="예: https://www.11st.co.kr/products/1234567890  또는  1234567890")
+    pid = _11st_extract_product_id(raw_input)
+
+    target = f"https://m.11st.co.kr/products/{pid}" if pid else None
+    proxied = (target if not base_proxy else f"{base_proxy}/?url={uquote(target, safe=':/?&=%')}") if target else None
+
+    c1, c2 = st.columns([1,1])
+    with c1:
+        disabled = not proxied
+        if st.button("상세 미리보기(내장)", use_container_width=True, disabled=disabled):
+            if proxied:
+                ok, msg = _proxy_healthcheck(proxied)
+                if not ok:
+                    st.error(f"미리보기 비활성화(헬스체크 실패): {msg}")
+                else:
+                    html = f"""
+                    <style>
+                      .embed-11st-detail {{
+                        height: 900px; overflow: hidden; border-radius: 10px; border:1px solid #e5e7eb;
+                      }}
+                      .embed-11st-detail iframe {{
+                        width: 100%; height: 100%; border: 0; border-radius: 10px; background: transparent;
+                      }}
+                    </style>
+                    <div class="embed-11st-detail">
+                      <iframe
+                        src="{proxied}"
+                        title="11st-detail"
+                        referrerpolicy="no-referrer"
+                        credentialless
+                        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                        loading="eager"
+                      ></iframe>
+                    </div>
+                    """
+                    st.components.v1.html(html, height=920, scrolling=False)
+    with c2:
+        if proxied:
+            st.link_button("새 탭으로 열기(프록시)", proxied, use_container_width=True)
+        else:
+            st.info("상품 URL 또는 ID를 입력하면 버튼이 활성화됩니다.")
+
+    with st.expander("도움말 / 파싱 규칙", expanded=False):
+        st.write("- `https://www.11st.co.kr/products/123` 또는 `https://m.11st.co.kr/products/123` 또는 `productId=123` 모두 인식합니다.")
+        st.write("- 숫자만 입력해도 동작합니다. (예: `1234567890`)")
+        st.write("- 프록시가 없으면 원본 링크로만 열 수 있습니다.")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# =========================
 # (보류) 아이템스카우트 / 셀러라이프 플레이스홀더 섹션
 # =========================
 def section_itemscout_placeholder():
@@ -1175,7 +1246,7 @@ _responsive_probe()
 vwbin = _get_view_bin()
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
-# 1행 — [패치] 카테고리(탭) ↔ 레이더 위치 교체
+# 1행 — 카테고리/레이더/생성기
 row1_a, row1_b, row1_c = st.columns([4, 8, 4], gap="medium")
 with row1_a:
     tab_cat, tab_direct = st.tabs(["카테고리", "직접 입력"])
@@ -1189,10 +1260,18 @@ with row1_c:
     section_title_generator()
 st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
 
-# 2행 — 11번가 제거(아이템스카우트/셀러라이프 2컬럼)
-c1, c2 = st.columns([1, 1], gap="medium")
+# 2행 — 11번가(가드) | 아이템스카우트 | 셀러라이프
+c1, c2, c3 = st.columns([1, 1, 1], gap="medium")
 with c1:
-    section_itemscout_placeholder()
+    if ENABLE_11ST:
+        section_11st()
+        section_11st_detail()
+    else:
+        st.markdown('<div class="card main"><div class="card-title">11번가</div>', unsafe_allow_html=True)
+        st.info("현재 파라미터상 비활성화 상태입니다. URL 끝에 `?enable_11st=1`을 붙여 활성화할 수 있어요.")
+        st.markdown('</div>', unsafe_allow_html=True)
 with c2:
+    section_itemscout_placeholder()
+with c3:
     section_sellerlife_placeholder()
 st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
