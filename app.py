@@ -1079,9 +1079,8 @@ def section_title_generator():
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
-# 10) 11번가 — 아마존 베스트 (임베드)  ← ★ 패치 반영
+# 10) 11번가 — 아마존 베스트 (임베드)
 # =========================
-import time as _t, json as _json
 from urllib.parse import quote as _q
 
 def section_11st():
@@ -1091,16 +1090,18 @@ def section_11st():
         unsafe_allow_html=True
     )
 
+    # 프록시 주소: secrets > ELEVENST_PROXY 가 우선, 없으면 전역 상수 ELEVENST_PROXY 사용
     base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
     raw_url = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
 
+    # 안내 배너
     st.markdown(
         f"""
 <div style="padding:10px;border:1px solid #e5e7eb;border-radius:12px;background:#fffbe6;margin-bottom:10px;">
 <b>임베드 안내</b><br>
-· 이 섹션은 반드시 <code>PROXY_URL</code>(Cloudflare Worker) 경유로만 동작합니다.<br>
+· 이 섹션은 <code>Cloudflare Worker 프록시</code>(ELEVENST_PROXY) 경유로 동작합니다.<br>
 · 현재 PROXY_URL: <code>{base_proxy or '(미설정)'}</code><br>
-· 레이트리밋 방지를 위해 <b>자동 새로고침 없음</b>. 아래 버튼으로 수동 새로고침하세요.
+· 레이트리밋 회피를 위해 <b>자동 새로고침 없음</b> — 아래 버튼으로 수동 갱신.
 </div>
 """,
         unsafe_allow_html=True,
@@ -1113,12 +1114,12 @@ def section_11st():
         return
 
     ss = st.session_state
-    ss.setdefault("__11st_token", str(int(_t.time())))
+    ss.setdefault("__11st_token", str(int(time.time())))
 
     cols = st.columns([1, 5])
     with cols[0]:
         if st.button("🔄 새로고침", key="btn_refresh_11st"):
-            ss["__11st_token"] = str(int(_t.time()))
+            ss["__11st_token"] = str(int(time.time()))
 
     src = f"{base_proxy}/?url={_q(raw_url, safe=':/?&=%')}&r={ss['__11st_token']}"
 
@@ -1136,17 +1137,20 @@ def section_11st():
         src="{src}"
         title="11st"
         referrerpolicy="no-referrer"
+        credentialless
         sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+        loading="eager"
       ></iframe>
     </div>
     """
     st.components.v1.html(iframe_html, height=960, scrolling=False)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ─────────────────────────────────────────
-# 10-B) 11번가 상품 상세 바로보기 (프록시 경유) ← ★ 패치 반영
-# ─────────────────────────────────────────
+# =========================
+# 10-B) 11번가 — 상품 상세 바로보기 (프록시 경유)
+# =========================
 def _11st_extract_product_id(s: str) -> str | None:
+    """11번가 상품 URL/텍스트에서 productId 추출"""
     if not s: return None
     s = s.strip()
     if s.isdigit(): return s
@@ -1157,6 +1161,7 @@ def _11st_extract_product_id(s: str) -> str | None:
     return None
 
 def section_11st_detail():
+    """상품 URL/ID 입력 → 프록시 경유로 미리보기/새 탭 열기"""
     st.markdown('<div class="card main"><div class="card-title">11번가 — 상품 상세 바로보기</div>', unsafe_allow_html=True)
 
     base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
@@ -1164,6 +1169,7 @@ def section_11st_detail():
 
     raw_input = st.text_input("상품 URL 또는 상품ID", placeholder="예: https://www.11st.co.kr/products/1234567890  또는  1234567890")
     pid = _11st_extract_product_id(raw_input)
+
     target = f"https://m.11st.co.kr/products/{pid}" if pid else None
     proxied = (target if not base_proxy else f"{base_proxy}/?url={_q(target, safe=':/?&=%')}") if target else None
 
@@ -1185,7 +1191,9 @@ def section_11st_detail():
                     src="{proxied}"
                     title="11st-detail"
                     referrerpolicy="no-referrer"
+                    credentialless
                     sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                    loading="eager"
                   ></iframe>
                 </div>
                 """
