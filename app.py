@@ -1147,6 +1147,7 @@ def section_title_generator():
     st.markdown("</div>", unsafe_allow_html=True)
 
 # 10-1) 11번가 — 아마존 베스트 (미니 UI, clean/js 활성)
+# 10-1) 11번가 — 아마존 베스트
 from urllib.parse import quote as _q
 
 def section_11st():
@@ -1154,30 +1155,18 @@ def section_11st():
 
     ss = st.session_state
     ss.setdefault("__11st_token", str(int(time.time())))
-    col1, col2 = st.columns([1, 5])
-    with col1:
-        if st.button("🔄 새로고침", key="btn_refresh_11st"):
-            ss["__11st_token"] = str(int(time.time()))
-    with col2:
-        pass  # 우측은 비워 깔끔하게
+    if st.button("🔄 새로고침", key="btn_refresh_11st"):
+        ss["__11st_token"] = str(int(time.time()))
 
-    base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
-    raw_url = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
+    proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
+    raw  = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
 
-    # 프록시 주소 + 배너제거 + AJAX패치 + 캐시버스터
-    if base_proxy:
-        src = f"{base_proxy}/?url={_q(raw_url, safe=':/?&=%')}&clean=1&js=1&r={ss['__11st_token']}"
-    else:
-        src = raw_url  # 프록시 없으면 직접 (권장X)
+    src = f"{proxy}/?url={_q(raw, safe=':/?&=%')}&clean=1&js=1&ua=mo&r={ss['__11st_token']}" if proxy else raw
 
     html = f"""
     <style>
-      .embed-11st-wrap {{
-        height: 940px; overflow:hidden; border-radius:10px; border:1px solid rgba(0,0,0,.06);
-      }}
-      .embed-11st-wrap iframe {{
-        width:100%; height:100%; border:0; border-radius:10px; background:transparent;
-      }}
+      .embed-11st-wrap {{ height: 940px; overflow:hidden; border-radius:10px; border:1px solid rgba(0,0,0,.06); }}
+      .embed-11st-wrap iframe {{ width:100%; height:100%; border:0; border-radius:10px; background:transparent; }}
     </style>
     <div class="embed-11st-wrap">
       <iframe
