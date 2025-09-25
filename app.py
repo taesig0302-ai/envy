@@ -1146,9 +1146,8 @@ def section_title_generator():
         st.download_button("제목 CSV 다운로드", data=pd.DataFrame({"title":sorted_titles}).to_csv(index=False).encode("utf-8-sig"), file_name=f"titles_{main_kw}.csv", mime="text/csv")
     st.markdown("</div>", unsafe_allow_html=True)
 
-# 10) 11번가 — 아마존 베스트 (워커 강화 파라미터 적용: clean=1, js=1, ua=mo)
+# 10) 11번가 — 아마존 베스트 (워커 파라미터 적용: clean=1, js=1, ua=mo)
 def section_11st():
-    """11번가 아마존 베스트 (모바일, 프록시 워커 v2.9 대응)"""
     st.markdown(
         '<div class="card main"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>',
         unsafe_allow_html=True
@@ -1159,13 +1158,12 @@ def section_11st():
     if st.button("🔄 새로고침 (11번가)", key="btn_refresh_11st"):
         ss["__11st_token"] = str(int(time.time()))
 
-    # 프록시 워커 주소(없으면 원본으로)
     base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
     raw_url = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
 
-    # 워커 v2.9용 필수 파라미터: clean=1(클린 모드), js=1(런타임 패치 ON), ua=mo(모바일 UA)
-    src_base = raw_url if not base_proxy else f"{base_proxy}/?url={_q(raw_url, safe=':/?&=%')}"
-    want = src_base + ("&" if "?" in src_base else "?") + f"r={ss['__11st_token']}&clean=1&js=1&ua=mo"
+    # ⬇️ _q 대신 quote 사용 (이미 상단에서 from urllib.parse import quote 되어 있음)
+    src_base = raw_url if not base_proxy else f"{base_proxy}/?url={quote(raw_url, safe=':/?&=%')}"
+    want = src_base + ("&" if "?" in src_base else "?") + f"clean=1&js=1&ua=mo&r={ss['__11st_token']}"
 
     html = f"""
     <style>
