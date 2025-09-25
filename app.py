@@ -1150,6 +1150,7 @@ def section_title_generator():
 # 10) 11번가 — 첫 렌더 1회 자동 로딩, 이후엔 버튼으로만 갱신
 #    - 외부 스크롤 제거(940px)
 #    - 프록시가 있으면 프록시 경유, 없으면 원본 URL 사용
+#    - [패치] 프록시 옵션 clean=1&js=1&ua=mo 추가
 # ─────────────────────────────────────────────────────────
 def section_11st():
     import time
@@ -1174,7 +1175,14 @@ def section_11st():
     # 3) 프록시 선택 (없으면 원본으로)
     base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
     raw_url = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
-    src_base = raw_url if not base_proxy else f"{base_proxy}/?url={_q(raw_url, safe=':/?&=%')}"
+
+    # ✅ [패치] 워커의 프레임/링크 패치가 동작하도록 clean=1&js=1 옵션 추가 (기본 ua=mo)
+    extra = "clean=1&js=1&ua=mo"
+    src_base = (
+        raw_url
+        if not base_proxy
+        else f"{base_proxy}/?url={_q(raw_url, safe=':/?&=%')}&{extra}"
+    )
 
     # 4) 임베드: 컴포넌트 내부 JS가 현재 토큰과 이전 토큰을 비교하여
     #    - 처음에는 자동으로 src 세팅
