@@ -1148,7 +1148,7 @@ def section_title_generator():
 
 # ─────────────────────────────────────────────────────────
 # 10) 11번가 — 첫 렌더 1회 자동로딩, 이후 버튼으로만 갱신
-#     (워커 v3 사용 전제: /__h/<host> 리라이터 + 레이어 제거 + XHR 프록시)
+#     (워커 옵션 clean/js/ua 강제)
 # ─────────────────────────────────────────────────────────
 def section_11st():
     import time
@@ -1161,53 +1161,69 @@ def section_11st():
         '<div class="card main"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>',
         unsafe_allow_html=True
     )
+
     ss = st.session_state
     ss.setdefault("__11st_token", str(int(time.time())))
 
+    # 수동 새로고침
     if st.button("🔄 새로고침 (11번가)", key="btn_refresh_11st"):
         ss["__11st_token"] = str(int(time.time()))
 
-    # 워커 도메인 (secrets > 상수)
+    # 워커 도메인(없으면 원본으로 시도하되, 프레임 차단/레이어 발생 가능)
     base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
-    # 모바일 아마존베스트
+
+    # 11번가 아마존 베스트 (모바일)
     raw_url = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
 
-    # 워커가 없으면 원본(프레임 막힘 가능). 워커 있으면 그대로 전달(워커가 내부에서 리라이트·주입)
-    src_base = raw_url if not base_proxy else f"{base_proxy}/?url={_q(raw_url, safe=':/?&=%')}"
+    # ⚠️ 핵심: 워커 옵션 복구 (clean=레이어 제거, js=XHR 프록시 훅, ua=모바일 UA)
+    extra = "clean=1&js=1&ua=mo"
+
+    if base_proxy:
+        src_base = f"{base_proxy}/?url={_q(raw_url, safe=':/?&=%')}&{extra}"
+    else:
+        # 워커 없으면 원본으로(일부 화면 차단/레이어 발생 가능)
+        src_base = raw_url
 
     token = ss["__11st_token"]
+
     html = f"""
     <style>
       .embed-11st-wrap {{
-        height: 940px; overflow: hidden;
+        height: 1000px; /* 필요시 조절 */
         border-radius: 10px;
+        overflow: hidden;
       }}
       .embed-11st-wrap iframe {{
-        width: 100%; height: 100%; border: 0; border-radius: 10px;
-        overflow: hidden; background: transparent;
+        width: 100%; height: 100%;
+        border: 0; border-radius: 10px;
+        background: transparent;
       }}
     </style>
     <div class="embed-11st-wrap">
-      <iframe id="envy_11st_iframe" title="11st"></iframe>
+      <iframe
+        id="envy_11st_iframe"
+        title="11st"
+        sandbox="allow-same-origin allow-scripts allow-forms allow-popups">
+      </iframe>
     </div>
     <script>
     (function() {{
-        var base = {json.dumps(src_base)};
+        var base  = {json.dumps(src_base)};
         var token = {json.dumps(token)};
-        var want = base + (base.indexOf('?')>=0 ? '&' : '?') + 'r=' + token;
+        var want  = base + (base.indexOf('?')>=0 ? '&' : '?') + 'r=' + token;
 
-        var prev = window.__ENVY_11ST_SRC || "";
         var ifr = document.getElementById("envy_11st_iframe");
         if(!ifr) return;
 
-        if (prev === want && ifr.getAttribute('src') === want) return;
+        // 중복 로딩 방지
+        if (window.__ENVY_11ST_SRC === want && ifr.getAttribute('src') === want) return;
 
         ifr.setAttribute('src', want);
         window.__ENVY_11ST_SRC = want;
     }})();
     </script>
     """
-    st.components.v1.html(html, height=960, scrolling=False)
+    st.components.v1.html(html, height=1020, scrolling=False)
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
