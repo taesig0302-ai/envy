@@ -1147,10 +1147,8 @@ def section_title_generator():
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────
-# 10) 11번가 — 첫 렌더 1회 자동 로딩, 이후엔 버튼으로만 갱신
-#    - 외부 스크롤 제거(940px)
-#    - 프록시가 있으면 프록시 경유, 없으면 원본 URL 사용
-#    - [패치] 프록시 옵션 clean=1&js=1&ua=mo 추가
+# 10) 11번가 — 첫 렌더 1회 자동 로딩, 이후 버튼으로만 갱신
+#  - 프록시 옵션 clean=1 & js=1 & ua=mo 추가
 # ─────────────────────────────────────────────────────────
 def section_11st():
     import time
@@ -1165,18 +1163,18 @@ def section_11st():
     )
     ss = st.session_state
 
-    # 1) 토큰은 최초 한 번만 생성 (초기 자동 로딩용)
+    # 최초 1회 자동 로딩용 토큰
     ss.setdefault("__11st_token", str(int(time.time())))
 
-    # 2) 새로고침 버튼: 누를 때만 토큰 갱신 → 이때만 실제 리로드 발생
+    # 수동 새로고침 버튼
     if st.button("🔄 새로고침 (11번가)", key="btn_refresh_11st"):
         ss["__11st_token"] = str(int(time.time()))
 
-    # 3) 프록시 선택 (없으면 원본으로)
+    # 프록시 선택
     base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
     raw_url = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
 
-    # ✅ [패치] 워커의 프레임/링크 패치가 동작하도록 clean=1&js=1 옵션 추가 (기본 ua=mo)
+    # ✅ 패치 옵션
     extra = "clean=1&js=1&ua=mo"
     src_base = (
         raw_url
@@ -1184,14 +1182,11 @@ def section_11st():
         else f"{base_proxy}/?url={_q(raw_url, safe=':/?&=%')}&{extra}"
     )
 
-    # 4) 임베드: 컴포넌트 내부 JS가 현재 토큰과 이전 토큰을 비교하여
-    #    - 처음에는 자동으로 src 세팅
-    #    - 토큰이 바뀐 경우에만 src 갱신
     token = ss["__11st_token"]
     html = f"""
     <style>
       .embed-11st-wrap {{
-        height: 940px; overflow: hidden; /* 바깥(겉) 스크롤 제거 */
+        height: 940px; overflow: hidden;
         border-radius: 10px;
       }}
       .embed-11st-wrap iframe {{
@@ -1200,7 +1195,6 @@ def section_11st():
       }}
     </style>
     <div class="embed-11st-wrap">
-      <!-- src 비워두고 JS에서 최초 1회만 세팅 -->
       <iframe id="envy_11st_iframe" title="11st"></iframe>
     </div>
     <script>
@@ -1209,15 +1203,12 @@ def section_11st():
         var token = {json.dumps(token)};
         var want = base + (base.indexOf('?')>=0 ? '&' : '?') + 'r=' + token;
 
-        // 전역에 마지막 로딩된 src 기억
         var prev = window.__ENVY_11ST_SRC || "";
         var ifr = document.getElementById("envy_11st_iframe");
         if(!ifr) return;
 
-        // 이미 같은 토큰으로 로드되어 있으면 아무것도 하지 않음 (불필요한 재로딩 방지)
         if (prev === want && ifr.getAttribute('src') === want) return;
 
-        // 필요한 경우에만 src 세팅/갱신
         ifr.setAttribute('src', want);
         window.__ENVY_11ST_SRC = want;
     }})();
