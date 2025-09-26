@@ -750,11 +750,52 @@ def section_11st():
     st.components.v1.html(html, height=960, scrolling=False)
     st.markdown("</div>", unsafe_allow_html=True)
 def _inject_alert_center():
+    # 사이드바 전용 컬러박스(pill)와 배경·스크롤·타이포 고정
     st.markdown("""
-    <style>.pill{{display:inline-block;padding:.45rem .7rem;border-radius:8px;font-weight:700}}
-    .pill-green{{background:#dcfce7;border:1px solid #22c55e;color:#111}}
-    .pill-blue{{background:#dbeafe;border:1px solid #3b82f6;color:#111}}
-    .pill-yellow{{background:#fef3c7;border:1px solid #eab308;color:#111}}</style>
+    <style>
+      /* 사이드바 배경을 항상 라이트로 고정 */
+      :root [data-testid="stSidebar"]{
+        background:#ffffff !important; color:#111111 !important;
+        height:100vh !important; overflow-y:hidden !important;
+        -ms-overflow-style:none !important; scrollbar-width:none !important;
+      }
+      :root [data-testid="stSidebar"] *{
+        color:#111111 !important; -webkit-text-fill-color:#111111 !important;
+        mix-blend-mode:normal !important; text-shadow:none !important; filter:none !important;
+        opacity:1 !important;
+      }
+      /* 사이드바 스크롤바 숨김 */
+      :root [data-testid="stSidebar"]::-webkit-scrollbar,
+      :root [data-testid="stSidebar"] > div:first-child::-webkit-scrollbar{ display:none !important; }
+      :root [data-testid="stSidebar"] > div:first-child{ height:100vh !important; overflow-y:hidden !important; }
+
+      /* pill 공통 (사이드바/본문 공용) */
+      .pill{
+        display:inline-block; padding:.5rem .7rem; border-radius:8px;
+        font-weight:700; margin:.15rem 0 .25rem 0; font-size:.9rem;
+        border:1px solid rgba(0,0,0,.08);
+      }
+      .pill *{ font-weight:700; }
+
+      /* 컬러 변형 */
+      .pill-green{ background:#dcfce7 !important; border-color:#22c55e !important; color:#111 !important; }
+      .pill-blue { background:#dbeafe !important; border-color:#3b82f6 !important; color:#111 !important; }
+      .pill-yellow{ background:#fef3c7 !important; border-color:#eab308 !important; color:#111 !important; }
+
+      /* 다크모드에서도 사이드바 pill은 항상 검정 글자 */
+      :root [data-testid="stSidebar"] .pill,
+      :root [data-testid="stSidebar"] .pill *{
+        color:#111 !important; -webkit-text-fill-color:#111 !important;
+      }
+
+      /* 사이드바 입력 컴팩트 */
+      [data-testid="stSidebar"] .stExpander{ margin-bottom:.2rem !important; padding:.25rem .4rem !important; }
+      [data-testid="stSidebar"] .stNumberInput input,
+      [data-testid="stSidebar"] .stTextInput input,
+      [data-testid="stSidebar"] textarea{
+        min-height:26px !important; line-height:1.2 !important; font-size:.85rem !important;
+      }
+    </style>
     """, unsafe_allow_html=True)
 
 def _sidebar():
