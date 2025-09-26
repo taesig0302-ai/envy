@@ -1147,7 +1147,7 @@ def section_title_generator():
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────
-# 11번가 — 프록시(권장) + 주소 선택(아마존 홈/베스트/직접입력) + 회색화면 대응 플래그
+# 11번가 — 홈→베스트 자동 부트스트랩(권장) + 직행(회색시 실패)
 # ─────────────────────────────────────────────────────────
 def section_11st():
     import time
@@ -1163,80 +1163,72 @@ def section_11st():
     ss = st.session_state
     ss.setdefault("__11st_token", str(int(time.time())))
 
-    # 1) 목적지 선택
-    DEST_MAP = {
-        "아마존 홈(권장)": "https://m.11st.co.kr/amazon",
-        "아마존 베스트": "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160",
-        "직접 입력": ""
-    }
-    c0, c1 = st.columns([2, 1])
-    with c0:
-        dest_label = st.selectbox("대상 페이지", list(DEST_MAP.keys()), index=0, key="__11st_dest")
-    with c1:
-        if st.button("🔄 새로고침 (11번가)"):
-            ss["__11st_token"] = str(int(time.time()))
-
-    raw_url = DEST_MAP[dest_label]
-    if dest_label == "직접 입력":
-        raw_url = st.text_input("직접 URL", placeholder="https://m.11st.co.kr/...", key="__11st_custom_url").strip()
-
-    if not raw_url:
-        st.warning("열 URL이 없습니다. 위에서 ‘직접 입력’에 주소를 넣으세요.")
-        st.markdown("</div>", unsafe_allow_html=True)
-        return
-
-    # 2) 프록시(워커) 사용 여부 + 기능 플래그
+    # 프록시 워커 (있으면 사용)
     base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
-    use_proxy = st.toggle("프록시(워커) 사용", value=bool(base_proxy), help="워커가 없으면 원본으로 시도 (차단될 수 있음)")
-    # 회색화면 방지용 플래그 — 워커가 지원하면 해석, 모르면 무시
+    use_proxy = bool(base_proxy)
+
+    # 대상 경로
+    URL_HOME  = "https://m.11st.co.kr/amazon"
+    URL_BEST  = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
+
+    # 로딩 방식 선택
+    mode = st.radio("로딩 방식", ["홈→베스트(권장)", "베스트 직행"], horizontal=True)
+    if st.button("🔄 새로고침 (11번가)"):
+        ss["__11st_token"] = str(int(time.time()))
+
+    # 워커 플래그(워커가 해석 가능할 때만 적용, 아니면 무시됨)
     flags = "ua=mo&js=1&clean=1&xhr=1&nocsp=1"
+    def prox(url: str) -> str:
+        return (url if not use_proxy else f"{base_proxy}/?url={_q(url, safe=':/?&=%')}&{flags}")
 
-    if use_proxy and base_proxy:
-        src_base = f"{base_proxy}/?url={_q(raw_url, safe=':/?&=%')}&{flags}"
-    else:
-        src_base = raw_url
-
+    url_home = prox(URL_HOME)
+    url_best = prox(URL_BEST)
     token = ss["__11st_token"]
 
-    # 3) 아이프레임 렌더 (캐시 바스팅 + 중복 로드 방지)
+    # 첫 src, 그리고 부트스트랩(홈→베스트) 처리
+    first = url_home if mode.startswith("홈") else url_best
+    first += ("&" if "?" in first else "?") + "r=" + token
+    best  = url_best + (("&" if "?" in url_best else "?") + "r=" + token)
+
     html = f"""
     <style>
-      .embed-11st-wrap {{
-        height: 1100px;      /* 화면 좀 더 여유 있게 */
-        border-radius: 10px;
-        overflow: hidden;
-      }}
-      .embed-11st-wrap iframe {{
-        width: 100%;
-        height: 100%;
-        border: 0;
-        border-radius: 10px;
-        background: transparent;
-      }}
+      .embed-11st-wrap {{ height: 1120px; border-radius: 10px; overflow: hidden; }}
+      .embed-11st-wrap iframe {{ width:100%; height:100%; border:0; border-radius:10px; background:transparent; }}
     </style>
     <div class="embed-11st-wrap">
       <iframe id="envy_11st_iframe" title="11st"></iframe>
     </div>
     <script>
     (function() {{
-        var base = {json.dumps(src_base)};
-        var token = {json.dumps(token)};
-        var want = base + (base.indexOf('?')>=0 ? '&' : '?') + 'r=' + token;
+      var ifr = document.getElementById("envy_11st_iframe");
+      if(!ifr) return;
 
-        var ifr = document.getElementById("envy_11st_iframe");
-        if(!ifr) return;
+      var mode = {json.dumps("bootstrap" if mode.startswith("홈") else "direct")};
+      var first = {json.dumps(first)};
+      var best  = {json.dumps(best)};
+      var stepped = false;
 
-        // 동일 src 재설정 방지
-        if (ifr.getAttribute('src') !== want) {{
-            ifr.setAttribute('src', want);
-            window.__ENVY_11ST_SRC = want;
-        }}
+      // 1) 첫 페이지 주입
+      ifr.src = first;
+
+      // 2) 홈→베스트 자동 전환
+      if (mode === "bootstrap") {{
+        ifr.addEventListener("load", function step2(){{
+          if (stepped) return;
+          stepped = true;
+          // 홈이 쿠키/스토리지 심을 시간을 조금 줌
+          setTimeout(function(){{ try{{ ifr.src = best; }}catch(e){{}} }}, 900);
+        }});
+      }}
     }})();
     </script>
     """
-    st.components.v1.html(html, height=1120, scrolling=False)
-    st.caption("※ 회색 화면이면 상단 ‘대상 페이지’를 ‘아마존 홈(권장)’으로 두고, 프록시에 위 플래그(ua/js/clean/xhr)가 적용되는지 확인하세요.")
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.components.v1.html(html, height=1135, scrolling=False)
+
+    # 새 탭 열기(수동 테스트용)
+    st.link_button("새 탭에서 열기 — 아마존 홈(프록시)", url_home, type="secondary")
+    st.link_button("새 탭에서 열기 — 아마존 베스트(프록시)", url_best, type="secondary")
+    st.caption("회색이면 ‘홈→베스트(권장)’을 쓰세요. 프록시가 API/XHR을 중계하지 못하는 케이스에서 홈 방문 후 쿠키가 심어지면 베스트가 정상 로드됩니다.")
 
 # =========================
 # (보류) 아이템스카우트 / 셀러라이프 플레이스홀더 섹션
