@@ -1147,7 +1147,9 @@ def section_title_generator():
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────
-# 11번가 — 홈→베스트 자동 부트스트랩(권장) + 직행(회색시 실패)
+# 11번가 (모바일) — 아마존베스트
+#  - UI: [🔄 새로고침] [새탭에서 열기(아마존베스트)] 만 표시
+#  - 내부: 숨은 홈 프리웜 → 자동 베스트 전환 + 소프트 재시도
 # ─────────────────────────────────────────────────────────
 def section_11st():
     import time
@@ -1157,78 +1159,98 @@ def section_11st():
         def _q(s, safe=None): return s
 
     st.markdown(
-        '<div class="card main"><div class="card-title">11번가 (모바일) — 아마존</div>',
+        '<div class="card main"><div class="card-title">11번가 (모바일) — 아마존베스트</div>',
         unsafe_allow_html=True
     )
+
+    # 상태 토큰(강제 새로고침용)
     ss = st.session_state
     ss.setdefault("__11st_token", str(int(time.time())))
-
-    # 프록시 워커 (있으면 사용)
-    base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
-    use_proxy = bool(base_proxy)
-
-    # 대상 경로
-    URL_HOME  = "https://m.11st.co.kr/amazon"
-    URL_BEST  = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
-
-    # 로딩 방식 선택
-    mode = st.radio("로딩 방식", ["홈→베스트(권장)", "베스트 직행"], horizontal=True)
-    if st.button("🔄 새로고침 (11번가)"):
-        ss["__11st_token"] = str(int(time.time()))
-
-    # 워커 플래그(워커가 해석 가능할 때만 적용, 아니면 무시됨)
-    flags = "ua=mo&js=1&clean=1&xhr=1&nocsp=1"
-    def prox(url: str) -> str:
-        return (url if not use_proxy else f"{base_proxy}/?url={_q(url, safe=':/?&=%')}&{flags}")
-
-    url_home = prox(URL_HOME)
-    url_best = prox(URL_BEST)
     token = ss["__11st_token"]
 
-    # 첫 src, 그리고 부트스트랩(홈→베스트) 처리
-    first = url_home if mode.startswith("홈") else url_best
-    first += ("&" if "?" in first else "?") + "r=" + token
-    best  = url_best + (("&" if "?" in url_best else "?") + "r=" + token)
+    # 프록시(Cloudflare Worker) 사용: secrets > 전역 상수 순
+    base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
+    FLAGS = "ua=mo&js=1&clean=1&xhr=1&nocsp=1"
+
+    def prox(u: str) -> str:
+        # 프록시가 있으면 워커를 통해 열고, 없으면 원본 URL 반환(아이프레임 차단될 수 있음)
+        return u if not base_proxy else f"{base_proxy}/?url={_q(u, safe=':/?&=%')}&{FLAGS}"
+
+    # 경로
+    RAW_HOME = "https://m.11st.co.kr/amazon"
+    RAW_BEST = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
+
+    # 새탭 버튼용 URL (프록시 적용)
+    open_best_url = prox(RAW_BEST)
+
+    # 상단 버튼 2개만 노출
+    c1, c2 = st.columns([1, 1])
+    with c1:
+        if st.button("🔄 새로고침 (11번가)", key="btn_refresh_11st"):
+            ss["__11st_token"] = str(int(time.time()))
+            token = ss["__11st_token"]
+    with c2:
+        st.link_button("새탭에서 열기 (아마존베스트)", open_best_url)
+
+    # 아이프레임 src (토큰 부착으로 강제 리로드)
+    homeR = prox(RAW_HOME) + (("&" if "?" in prox(RAW_HOME) else "?") + "r=" + token)
+    bestR = prox(RAW_BEST) + (("&" if "?" in prox(RAW_BEST) else "?") + "r=" + token)
+
+    # 타이밍 (환경 느리면 조금 올려도 됨)
+    D_PREWARM = 1800   # 홈에서 쿠키/스토리지 세팅 시간
+    D_HOP     = 1400   # 홈↔베스트 전환 사이 간격
+    RETRIES   = 2      # 회색 시 왕복 재시도 횟수
 
     html = f"""
     <style>
-      .embed-11st-wrap {{ height: 1120px; border-radius: 10px; overflow: hidden; }}
-      .embed-11st-wrap iframe {{ width:100%; height:100%; border:0; border-radius:10px; background:transparent; }}
+      .embed-11st-wrap {{
+        height: 1120px; border-radius:10px; overflow:hidden; position:relative;
+      }}
+      .embed-11st-wrap iframe {{
+        width:100%; height:100%; border:0; border-radius:10px; background:transparent;
+      }}
+      /* 숨은 프리웜 프레임 (시야 밖) */
+      #envy_11st_warm {{
+        position:absolute; inset:-9999px auto auto -9999px; width:10px; height:10px; opacity:0; pointer-events:none;
+      }}
     </style>
     <div class="embed-11st-wrap">
-      <iframe id="envy_11st_iframe" title="11st"></iframe>
+      <iframe id="envy_11st_main" title="11st (main)"></iframe>
+      <iframe id="envy_11st_warm" title="11st (warm)"></iframe>
     </div>
     <script>
     (function() {{
-      var ifr = document.getElementById("envy_11st_iframe");
-      if(!ifr) return;
+      var main = document.getElementById("envy_11st_main");
+      var warm = document.getElementById("envy_11st_warm");
+      var home = {json.dumps(homeR)};
+      var best = {json.dumps(bestR)};
 
-      var mode = {json.dumps("bootstrap" if mode.startswith("홈") else "direct")};
-      var first = {json.dumps(first)};
-      var best  = {json.dumps(best)};
-      var stepped = false;
+      var tries = 0, maxTries = {RETRIES};
 
-      // 1) 첫 페이지 주입
-      ifr.src = first;
-
-      // 2) 홈→베스트 자동 전환
-      if (mode === "bootstrap") {{
-        ifr.addEventListener("load", function step2(){{
-          if (stepped) return;
-          stepped = true;
-          // 홈이 쿠키/스토리지 심을 시간을 조금 줌
-          setTimeout(function(){{ try{{ ifr.src = best; }}catch(e){{}} }}, 900);
-        }});
+      function hopCycle() {{
+        // 베스트로 이동 후 잠시 대기, 회색이면 홈→베스트 한 번 더 왕복
+        main.src = best;
+        setTimeout(function() {{
+          if (tries >= maxTries) return;
+          tries++;
+          main.src = home;
+          setTimeout(function() {{ main.src = best; }}, {D_HOP});
+        }}, {D_HOP});
       }}
+
+      // 1) 숨은 홈 프리웜(쿠키/스토리지 생성)
+      warm.src = home;
+
+      // 2) 메인은 일단 홈으로 시작
+      main.src = home;
+
+      // 3) 충분히 기다렸다가 베스트로 점프 + 소프트 재시도
+      setTimeout(hopCycle, {D_PREWARM});
     }})();
     </script>
     """
     st.components.v1.html(html, height=1135, scrolling=False)
-
-    # 새 탭 열기(수동 테스트용)
-    st.link_button("새 탭에서 열기 — 아마존 홈(프록시)", url_home, type="secondary")
-    st.link_button("새 탭에서 열기 — 아마존 베스트(프록시)", url_best, type="secondary")
-    st.caption("회색이면 ‘홈→베스트(권장)’을 쓰세요. 프록시가 API/XHR을 중계하지 못하는 케이스에서 홈 방문 후 쿠키가 심어지면 베스트가 정상 로드됩니다.")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
 # (보류) 아이템스카우트 / 셀러라이프 플레이스홀더 섹션
