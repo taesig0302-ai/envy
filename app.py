@@ -1147,8 +1147,7 @@ def section_title_generator():
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────
-# 10) 11번가 — 첫 렌더 1회 자동로딩, 이후 버튼으로만 갱신
-#     (워커 옵션 clean/js/ua 강제)
+# 11번가 — 프록시(권장) + 주소 선택(아마존 홈/베스트/직접입력) + 회색화면 대응 플래그
 # ─────────────────────────────────────────────────────────
 def section_11st():
     import time
@@ -1158,72 +1157,85 @@ def section_11st():
         def _q(s, safe=None): return s
 
     st.markdown(
-        '<div class="card main"><div class="card-title">11번가 (모바일) — 아마존 베스트</div>',
+        '<div class="card main"><div class="card-title">11번가 (모바일) — 아마존</div>',
         unsafe_allow_html=True
     )
-
     ss = st.session_state
     ss.setdefault("__11st_token", str(int(time.time())))
 
-    # 수동 새로고침
-    if st.button("🔄 새로고침 (11번가)", key="btn_refresh_11st"):
-        ss["__11st_token"] = str(int(time.time()))
+    # 1) 목적지 선택
+    DEST_MAP = {
+        "아마존 홈(권장)": "https://m.11st.co.kr/amazon",
+        "아마존 베스트": "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160",
+        "직접 입력": ""
+    }
+    c0, c1 = st.columns([2, 1])
+    with c0:
+        dest_label = st.selectbox("대상 페이지", list(DEST_MAP.keys()), index=0, key="__11st_dest")
+    with c1:
+        if st.button("🔄 새로고침 (11번가)"):
+            ss["__11st_token"] = str(int(time.time()))
 
-    # 워커 도메인(없으면 원본으로 시도하되, 프레임 차단/레이어 발생 가능)
+    raw_url = DEST_MAP[dest_label]
+    if dest_label == "직접 입력":
+        raw_url = st.text_input("직접 URL", placeholder="https://m.11st.co.kr/...", key="__11st_custom_url").strip()
+
+    if not raw_url:
+        st.warning("열 URL이 없습니다. 위에서 ‘직접 입력’에 주소를 넣으세요.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
+    # 2) 프록시(워커) 사용 여부 + 기능 플래그
     base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
+    use_proxy = st.toggle("프록시(워커) 사용", value=bool(base_proxy), help="워커가 없으면 원본으로 시도 (차단될 수 있음)")
+    # 회색화면 방지용 플래그 — 워커가 지원하면 해석, 모르면 무시
+    flags = "ua=mo&js=1&clean=1&xhr=1&nocsp=1"
 
-    # 11번가 아마존 베스트 (모바일)
-    raw_url = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
-
-    # ⚠️ 핵심: 워커 옵션 복구 (clean=레이어 제거, js=XHR 프록시 훅, ua=모바일 UA)
-    extra = "clean=1&js=1&ua=mo"
-
-    if base_proxy:
-        src_base = f"{base_proxy}/?url={_q(raw_url, safe=':/?&=%')}&{extra}"
+    if use_proxy and base_proxy:
+        src_base = f"{base_proxy}/?url={_q(raw_url, safe=':/?&=%')}&{flags}"
     else:
-        # 워커 없으면 원본으로(일부 화면 차단/레이어 발생 가능)
         src_base = raw_url
 
     token = ss["__11st_token"]
 
+    # 3) 아이프레임 렌더 (캐시 바스팅 + 중복 로드 방지)
     html = f"""
     <style>
       .embed-11st-wrap {{
-        height: 1000px; /* 필요시 조절 */
+        height: 1100px;      /* 화면 좀 더 여유 있게 */
         border-radius: 10px;
         overflow: hidden;
       }}
       .embed-11st-wrap iframe {{
-        width: 100%; height: 100%;
-        border: 0; border-radius: 10px;
+        width: 100%;
+        height: 100%;
+        border: 0;
+        border-radius: 10px;
         background: transparent;
       }}
     </style>
     <div class="embed-11st-wrap">
-      <iframe
-        id="envy_11st_iframe"
-        title="11st"
-        sandbox="allow-same-origin allow-scripts allow-forms allow-popups">
-      </iframe>
+      <iframe id="envy_11st_iframe" title="11st"></iframe>
     </div>
     <script>
     (function() {{
-        var base  = {json.dumps(src_base)};
+        var base = {json.dumps(src_base)};
         var token = {json.dumps(token)};
-        var want  = base + (base.indexOf('?')>=0 ? '&' : '?') + 'r=' + token;
+        var want = base + (base.indexOf('?')>=0 ? '&' : '?') + 'r=' + token;
 
         var ifr = document.getElementById("envy_11st_iframe");
         if(!ifr) return;
 
-        // 중복 로딩 방지
-        if (window.__ENVY_11ST_SRC === want && ifr.getAttribute('src') === want) return;
-
-        ifr.setAttribute('src', want);
-        window.__ENVY_11ST_SRC = want;
+        // 동일 src 재설정 방지
+        if (ifr.getAttribute('src') !== want) {{
+            ifr.setAttribute('src', want);
+            window.__ENVY_11ST_SRC = want;
+        }}
     }})();
     </script>
     """
-    st.components.v1.html(html, height=1020, scrolling=False)
+    st.components.v1.html(html, height=1120, scrolling=False)
+    st.caption("※ 회색 화면이면 상단 ‘대상 페이지’를 ‘아마존 홈(권장)’으로 두고, 프록시에 위 플래그(ua/js/clean/xhr)가 적용되는지 확인하세요.")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
