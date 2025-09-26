@@ -1146,108 +1146,46 @@ def section_title_generator():
         st.download_button("제목 CSV 다운로드", data=pd.DataFrame({"title":sorted_titles}).to_csv(index=False).encode("utf-8-sig"), file_name=f"titles_{main_kw}.csv", mime="text/csv")
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────────────────
-# 11번가 (모바일) — 아마존베스트
-#  - UI: [🔄 새로고침] [새탭에서 열기(아마존베스트)] 만 표시
-#  - 내부: 숨은 홈 프리웜 → 자동 베스트 전환 + 소프트 재시도
-# ─────────────────────────────────────────────────────────
 def section_11st():
     import time
-    try:
-        from urllib.parse import quote as _q
-    except Exception:
-        def _q(s, safe=None): return s
+    from urllib.parse import quote as _q
+    st.markdown('<div class="card main"><div class="card-title">11번가 (모바일) — 아마존베스트</div>', unsafe_allow_html=True)
 
-    st.markdown(
-        '<div class="card main"><div class="card-title">11번가 (모바일) — 아마존베스트</div>',
-        unsafe_allow_html=True
-    )
-
-    # 상태 토큰(강제 새로고침용)
     ss = st.session_state
     ss.setdefault("__11st_token", str(int(time.time())))
     token = ss["__11st_token"]
 
-    # 프록시(Cloudflare Worker) 사용: secrets > 전역 상수 순
-    base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
-    FLAGS = "ua=mo&js=1&clean=1&xhr=1&nocsp=1"
+    base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or ELEVENST_PROXY).rstrip("/")
+    FLAGS = "ua=mo&js=1&clean=1&xhr=1&nocsp=1&fix=1"  # 워커 스크립트/스타일 주입 플래그
 
     def prox(u: str) -> str:
-        # 프록시가 있으면 워커를 통해 열고, 없으면 원본 URL 반환(아이프레임 차단될 수 있음)
-        return u if not base_proxy else f"{base_proxy}/?url={_q(u, safe=':/?&=%')}&{FLAGS}"
+        if not base_proxy:
+            return u
+        return f"{base_proxy}/?url={_q(u, safe=':/?&=%')}&{FLAGS}"
 
-    # 경로
     RAW_HOME = "https://m.11st.co.kr/amazon"
     RAW_BEST = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
 
-    # 새탭 버튼용 URL (프록시 적용)
-    open_best_url = prox(RAW_BEST)
+    homeR = prox(RAW_HOME) + (("&" if "?" in prox(RAW_HOME) else "?") + "r=" + token)
+    bestR = prox(RAW_BEST)
 
-    # 상단 버튼 2개만 노출
     c1, c2 = st.columns([1, 1])
     with c1:
-        if st.button("🔄 새로고침 (11번가)", key="btn_refresh_11st"):
+        if st.button("🔄 새로고침 (11번가)"):
             ss["__11st_token"] = str(int(time.time()))
             token = ss["__11st_token"]
+            homeR = prox(RAW_HOME) + (("&" if "?" in prox(RAW_HOME) else "?") + "r=" + token)
     with c2:
-        st.link_button("새탭에서 열기 (아마존베스트)", open_best_url)
-
-    # 아이프레임 src (토큰 부착으로 강제 리로드)
-    homeR = prox(RAW_HOME) + (("&" if "?" in prox(RAW_HOME) else "?") + "r=" + token)
-    bestR = prox(RAW_BEST) + (("&" if "?" in prox(RAW_BEST) else "?") + "r=" + token)
-
-    # 타이밍 (환경 느리면 조금 올려도 됨)
-    D_PREWARM = 1800   # 홈에서 쿠키/스토리지 세팅 시간
-    D_HOP     = 1400   # 홈↔베스트 전환 사이 간격
-    RETRIES   = 2      # 회색 시 왕복 재시도 횟수
+        st.link_button("새탭에서 열기 (아마존베스트)", bestR)
 
     html = f"""
     <style>
-      .embed-11st-wrap {{
-        height: 1120px; border-radius:10px; overflow:hidden; position:relative;
-      }}
-      .embed-11st-wrap iframe {{
-        width:100%; height:100%; border:0; border-radius:10px; background:transparent;
-      }}
-      /* 숨은 프리웜 프레임 (시야 밖) */
-      #envy_11st_warm {{
-        position:absolute; inset:-9999px auto auto -9999px; width:10px; height:10px; opacity:0; pointer-events:none;
-      }}
+      .embed-11st-wrap {{ height: 1120px; border-radius:10px; overflow:hidden; }}
+      .embed-11st-wrap iframe {{ width:100%; height:100%; border:0; border-radius:10px; background:transparent; }}
     </style>
     <div class="embed-11st-wrap">
-      <iframe id="envy_11st_main" title="11st (main)"></iframe>
-      <iframe id="envy_11st_warm" title="11st (warm)"></iframe>
+      <iframe title="11st" src="{homeR}"></iframe>
     </div>
-    <script>
-    (function() {{
-      var main = document.getElementById("envy_11st_main");
-      var warm = document.getElementById("envy_11st_warm");
-      var home = {json.dumps(homeR)};
-      var best = {json.dumps(bestR)};
-
-      var tries = 0, maxTries = {RETRIES};
-
-      function hopCycle() {{
-        // 베스트로 이동 후 잠시 대기, 회색이면 홈→베스트 한 번 더 왕복
-        main.src = best;
-        setTimeout(function() {{
-          if (tries >= maxTries) return;
-          tries++;
-          main.src = home;
-          setTimeout(function() {{ main.src = best; }}, {D_HOP});
-        }}, {D_HOP});
-      }}
-
-      // 1) 숨은 홈 프리웜(쿠키/스토리지 생성)
-      warm.src = home;
-
-      // 2) 메인은 일단 홈으로 시작
-      main.src = home;
-
-      // 3) 충분히 기다렸다가 베스트로 점프 + 소프트 재시도
-      setTimeout(hopCycle, {D_PREWARM});
-    }})();
-    </script>
     """
     st.components.v1.html(html, height=1135, scrolling=False)
     st.markdown("</div>", unsafe_allow_html=True)
