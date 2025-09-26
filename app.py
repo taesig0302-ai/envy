@@ -1147,8 +1147,8 @@ def section_title_generator():
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────
-# 10) 11번가 — 첫 렌더 1회 자동 로딩, 이후 버튼으로만 갱신
-#  - 프록시 옵션 clean=1 & js=1 & ua=mo 추가
+# 10) 11번가 — 첫 렌더 1회 자동로딩, 이후 버튼으로만 갱신
+#     (워커 v3 사용 전제: /__h/<host> 리라이터 + 레이어 제거 + XHR 프록시)
 # ─────────────────────────────────────────────────────────
 def section_11st():
     import time
@@ -1162,25 +1162,18 @@ def section_11st():
         unsafe_allow_html=True
     )
     ss = st.session_state
-
-    # 최초 1회 자동 로딩용 토큰
     ss.setdefault("__11st_token", str(int(time.time())))
 
-    # 수동 새로고침 버튼
     if st.button("🔄 새로고침 (11번가)", key="btn_refresh_11st"):
         ss["__11st_token"] = str(int(time.time()))
 
-    # 프록시 선택
+    # 워커 도메인 (secrets > 상수)
     base_proxy = (st.secrets.get("ELEVENST_PROXY", "") or globals().get("ELEVENST_PROXY", "")).rstrip("/")
+    # 모바일 아마존베스트
     raw_url = "https://m.11st.co.kr/page/main/abest?tabId=ABEST&pageId=AMOBEST&ctgr1No=166160"
 
-    # ✅ 패치 옵션
-    extra = "clean=1&js=1&ua=mo"
-    src_base = (
-        raw_url
-        if not base_proxy
-        else f"{base_proxy}/?url={_q(raw_url, safe=':/?&=%')}&{extra}"
-    )
+    # 워커가 없으면 원본(프레임 막힘 가능). 워커 있으면 그대로 전달(워커가 내부에서 리라이트·주입)
+    src_base = raw_url if not base_proxy else f"{base_proxy}/?url={_q(raw_url, safe=':/?&=%')}"
 
     token = ss["__11st_token"]
     html = f"""
