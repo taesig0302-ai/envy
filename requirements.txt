@@ -1,5 +1,5 @@
-streamlit==1.37.0
-pandas
-beautifulsoup4
-requests
-deep-translator
+streamlit==1.39.0
+requests>=2.31.0
+openpyxl>=3.1.2
+selenium>=4.21.0
+beautifulsoup4>=4.12.2
