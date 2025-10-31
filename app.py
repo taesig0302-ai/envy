@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # ENVY — Season 1 (Dual Proxy Edition, Radar tabs=국내/해외, Rakuten 샘플 제거, row1 ratio 8:5:3)
 # 통합본: 라쿠텐 샘플 제거 + 정확 매핑, 제목 생성기(필수 키워드 포함), 추천(user_kws 포함), 사이드바 컬러박스 복구, 11번가 배너 제거
+# + Responsive Sidebar Patch (18vw + min/max guard, <=900px 자동 접힘)
 
 import base64, time, re, math, json, io, datetime as dt
 from pathlib import Path
@@ -112,14 +113,14 @@ def _ensure_session_defaults():
 
     # ★ 라쿠텐 genreId 정확 매핑 (샘플 제거)
     ss.setdefault("rk_genre_map", {
-        "뷰티/코스메틱": "100939",   # 美容・コスメ・香水
-        "의류/패션": "100371",      # レディースファッション(대표) — 필요시 남성/유니섹스 분리 가능
-        "가전/디지털": "562637",    # 家電
-        "가구/인테리어": "100804",  # インテリア・寝具・収納
-        "식품": "100227",           # 食品
-        "생활/건강": "100938",      # ダイエット・健康
-        "스포츠/레저": "101070",    # スポーツ・アウトドア
-        "문구/취미": "215783",      # 日用品雑貨・文房具・手芸
+        "뷰티/코스메틱": "100939",
+        "의류/패션": "100371",
+        "가전/디지털": "562637",
+        "가구/인테리어": "100804",
+        "식품": "100227",
+        "생활/건강": "100938",
+        "스포츠/레저": "101070",
+        "문구/취미": "215783",
     })
 
 def _toggle_theme():
@@ -165,7 +166,7 @@ def _inject_css():
         bg, fg, fg_sub = "#ffffff", "#111111", "#4b5563"
         card_bg, border = "#ffffff", "rgba(0,0,0,.06)"
         btn_bg, btn_bg_hover = "#2563eb", "#1e3fae"
-        dark_fix_white_boxes = ""  # 라이트에선 필요 없음
+        dark_fix_white_boxes = ""
         pill_rules = """
         [data-testid="stAppViewContainer"] .pill,
         [data-testid="stAppViewContainer"] .pill *{
@@ -176,7 +177,7 @@ def _inject_css():
             color:#fff !important; -webkit-text-fill-color:#fff !important;
         }
         """
-        force_black_rules = ""  # 라이트에선 불필요
+        force_black_rules = ""
 
     st.markdown(f"""
     <style>
@@ -259,7 +260,7 @@ def _inject_alert_center():
     """, unsafe_allow_html=True)
 
 # =========================
-# 2) Responsive
+# 2) Responsive (viewport & sidebar behavior)
 # =========================
 def _responsive_probe():
     html = """
@@ -289,6 +290,48 @@ def _get_view_bin():
         return max(0, min(3, int(raw)))
     except:
         return 3
+
+def _inject_responsive_sidebar_css():
+    # 사이드바 폭을 비율 기반으로 전환하고, 모바일 폭에서 자동 접힘
+    st.markdown("""
+    <style>
+      /* ===== Responsive Sidebar (ENVY) ===== */
+      [data-testid="stSidebar"] {
+        width: 18vw !important;         /* 화면의 18% */
+        min-width: 220px !important;    /* 최소폭 가드 */
+        max-width: 320px !important;    /* 최대폭 가드 */
+        transition: width 0.25s ease;
+      }
+
+      /* 본문 측은 Streamlit 레이아웃이 자동 재계산하므로 별도 강제 margin 불필요.
+         다만 좁은 화면에서 가독성 유지를 위한 소폭 패딩만 보정 가능 */
+      @media (max-width: 1200px){
+        [data-testid="stSidebar"] ~ div .main { padding-left: min(2vw, 16px); }
+      }
+
+      /* <=900px: 사이드바를 화면 밖으로 숨기고, hover 시 슬라이드 인 */
+      @media (max-width: 900px){
+        [data-testid="stSidebar"] {
+          position: fixed !important;
+          top: 0 !important;
+          left: -100% !important;    /* 기본 숨김 */
+          height: 100vh !important;
+          width: 60vw !important;    /* 모바일에선 넓게 */
+          max-width: none !important;
+          z-index: 1000 !important;
+          box-shadow: 0 0 16px rgba(0,0,0,.15);
+        }
+        [data-testid="stSidebar"]:hover {
+          left: 0 !important;        /* 마우스 오버 시 등장 */
+        }
+      }
+
+      /* 페이지: 세로 스크롤 기본, 가로 스크롤 숨김 (이중 스크롤 방지 보조) */
+      html, body, [data-testid="stAppViewContainer"] {
+        overflow: hidden auto;
+      }
+    </style>
+    """, unsafe_allow_html=True)
 
 # =========================
 # 3) Naver DataLab / Searchad 유틸
@@ -1024,6 +1067,8 @@ def _sidebar():
         _inject_alert_center()
     except Exception:
         pass
+    # ▼ Responsive Sidebar CSS 주입 (폭 비율 + 모바일 자동 접힘)
+    _inject_responsive_sidebar_css()
 
     with st.sidebar:
         # 로고
