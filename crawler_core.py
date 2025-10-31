@@ -1,3 +1,21 @@
 # crawler_core.py
-# 현재 사용 중인 네이버 스마트스토어 크롤러 코드 전체를 여기에 붙여 넣으세요.
-# (이전 메시지에서 제공된 전체 코드를 그대로 복사)
+import requests
+from bs4 import BeautifulSoup
+
+def crawl_product(url: str) -> dict:
+    try:
+        headers = {"User-Agent": "Mozilla/5.0"}
+        r = requests.get(url, headers=headers, timeout=10)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
+        title = soup.select_one("meta[property='og:title']")["content"]
+        image = soup.select_one("meta[property='og:image']")["content"]
+        price = None
+        for tag in soup.select("span, em"):
+            text = tag.get_text(strip=True)
+            if text and text.replace(",", "").isdigit():
+                price = text
+                break
+        return {"title": title, "image": image, "price": price}
+    except Exception as e:
+        return {}
