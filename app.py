@@ -112,14 +112,14 @@ def _ensure_session_defaults():
 
     # ★ 라쿠텐 genreId 정확 매핑 (샘플 제거)
     ss.setdefault("rk_genre_map", {
-        "뷰티/코스메틱": "100939",
-        "의류/패션": "100371",
-        "가전/디지털": "562637",
-        "가구/인테리어": "100804",
-        "식품": "100227",
-        "생활/건강": "100938",
-        "스포츠/레저": "101070",
-        "문구/취미": "215783",
+        "뷰티/코스메틱": "100939",   # 美容・コスメ・香水
+        "의류/패션": "100371",      # レディースファッション
+        "가전/디지털": "562637",    # 家電
+        "가구/인테리어": "100804",  # インテリア・寝具・収納
+        "식품": "100227",           # 食品
+        "생활/건강": "100938",      # ダイエット・健康
+        "스포츠/레저": "101070",    # スポーツ・アウトドア
+        "문구/취미": "215783",      # 日用品雑貨・文房具・手芸
     })
 
 def _toggle_theme():
@@ -165,7 +165,7 @@ def _inject_css():
         bg, fg, fg_sub = "#ffffff", "#111111", "#4b5563"
         card_bg, border = "#ffffff", "rgba(0,0,0,.06)"
         btn_bg, btn_bg_hover = "#2563eb", "#1e3fae"
-        dark_fix_white_boxes = ""
+        dark_fix_white_boxes = ""  # 라이트에선 필요 없음
         pill_rules = """
         [data-testid="stAppViewContainer"] .pill,
         [data-testid="stAppViewContainer"] .pill *{
@@ -176,7 +176,7 @@ def _inject_css():
             color:#fff !important; -webkit-text-fill-color:#fff !important;
         }
         """
-        force_black_rules = ""
+        force_black_rules = ""  # 라이트에선 불필요
 
     st.markdown(f"""
     <style>
@@ -223,45 +223,61 @@ def _inject_css():
     """, unsafe_allow_html=True)
 
 def _inject_alert_center():
-    # 사이드바 전용 컬러박스 + 반응형 폭
+    # 사이드바 전용 컬러박스 + 브라우저 폭에 따라 가변 폭 적용
     st.markdown("""
     <style>
-      :root [data-testid="stSidebar"]{
-        background:#ffffff !important; color:#111111 !important;
-        height:100vh !important; overflow-y:hidden !important;
-        /* 기본 폭 + 뷰포트 비율 제한 */
-        width:18rem !important;
-        max-width:22vw !important;
+      /* ENVY 전용 사이드바 기준 폭 */
+      :root {
+        --envy-sidebar-width: 18rem;   /* 넓은 화면 기본 */
       }
 
-      /* 화면이 줄어들수록 사이드바 폭도 같이 줄어들게 */
+      /* 화면이 줄어들수록 사이드바 폭도 줄이기 */
       @media (max-width: 1400px){
-        :root [data-testid="stSidebar"]{
-          width:16rem !important;
-          max-width:24vw !important;
-        }
+        :root { --envy-sidebar-width: 16rem; }
       }
       @media (max-width: 1100px){
-        :root [data-testid="stSidebar"]{
-          width:14rem !important;
-          max-width:26vw !important;
-        }
+        :root { --envy-sidebar-width: 14rem; }
       }
       @media (max-width: 900px){
-        :root [data-testid="stSidebar"]{
-          width:12rem !important;
-          max-width:30vw !important;
-        }
+        :root { --envy-sidebar-width: 12rem; }
       }
 
-      :root [data-testid="stSidebar"] *{
+      /* 스트림릿 내부 변수도 같이 덮어쓰기 */
+      :root {
+        --sidebar-width: var(--envy-sidebar-width) !important;
+      }
+
+      /* 실제 사이드바 영역: section / div 둘 다 잡아주기 */
+      section[data-testid="stSidebar"],
+      [data-testid="stSidebar"]{
+        background:#ffffff !important; 
+        color:#111111 !important;
+        height:100vh !important; 
+        overflow-y:hidden !important;
+
+        width:var(--envy-sidebar-width) !important;
+        min-width:var(--envy-sidebar-width) !important;
+        max-width:32vw !important;                   /* 브라우저 대비 최대폭 제한 */
+        flex:0 0 var(--envy-sidebar-width) !important;
+      }
+
+      section[data-testid="stSidebar"] *,
+      [data-testid="stSidebar"] *{
         color:#111111 !important; -webkit-text-fill-color:#111111 !important;
         mix-blend-mode:normal !important; text-shadow:none !important; filter:none !important;
         opacity:1 !important;
       }
-      :root [data-testid="stSidebar"]::-webkit-scrollbar,
-      :root [data-testid="stSidebar"] > div:first-child::-webkit-scrollbar{ display:none !important; }
-      :root [data-testid="stSidebar"] > div:first-child{ height:100vh !important; overflow-y:hidden !important; }
+
+      section[data-testid="stSidebar"]::-webkit-scrollbar,
+      section[data-testid="stSidebar"] > div:first-child::-webkit-scrollbar,
+      [data-testid="stSidebar"]::-webkit-scrollbar,
+      [data-testid="stSidebar"] > div:first-child::-webkit-scrollbar{
+        display:none !important;
+      }
+      section[data-testid="stSidebar"] > div:first-child,
+      [data-testid="stSidebar"] > div:first-child{
+        height:100vh !important; overflow-y:hidden !important;
+      }
 
       .pill{ display:inline-block; padding:.5rem .7rem; border-radius:8px;
              font-weight:700; margin:.15rem 0 .25rem 0; font-size:.9rem; border:1px solid rgba(0,0,0,.08); }
@@ -269,7 +285,7 @@ def _inject_alert_center():
       .pill-green{ background:#dcfce7 !important; border-color:#22c55e !important; color:#111 !important; }
       .pill-blue { background:#dbeafe !important; border-color:#3b82f6 !important; color:#111 !important; }
       .pill-yellow{ background:#fef3c7 !important; border-color:#eab308 !important; color:#111 !important; }
-      :root [data-testid="stSidebar"] .pill, :root [data-testid="stSidebar"] .pill *{
+      [data-testid="stSidebar"] .pill, [data-testid="stSidebar"] .pill *{
         color:#111 !important; -webkit-text-fill-color:#111 !important;
       }
       [data-testid="stSidebar"] .stExpander{ margin-bottom:.2rem !important; padding:.25rem .4rem !important; }
@@ -666,7 +682,7 @@ def section_keyword_trend_widget():
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
-# 7) 상품명 생성기
+# 7) 상품명 생성기 — 필수 키워드 포함 + 광고어 필터 + 50B 패딩
 # =========================
 PATTERN_RE = re.compile(r"[^\w가-힣+/·∙・()&%-]+", flags=re.IGNORECASE)
 LITERAL_RE  = re.compile(r"\s{2,}")
@@ -1077,6 +1093,7 @@ def _sidebar():
             st.toggle("🌐 번역기", value=False, key="__show_translator")
         show_tr = st.session_state.get("__show_translator", False)
 
+        # 사이드 위젯
         def translator_block(expanded=True):
             with st.expander("🌐 구글 번역기", expanded=expanded):
                 LANG_LABELS_SB = {
@@ -1167,7 +1184,7 @@ _responsive_probe()
 vwbin = _get_view_bin()
 st.title("ENVY — Season 1 (Dual Proxy Edition)")
 
-# 1행 — 카테고리 | Radar | 상품명 생성기
+# 1행 — [패치] 카테고리(탭) | Radar | 상품명 생성기
 row1_a, row1_b, row1_c = st.columns([4, 8, 4], gap="medium")
 with row1_a:
     tab_cat, tab_direct = st.tabs(["카테고리", "직접 입력"])
@@ -1181,7 +1198,7 @@ with row1_c:
     section_title_generator()
 st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
 
-# 2행 — 11번가 / 아이템스카우트 / 셀러라이프
+# 2행
 c1, c2, c3 = st.columns([3, 3, 3], gap="medium")
 with c1:
     section_11st()
