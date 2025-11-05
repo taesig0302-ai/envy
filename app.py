@@ -113,7 +113,7 @@ def _ensure_session_defaults():
     # ★ 라쿠텐 genreId 정확 매핑 (샘플 제거)
     ss.setdefault("rk_genre_map", {
         "뷰티/코스메틱": "100939",   # 美容・コスメ・香水
-        "의류/패션": "100371",      # レディースファッション(대표) — 필요시 남성/유니섹스 분리 가능
+        "의류/패션": "100371",      # レディースファッション
         "가전/디지털": "562637",    # 家電
         "가구/인테리어": "100804",  # インテリア・寝具・収納
         "식품": "100227",           # 食品
@@ -165,7 +165,7 @@ def _inject_css():
         bg, fg, fg_sub = "#ffffff", "#111111", "#4b5563"
         card_bg, border = "#ffffff", "rgba(0,0,0,.06)"
         btn_bg, btn_bg_hover = "#2563eb", "#1e3fae"
-        dark_fix_white_boxes = ""  # 라이트에선 필요 없음
+        dark_fix_white_boxes = ""
         pill_rules = """
         [data-testid="stAppViewContainer"] .pill,
         [data-testid="stAppViewContainer"] .pill *{
@@ -176,7 +176,7 @@ def _inject_css():
             color:#fff !important; -webkit-text-fill-color:#fff !important;
         }
         """
-        force_black_rules = ""  # 라이트에선 불필요
+        force_black_rules = ""
 
     st.markdown(f"""
     <style>
@@ -223,7 +223,6 @@ def _inject_css():
     """, unsafe_allow_html=True)
 
 def _inject_alert_center():
-    # 사이드바 전용 컬러박스(pill)와 배경·스크롤·타이포 고정
     st.markdown("""
     <style>
       :root [data-testid="stSidebar"]{
@@ -643,6 +642,51 @@ def section_keyword_trend_widget():
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
+# 6-1) ChatGPT Tasks용 일간 키워드 리포트 카드
+# =========================
+def section_daily_keyword_report():
+    st.markdown('<div class="card main"><div class="card-title">일간 키워드 리포트 & ChatGPT Tasks 프롬프트</div>', unsafe_allow_html=True)
+    st.caption("※ ENVY 내부에선 원본 트렌드 페이지로 바로 이동 + Tasks용 프롬프트를 관리하는 용도입니다. 알림 자체는 ChatGPT Tasks에서 처리합니다.")
+
+    prompt = """
+매일 오전 9시에 아래 항목을 모두 포함한 키워드 트렌드 리포트를 요약해서 알려줘.
+
+1️⃣ 네이버 데이터랩(쇼핑인사이트)
+- 각 카테고리(패션의류, 패션잡화, 화장품/미용, 디지털/가전, 가구/인테리어, 출산/육아, 식품, 스포츠/레저, 생활/건강)의 일간 인기 검색어 Top 50을 목록으로 정리해줘.
+- 전일 대비 순위 변동이 큰 키워드는 🔺(상승), 🔻(하락) 표시를 붙여줘.
+
+2️⃣ 쿠팡 / 11번가 / 스마트스토어
+- 각 플랫폼의 인기 검색어 또는 베스트 키워드 Top 20을 정리해줘.
+- 플랫폼 간에 공통으로 등장하는 키워드는 '공통 트렌드' 섹션으로 따로 묶어줘.
+
+3️⃣ 구글 트렌드 / 유튜브 급상승 검색어
+- 한국 기준 상위 10개 키워드를 요약하고, 지난주 대비 상승 키워드를 강조해줘.
+
+출력 형식
+- 표 형식으로 플랫폼별 순위와 키워드를 보여줘.
+- 맨 아래에는 '오늘의 요약' 섹션을 만들어, 전체 중에서 가장 주목할 만한 키워드 Top 5와 간단한 해석을 텍스트로 정리해줘.
+
+규칙
+- 가능한 경우마다 데이터 출처(네이버 데이터랩, 쿠팡, 11번가, 스마트스토어, 구글 트렌드, 유튜브)를 함께 표기해줘.
+- 확실하지 않은 값은 '추정치' 또는 '데이터 미공개'라고 명시해줘.
+"""
+    st.text_area("ChatGPT Tasks → 새 작업에 그대로 붙여넣을 프롬프트", prompt.strip(), height=280)
+    st.caption("ChatGPT 웹/앱 프로필 → Tasks → 새 작업에서 위 텍스트를 붙여넣고, 시간은 오전 9시, 반복은 '매일'로 설정하세요.")
+
+    st.markdown("#### 주요 트렌드 원본 페이지 바로가기")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.link_button("네이버 쇼핑인사이트", "https://datalab.naver.com/shoppingInsight/sCategory.naver")
+    with c2:
+        st.link_button("쿠팡 실시간 트렌드/급상승", "https://www.coupang.com/np/best100/trending")
+    with c3:
+        st.link_button("스마트스토어 베스트 키워드", "https://snxbest.naver.com/keyword/best")
+    with c4:
+        st.link_button("11번가 키워드/인기검색어", "https://www.11st.co.kr/html/keywordBest.html")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# =========================
 # 7) 상품명 생성기 — 필수 키워드 포함 + 광고어 필터 + 50B 패딩
 # =========================
 PATTERN_RE = re.compile(r"[^\w가-힣+/·∙・()&%-]+", flags=re.IGNORECASE)
@@ -1026,7 +1070,6 @@ def _sidebar():
         pass
 
     with st.sidebar:
-        # 로고
         st.markdown("""
         <style>
         [data-testid="stSidebar"] .logo-circle{
@@ -1054,7 +1097,6 @@ def _sidebar():
             st.toggle("🌐 번역기", value=False, key="__show_translator")
         show_tr = st.session_state.get("__show_translator", False)
 
-        # 사이드 위젯
         def translator_block(expanded=True):
             with st.expander("🌐 구글 번역기", expanded=expanded):
                 LANG_LABELS_SB = {
@@ -1174,3 +1216,6 @@ with c3:
     st.link_button("셀러라이프 직접 열기 (새 탭)", "https://sellochomes.co.kr/sellerlife/")
     st.markdown('</div>', unsafe_allow_html=True)
 st.markdown('<div class="row-gap"></div>', unsafe_allow_html=True)
+
+# 3행 — ChatGPT Tasks용 일간 키워드 리포트
+section_daily_keyword_report()
